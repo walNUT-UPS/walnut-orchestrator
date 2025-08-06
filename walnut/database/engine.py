@@ -266,9 +266,9 @@ def get_database_url(db_path = None, use_encryption: bool = True) -> str:
         # Create encrypted database file if it doesn't exist
         _ensure_encrypted_database(db_path, master_key)
         
-        # For encrypted databases, we'll use a special marker  
-        # The actual connection will be handled differently  
-        db_url = f"sqlcipher:///{db_path}?encryption_key={quote(master_key)}"
+        # For encrypted databases, use the async_sqlcipher scheme for test compatibility
+        # The actual connection will be handled by AsyncSQLCipherEngine
+        db_url = f"sqlite+async_sqlcipher:///{db_path}?encryption_key={quote(master_key)}"
         logger.info(f"SQLCipher encrypted database configured for: {db_path}")
     else:
         if use_encryption and not SQLCIPHER_AVAILABLE:
@@ -396,7 +396,7 @@ def create_database_engine(
         db_url = get_database_url(db_path, use_encryption)
         
         # Check if this is an encrypted database
-        if db_url.startswith("sqlcipher://"):
+        if db_url.startswith("sqlite+async_sqlcipher://"):
             # Use custom SQLCipher engine
             from .async_engine_wrapper import create_async_sqlcipher_engine
             

@@ -90,6 +90,11 @@ class AsyncSQLCipherEngine:
             # Restore original on_connect to avoid affecting other engines
             pysqlite.dialect.on_connect = original_on_connect
     
+    @property
+    def pool(self):
+        """Expose pool interface for test compatibility."""
+        return self.sync_engine.pool
+    
     @asynccontextmanager
     async def begin(self):
         """Begin a transaction and yield connection."""
@@ -202,12 +207,15 @@ class AsyncSQLCipherTransaction:
         # This is used for operations like metadata.create_all()
         import asyncio
         
-        # Special handling for metadata.create_all() to avoid SQLite dialect incompatibility
-        if hasattr(fn, '__name__') and 'create_all' in str(fn):
-            # Handle table creation via raw SQL to avoid dialect issues
+        # Special handling for metadata operations to avoid SQLite dialect incompatibility
+        if hasattr(fn, '__name__') and ('create_all' in str(fn) or 'drop_all' in str(fn)):
+            # Handle table operations via raw SQL to avoid dialect issues
             # fn is a bound method like Base.metadata.create_all, so fn.__self__ is the metadata
             metadata = fn.__self__
-            return await self._create_tables_raw_sql(metadata)
+            if 'create_all' in str(fn):
+                return await self._create_tables_raw_sql(metadata)
+            elif 'drop_all' in str(fn):
+                return await self._drop_tables_raw_sql(metadata)
         
         # For other operations, use the regular SQLAlchemy approach
         from sqlalchemy import create_engine
@@ -281,9 +289,22 @@ class AsyncSQLCipherTransaction:
                     # Execute the CREATE TABLE statement
                     conn.execute(f"DROP TABLE IF EXISTS {table.name}")
                     conn.execute(create_table_sql)
+                    
+                    # Create indexes for this table
+                    from sqlalchemy.schema import CreateIndex
+                    for index in table.indexes:
+                        create_index_sql = str(CreateIndex(index).compile(
+                            dialect=sqlite.dialect(),
+                            compile_kwargs={"literal_binds": True}
+                        ))
+                        logger.debug(f"Creating index {index.name} with SQL: {create_index_sql}")
+                        try:
+                            conn.execute(create_index_sql)
+                        except Exception as e:
+                            logger.warning(f"Failed to create index {index.name}: {e}")
                 
                 conn.commit()
-                logger.info(f"Created {len(metadata.sorted_tables)} tables via raw SQL")
+                logger.info(f"Created {len(metadata.sorted_tables)} tables and their indexes via raw SQL")
                 
             except Exception as e:
                 logger.error(f"Failed to create tables via raw SQL: {e}")
@@ -292,6 +313,41 @@ class AsyncSQLCipherTransaction:
                 conn.close()
         
         return await asyncio.get_event_loop().run_in_executor(None, _create_tables_sync)
+    
+    async def _drop_tables_raw_sql(self, metadata):
+        """Drop tables using raw SQL to avoid dialect compatibility issues."""
+        import asyncio
+        
+        def _drop_tables_sync():
+            import pysqlcipher3.dbapi2 as sqlcipher
+            
+            conn = sqlcipher.connect(self.connection.database_path, check_same_thread=False)
+            conn.execute(f"PRAGMA key = '{self.connection.encryption_key}'")
+            
+            # Configure connection
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA foreign_keys=ON")
+            
+            try:
+                # Drop tables in reverse dependency order (SQLAlchemy handles this)
+                for table in reversed(metadata.sorted_tables):
+                    logger.debug(f"Dropping table {table.name}")
+                    try:
+                        conn.execute(f"DROP TABLE IF EXISTS {table.name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to drop table {table.name}: {e}")
+                
+                conn.commit()
+                logger.info(f"Dropped {len(metadata.sorted_tables)} tables via raw SQL")
+                
+            except Exception as e:
+                logger.error(f"Failed to drop tables via raw SQL: {e}")
+                raise
+            finally:
+                conn.close()
+        
+        return await asyncio.get_event_loop().run_in_executor(None, _drop_tables_sync)
 
 
 def create_async_sqlcipher_engine(database_url: str, echo: bool = False) -> AsyncSQLCipherEngine:
@@ -312,10 +368,19 @@ def create_async_sqlcipher_engine(database_url: str, echo: bool = False) -> Asyn
     if not SQLCIPHER_AVAILABLE:
         raise RuntimeError("pysqlcipher3 is required for encrypted databases")
     
-    # Parse URL
-    parsed = urlparse(database_url)
-    if parsed.scheme != 'sqlcipher':
-        raise ValueError(f"Invalid URL scheme for SQLCipher: {parsed.scheme}")
+    # Parse URL - handle composite schemes like sqlite+async_sqlcipher
+    # Extract scheme manually for composite schemes
+    scheme_end = database_url.find('://')
+    if scheme_end == -1:
+        raise ValueError(f"Invalid URL format: {database_url}")
+    
+    scheme = database_url[:scheme_end]
+    if not (scheme == 'sqlcipher' or scheme == 'sqlite+async_sqlcipher'):
+        raise ValueError(f"Invalid URL scheme for SQLCipher: {scheme}")
+    
+    # Parse the rest of the URL
+    url_without_scheme = database_url[scheme_end + 3:]  # Skip '://'
+    parsed = urlparse(f'dummy://{url_without_scheme}')  # Use dummy scheme for parsing
     
     # Extract database path
     if parsed.path.startswith('/'):

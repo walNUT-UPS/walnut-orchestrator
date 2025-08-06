@@ -232,22 +232,29 @@ class ConnectionManager:
             diagnostics = await test_database_connection(self._engine)
             
             # Get pool status (handle different pool types)
-            pool = self._engine.pool
-            pool_status = {}
-            
             try:
-                # Try to get standard pool metrics
-                pool_status.update({
-                    "size": getattr(pool, 'size', lambda: 0)(),
-                    "checked_in": getattr(pool, 'checkedin', lambda: 0)(),
-                    "checked_out": getattr(pool, 'checkedout', lambda: 0)(),
-                    "overflow": getattr(pool, 'overflow', lambda: 0)(),
-                    "invalid": getattr(pool, 'invalid', lambda: 0)(),
-                })
-            except Exception:
-                # Fallback for pools that don't support these methods
+                pool = self._engine.pool
+                pool_status = {}
+                
+                try:
+                    # Try to get standard pool metrics
+                    pool_status.update({
+                        "size": getattr(pool, 'size', lambda: 0)(),
+                        "checked_in": getattr(pool, 'checkedin', lambda: 0)(),
+                        "checked_out": getattr(pool, 'checkedout', lambda: 0)(),
+                        "overflow": getattr(pool, 'overflow', lambda: 0)(),
+                        "invalid": getattr(pool, 'invalid', lambda: 0)(),
+                    })
+                except Exception:
+                    # Fallback for pools that don't support these methods
+                    pool_status = {
+                        "pool_class": pool.__class__.__name__,
+                        "status": "active",
+                    }
+            except AttributeError:
+                # Handle engines without pool attribute
                 pool_status = {
-                    "pool_class": pool.__class__.__name__,
+                    "pool_class": "unavailable",
                     "status": "active",
                 }
             

@@ -422,7 +422,7 @@ def create_event(
     event_type: str,
     description: str,
     severity: str = "INFO",
-    event_metadata: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Event:
     """
     Create an event record with current timestamp.
@@ -431,7 +431,7 @@ def create_event(
         event_type: Type of event
         description: Event description
         severity: Event severity level
-        event_metadata: Additional event metadata
+        metadata: Additional event metadata
         
     Returns:
         Event instance
@@ -440,7 +440,7 @@ def create_event(
         event_type=event_type,
         description=description,
         severity=severity,
-        event_metadata=event_metadata or {},
+        event_metadata=metadata or {},
     )
 
 
@@ -476,7 +476,7 @@ def create_host(
     os_type: Optional[str] = None,
     connection_type: str = "ssh",
     credentials_ref: Optional[int] = None,
-    host_metadata: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Host:
     """
     Create a host record.
@@ -487,7 +487,7 @@ def create_host(
         os_type: Operating system type
         connection_type: Connection method
         credentials_ref: Reference to credentials
-        host_metadata: Additional metadata
+        metadata: Additional metadata
         
     Returns:
         Host instance
@@ -498,7 +498,7 @@ def create_host(
         os_type=os_type,
         connection_type=connection_type,
         credentials_ref=credentials_ref,
-        host_metadata=host_metadata or {},
+        host_metadata=metadata or {},
         discovered_at=datetime.utcnow(),
     )
 
