@@ -126,21 +126,17 @@ async def run_async_migrations() -> None:
         # Get the database URL
         db_url = get_database_config()
         
-        # Create engine configuration
+        # Create engine configuration - simplified for SQLite
         configuration = {
             'sqlalchemy.url': db_url,
-            'sqlalchemy.poolclass': 'sqlalchemy.pool.StaticPool',
-            'sqlalchemy.pool_size': '1',
-            'sqlalchemy.max_overflow': '0',
-            'sqlalchemy.pool_timeout': '30',
-            'sqlalchemy.pool_recycle': '3600',
         }
         
-        # Create async engine
+        # Create async engine with SQLite-compatible settings
         connectable = async_engine_from_config(
             configuration,
             prefix="sqlalchemy.",
-            poolclass=pool.NullPool,  # Use NullPool for migrations
+            poolclass=pool.StaticPool,  # Use StaticPool for SQLite
+            connect_args={"check_same_thread": False},
         )
         
         # Configure SQLite pragmas for the engine

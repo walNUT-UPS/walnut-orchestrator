@@ -132,7 +132,7 @@ class TestDatabaseEngine:
         assert "key=" in url
         assert "cipher=aes-256-cbc" in url
     
-    @pytest_asyncio.async_fixture
+    @pytest.fixture
     async def test_engine(self, temp_db_path, mock_env_vars):
         """Create a test database engine."""
         engine = create_database_engine(
@@ -181,7 +181,7 @@ class TestDatabaseEngine:
 class TestConnectionManager:
     """Test connection manager functionality."""
     
-    @pytest_asyncio.async_fixture
+    @pytest.fixture
     async def connection_manager(self, temp_db_path, mock_env_vars):
         """Create a test connection manager."""
         manager = ConnectionManager(
@@ -304,7 +304,7 @@ class TestGlobalDatabaseFunctions:
 class TestDatabaseModels:
     """Test database model functionality."""
     
-    @pytest_asyncio.async_fixture
+    @pytest.fixture
     async def db_session(self, temp_db_path, mock_env_vars):
         """Setup database with tables for model testing."""
         await init_database(

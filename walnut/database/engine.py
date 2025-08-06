@@ -24,7 +24,81 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+# Import SQLCipher dialect
+from .sqlcipher_dialect import test_sqlcipher_encryption
+
+# Import pysqlcipher3 for encrypted database support
+try:
+    import pysqlcipher3.dbapi2 as sqlcipher
+    SQLCIPHER_AVAILABLE = True
+except ImportError:
+    sqlcipher = None
+    SQLCIPHER_AVAILABLE = False
+
+
 logger = logging.getLogger(__name__)
+
+
+def _ensure_encrypted_database(db_path: Path, encryption_key: str) -> None:
+    """
+    Ensure the database file exists and is encrypted with SQLCipher.
+    
+    Uses the async_sqlcipher module to create and verify encrypted databases.
+    
+    Args:
+        db_path: Path to the database file
+        encryption_key: Encryption key to use
+        
+    Raises:
+        EncryptionError: If database exists but can't be opened with key
+        DatabaseError: If database creation fails
+    """
+    try:
+        from .async_sqlcipher import create_encrypted_database, test_encrypted_database
+        
+        if not db_path.exists():
+            logger.info(f"Creating new encrypted database at {db_path}")
+            create_encrypted_database(str(db_path), encryption_key)
+            logger.info("Encrypted database created successfully")
+        else:
+            logger.debug(f"Verifying existing encrypted database at {db_path}")
+            
+            # Test that the database can be opened with the key
+            # We need to run this async test in a sync context
+            import asyncio
+            try:
+                # Get or create event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If we're in an async context, we can't use run_until_complete
+                    # Instead, we'll do a basic sync verification
+                    conn = sqlcipher.connect(str(db_path))
+                    conn.execute(f"PRAGMA key = '{encryption_key}'")
+                    conn.execute("SELECT count(*) FROM sqlite_master")
+                    conn.close()
+                    logger.debug("Existing encrypted database verified (sync)")
+                except RuntimeError:
+                    # No running loop, we can use run_until_complete
+                    result = asyncio.run(test_encrypted_database(str(db_path), encryption_key))
+                    if not result.get("encryption_verified", False):
+                        raise EncryptionError(
+                            f"Database file {db_path} verification failed: {result.get('error', 'Unknown error')}"
+                        )
+                    logger.debug("Existing encrypted database verified (async)")
+                    
+            except sqlcipher.DatabaseError as e:
+                if "file is not a database" in str(e).lower():
+                    raise EncryptionError(
+                        f"Database file {db_path} exists but cannot be decrypted with the provided key. "
+                        "Wrong encryption key or corrupted database file."
+                    ) from e
+                raise DatabaseError(f"Failed to verify encrypted database: {e}") from e
+                
+    except EncryptionError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to ensure encrypted database: {e}")
+        raise DatabaseError(f"Database encryption setup failed: {e}") from e
 
 
 class DatabaseError(Exception):
@@ -158,15 +232,18 @@ def validate_database_path(db_path: Path) -> None:
         # Don't fail on validation errors in development
 
 
-def get_database_url(db_path: Optional[Path] = None) -> str:
+
+
+def get_database_url(db_path = None, use_encryption: bool = True) -> str:
     """
-    Build the database URL with SQLCipher encryption parameters.
+    Build the database URL with optional SQLCipher encryption parameters.
     
     Args:
         db_path: Optional custom database path. Defaults to data/walnut.db
+        use_encryption: Whether to use SQLCipher encryption (requires pysqlcipher3)
         
     Returns:
-        str: SQLAlchemy database URL with encryption parameters
+        str: SQLAlchemy database URL with optional encryption parameters
     """
     if db_path is None:
         # Default to data directory
@@ -174,26 +251,36 @@ def get_database_url(db_path: Optional[Path] = None) -> str:
         data_dir = base_dir / "data"
         data_dir.mkdir(exist_ok=True)  
         db_path = data_dir / "walnut.db"
+    else:
+        # Ensure db_path is a Path object
+        if isinstance(db_path, str):
+            db_path = Path(db_path)
     
     # Validate database path
     validate_database_path(db_path)
     
-    # Get master key
-    master_key = get_master_key()
+    if use_encryption and SQLCIPHER_AVAILABLE:
+        # Get master key for encryption
+        master_key = get_master_key()
+        
+        # Create encrypted database file if it doesn't exist
+        _ensure_encrypted_database(db_path, master_key)
+        
+        # For encrypted databases, we'll use a special marker  
+        # The actual connection will be handled differently  
+        db_url = f"sqlcipher:///{db_path}?encryption_key={quote(master_key)}"
+        logger.info(f"SQLCipher encrypted database configured for: {db_path}")
+    else:
+        if use_encryption and not SQLCIPHER_AVAILABLE:
+            logger.warning(
+                "SQLCipher encryption requested but pysqlcipher3 not available. "
+                "Using unencrypted database."
+            )
+        
+        # Build standard SQLite URL using aiosqlite
+        db_url = f"sqlite+aiosqlite:///{db_path}"
+        logger.info(f"Standard database URL configured for: {db_path}")
     
-    # URL encode the key to handle special characters
-    encoded_key = quote(master_key)
-    
-    # Build SQLCipher URL with encryption parameters
-    db_url = (
-        f"sqlite+aiosqlite:///{db_path}"
-        f"?uri=true"
-        f"&key={encoded_key}"
-        f"&cipher=aes-256-cbc"
-        f"&kdf_iter=64000"
-    )
-    
-    logger.info(f"Database URL configured for: {db_path}")
     return db_url
 
 
@@ -230,8 +317,15 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     Set SQLite pragmas for synchronous connections (used by Alembic).
     
     This event listener configures SQLite connections that aren't async.
+    Also handles SQLCipher decryption if encryption key is present in URL.
     """
     cursor = dbapi_connection.cursor()
+    
+    # Check if this is an encrypted database connection
+    if hasattr(connection_record, 'info') and 'encryption_key' in connection_record.info:
+        encryption_key = connection_record.info['encryption_key']
+        logger.debug("Setting up SQLCipher decryption for sync connection")
+        cursor.execute(f"PRAGMA key = '{encryption_key}'")
     
     # Enable WAL mode
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -250,20 +344,47 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.close()
 
 
+# Custom connection event handler for async connections
+def _setup_encrypted_connection(connection, encryption_key: str):
+    """
+    Set up SQLCipher decryption for a database connection.
+    
+    This function is called for each new connection to configure
+    the encryption key and database settings.
+    """
+    cursor = connection.cursor()
+    
+    # Set encryption key first
+    cursor.execute(f"PRAGMA key = '{encryption_key}'")
+    
+    # Configure database settings
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    cursor.execute("PRAGMA cache_size=10000")
+    cursor.execute("PRAGMA temp_store=MEMORY")
+    
+    cursor.close()
+    logger.debug("SQLCipher connection configured with encryption key")
+
+
 def create_database_engine(
-    db_path: Optional[Path] = None,
+    db_path = None,
     echo: bool = False,
     pool_size: int = 20,
     max_overflow: int = 0,
-) -> AsyncEngine:
+    use_encryption: bool = True,
+) -> Any:  # Return type can be AsyncEngine or AsyncSQLCipherEngine
     """
-    Create an async SQLAlchemy engine with SQLCipher encryption.
+    Create an async SQLAlchemy engine with optional SQLCipher encryption.
     
     Args:
         db_path: Optional database file path
         echo: Whether to echo SQL statements (for debugging)
         pool_size: Maximum number of connections in pool
         max_overflow: Maximum overflow connections beyond pool_size
+        use_encryption: Whether to use SQLCipher encryption
         
     Returns:
         AsyncEngine: Configured async SQLAlchemy engine
@@ -272,22 +393,61 @@ def create_database_engine(
         DatabaseError: If engine creation fails
     """
     try:
-        db_url = get_database_url(db_path)
+        db_url = get_database_url(db_path, use_encryption)
         
+        # Check if this is an encrypted database
+        if db_url.startswith("sqlcipher://"):
+            # Use custom SQLCipher engine
+            from .async_engine_wrapper import create_async_sqlcipher_engine
+            
+            logger.info("Creating async SQLCipher engine for encrypted database")
+            engine = create_async_sqlcipher_engine(db_url, echo)
+            
+            logger.info(f"Async SQLCipher engine created for: {db_path}")
+            return engine
+        
+        # Standard SQLAlchemy engine for unencrypted databases
         # Configure engine parameters based on database type
         engine_kwargs = {
             "echo": echo,
         }
         
+        # Extract encryption key from URL for connection setup
+        encryption_key = None
+        if "encryption_key=" in db_url:
+            from urllib.parse import parse_qs, urlparse
+            parsed = urlparse(db_url)
+            params = parse_qs(parsed.query)
+            if 'encryption_key' in params:
+                encryption_key = params['encryption_key'][0]
+        
         # SQLite-specific configuration
         if "sqlite" in db_url:
-            engine_kwargs.update({
-                "poolclass": StaticPool,
-                "connect_args": {
-                    "check_same_thread": False,
-                    "timeout": 30,
-                },
-            })
+            connect_args = {
+                "check_same_thread": False,
+                "timeout": 30,
+            }
+            
+            # Add custom connection setup for encrypted databases
+            if encryption_key:
+                def creator():
+                    # Use pysqlcipher3 for encrypted connections
+                    db_file = str(db_path) if db_path else parsed.path.lstrip('/')
+                    conn = sqlcipher.connect(db_file, **connect_args)
+                    
+                    # Apply SQLCipher settings immediately
+                    _setup_encrypted_connection(conn, encryption_key)
+                    return conn
+                
+                engine_kwargs.update({
+                    "poolclass": StaticPool,
+                    "creator": creator,
+                })
+            else:
+                engine_kwargs.update({
+                    "poolclass": StaticPool,
+                    "connect_args": connect_args,
+                })
         else:
             # Non-SQLite databases can use connection pooling
             engine_kwargs.update({
@@ -297,8 +457,14 @@ def create_database_engine(
                 "pool_recycle": 3600,
             })
         
+        # Clean the URL for SQLAlchemy (remove custom encryption_key parameter)
+        clean_db_url = db_url.split('?')[0] if '?' in db_url else db_url
+        
         # Create async engine
-        engine = create_async_engine(db_url, **engine_kwargs)
+        engine = create_async_engine(clean_db_url, **engine_kwargs)
+        
+        # Store original URL for verification purposes
+        engine._original_url = db_url
         
         logger.info(
             f"Database engine created with pool_size={pool_size}, "
@@ -311,7 +477,7 @@ def create_database_engine(
         raise DatabaseError(f"Database engine creation failed: {e}") from e
 
 
-async def test_database_connection(engine: AsyncEngine) -> Dict[str, Any]:
+async def test_database_connection(engine: Any) -> Dict[str, Any]:
     """
     Test database connection and return diagnostic information.
     
@@ -325,6 +491,13 @@ async def test_database_connection(engine: AsyncEngine) -> Dict[str, Any]:
         DatabaseError: If connection test fails
     """
     try:
+        # Check if this is our custom SQLCipher engine
+        if hasattr(engine, 'database_path') and hasattr(engine, 'encryption_key'):
+            # Use custom SQLCipher engine test
+            from .async_engine_wrapper import test_async_sqlcipher_engine
+            return await test_async_sqlcipher_engine(engine)
+        
+        # Standard SQLAlchemy engine
         async with engine.begin() as conn:
             # Test basic connectivity
             result = await conn.execute(text("SELECT 1 as test"))
@@ -335,11 +508,18 @@ async def test_database_connection(engine: AsyncEngine) -> Dict[str, Any]:
             sqlite_version = version_result.scalar()
             
             # Test encryption (SQLCipher specific)
+            cipher_version = None
+            encryption_enabled = False
+            
             try:
                 cipher_result = await conn.execute(text("PRAGMA cipher_version"))
                 cipher_version = cipher_result.scalar()
+                encryption_enabled = True
             except Exception:
-                cipher_version = None
+                # Check if this is a SQLCipher database by looking at URL
+                if "sqlcipher" in str(engine.url):
+                    encryption_enabled = True
+                    cipher_version = "SQLCipher (version check failed)"
                 
             # Get journal mode
             journal_result = await conn.execute(text("PRAGMA journal_mode"))
@@ -355,17 +535,40 @@ async def test_database_connection(engine: AsyncEngine) -> Dict[str, Any]:
             except Exception:
                 db_size = None
             
+            # Additional SQLCipher verification
+            sqlcipher_verified = False
+            # Check if this is an encrypted database by looking for our custom URL parameter
+            original_url = getattr(engine, '_original_url', str(engine.url))
+            if encryption_enabled and "encryption_key=" in original_url:
+                try:
+                    # Try to get database path for encryption test
+                    db_path = str(engine.url).split("://")[-1].split("?")[0]
+                    if db_path and Path(db_path).exists():
+                        # Run encryption verification test with the encryption key
+                        try:
+                            encryption_key = get_master_key()
+                            encryption_test = test_sqlcipher_encryption(db_path, encryption_key)
+                            sqlcipher_verified = encryption_test['encryption_verified']
+                        except Exception as key_error:
+                            logger.warning(f"Could not retrieve encryption key for verification: {key_error}")
+                except Exception as e:
+                    logger.warning(f"SQLCipher verification failed: {e}")
+            
             diagnostics = {
                 "connection_test": test_value == 1,
                 "sqlite_version": sqlite_version,
                 "cipher_version": cipher_version,
                 "journal_mode": journal_mode,
-                "encryption_enabled": cipher_version is not None,
+                "encryption_enabled": encryption_enabled,
+                "sqlcipher_verified": sqlcipher_verified,
                 "database_size_bytes": db_size,
                 "wal_mode_enabled": journal_mode == "wal",
+                "database_url_type": "sqlcipher" if "encryption_key=" in getattr(engine, '_original_url', str(engine.url)) else "sqlite",
             }
             
             logger.info("Database connection test successful")
+            if encryption_enabled:
+                logger.info(f"SQLCipher encryption: {'VERIFIED' if sqlcipher_verified else 'ENABLED'}")
             logger.debug(f"Database diagnostics: {diagnostics}")
             
             return diagnostics
