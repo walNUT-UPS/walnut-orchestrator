@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,8 +18,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 from rich.console import Console
+from rich.json import JSON
 
-from walnut.cli.database import app, handle_async_command
+from walnut.cli.database import (
+    app,
+    handle_async_command,
+    health,
+    info,
+    init,
+    reset,
+    test_encryption,
+)
 from walnut.database.engine import DatabaseError
 
 
@@ -317,7 +327,7 @@ class TestAsyncFunctionsDirectly:
         mock_print.assert_called()
         # Verify JSON object was printed
         call_args = mock_print.call_args[0][0]
-        assert hasattr(call_args, 'json')  # Rich JSON object
+        assert isinstance(call_args, JSON)  # Rich JSON object
         mock_close.assert_called_once()
     
     @patch('walnut.cli.database.close_database')
@@ -368,7 +378,12 @@ class TestAsyncFunctionsDirectly:
         # Mock session and queries
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Mock query results
@@ -405,7 +420,12 @@ class TestAsyncFunctionsDirectly:
         
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Make queries fail
@@ -580,7 +600,12 @@ class TestEdgeCases:
         
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Mock PRAGMA queries
@@ -603,7 +628,12 @@ class TestEdgeCases:
         
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Mock PRAGMA queries to fail

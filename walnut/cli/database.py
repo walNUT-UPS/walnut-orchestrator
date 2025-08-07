@@ -10,6 +10,7 @@ Provides command-line interface for database operations including:
 """
 
 import asyncio
+import functools
 import json
 import logging
 import sys
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 def handle_async_command(async_func):
     """Decorator to handle async CLI commands."""
+    @functools.wraps(async_func)
     def wrapper(*args, **kwargs):
         try:
             return asyncio.run(async_func(*args, **kwargs))
