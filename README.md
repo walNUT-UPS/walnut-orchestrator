@@ -24,6 +24,28 @@ The walNUT database includes the following core tables:
 - **secrets**: Encrypted credential storage
 - **policies**: Shutdown policies and automation rules
 
+## NUT Integration
+
+The core of walNUT is its ability to monitor UPS devices using the Network UPS Tools (NUT) protocol. This is handled by a background polling service that connects to a NUT server, fetches UPS data at regular intervals, and stores it in the database.
+
+### Features
+
+- **Asynchronous Polling**: The polling service runs as a non-blocking asyncio task.
+- **Real-time Data**: Fetches UPS data every 5 seconds (configurable).
+- **Event Detection**: Detects power state changes (e.g., mains power lost/restored, low battery) and records them as events.
+- **Heartbeat Monitoring**: Detects if the connection to the NUT server is lost with a 30-second timeout.
+- **Data Retention**: Stores a 24-hour rolling window of UPS data samples.
+- **Graceful Shutdown**: The polling service can be started and stopped gracefully with the main application.
+
+### Configuration
+
+The NUT integration is configured via the following environment variables:
+
+- `NUT_HOST`: The hostname or IP address of the NUT server (default: `localhost`).
+- `NUT_PORT`: The port of the NUT server (default: `3493`).
+- `NUT_USERNAME`: The username for authentication (optional).
+- `NUT_PASSWORD`: The password for authentication (optional).
+
 ## Quick Start
 
 ### Prerequisites
@@ -73,6 +95,10 @@ walnut-db test-encryption
 
 - `WALNUT_DB_KEY`: Master encryption key (required, 32+ characters)
 - `WALNUT_DB_KEY_DEV`: Development key (not for production)
+- `NUT_HOST`: Hostname of the NUT server (default: `localhost`).
+- `NUT_PORT`: Port of the NUT server (default: `3493`).
+- `NUT_USERNAME`: Username for the NUT server (optional).
+- `NUT_PASSWORD`: Password for the NUT server (optional).
 
 ### Docker Secrets
 
@@ -139,6 +165,23 @@ mypy walnut/
 ```
 
 ## Architecture
+
+### Core Services
+```
+walnut/core/
+├── services.py        # Service lifecycle management
+└── __init__.py
+```
+
+### NUT Integration
+```
+walnut/nut/
+├── client.py          # Asynchronous NUT client
+├── poller.py          # Background polling service
+├── models.py          # Pydantic data models for UPS data
+├── events.py          # Power event detection logic
+└── __init__.py
+```
 
 ### Database Layer
 
