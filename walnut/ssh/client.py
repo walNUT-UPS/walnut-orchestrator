@@ -262,7 +262,11 @@ class SSHClient:
                 if 'password' in credentials:
                     config.password = credentials['password']
                 if 'private_key' in credentials:
-                    config.private_key_data = credentials['private_key'].encode()
+                    pk = credentials['private_key']
+                    if isinstance(pk, str):
+                        config.private_key_data = pk.encode()
+                    else:
+                        config.private_key_data = pk
                 if 'private_key_path' in credentials:
                     config.private_key_path = credentials['private_key_path']
                 
