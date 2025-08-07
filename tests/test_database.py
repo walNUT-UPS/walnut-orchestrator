@@ -29,7 +29,7 @@ from walnut.database.engine import (
     create_database_engine,
     get_database_url,
     get_master_key,
-    test_database_connection,
+    check_database_connection,
     validate_database_path,
 )
 from walnut.database.connection import (
@@ -158,7 +158,7 @@ class TestDatabaseEngine:
     
     async def test_database_connection_test(self, test_engine):
         """Test database connectivity and diagnostics."""
-        diagnostics = await test_database_connection(test_engine)
+        diagnostics = await check_database_connection(test_engine)
         
         assert diagnostics["connection_test"] is True
         assert "sqlite_version" in diagnostics
@@ -409,7 +409,7 @@ class TestDatabaseModels:
         row = result.fetchone()
         assert row is not None
         assert row.name == "proxmox-cluster"
-        assert row.enabled is True
+        assert row.enabled == 1  # SQLite stores boolean as integer
     
     async def test_host_model(self, db_session):
         """Test Host model."""
@@ -474,7 +474,7 @@ class TestDatabaseModels:
         row = result.fetchone()
         assert row is not None
         assert row.name == "emergency-shutdown"
-        assert row.enabled is True
+        assert row.enabled == 1  # SQLite stores boolean as integer
     
     def test_serialize_model(self):
         """Test model serialization."""

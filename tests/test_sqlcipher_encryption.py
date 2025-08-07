@@ -17,7 +17,7 @@ from walnut.database.engine import (
     EncryptionError,
     create_database_engine,
     get_master_key,
-    test_database_connection as check_database_connection,
+    check_database_connection,
 )
 
 

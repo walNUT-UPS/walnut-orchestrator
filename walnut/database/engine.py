@@ -477,7 +477,7 @@ def create_database_engine(
         raise DatabaseError(f"Database engine creation failed: {e}") from e
 
 
-async def test_database_connection(engine: Any) -> Dict[str, Any]:
+async def check_database_connection(engine: Any) -> Dict[str, Any]:
     """
     Test database connection and return diagnostic information.
     

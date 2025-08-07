@@ -6,7 +6,7 @@ integrations, host management, secrets storage, and shutdown policies.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
@@ -499,7 +499,7 @@ def create_host(
         connection_type=connection_type,
         credentials_ref=credentials_ref,
         host_metadata=metadata or {},
-        discovered_at=datetime.utcnow(),
+        discovered_at=datetime.now(timezone.utc),
     )
 
 

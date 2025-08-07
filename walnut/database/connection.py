@@ -22,7 +22,7 @@ from .engine import (
     DatabaseError,
     cleanup_database_engine,
     create_database_engine,
-    test_database_connection,
+    check_database_connection,
 )
 from .models import Base
 
@@ -111,7 +111,7 @@ class ConnectionManager:
             )
             
             # Test connection and get diagnostics
-            diagnostics = await test_database_connection(self._engine)
+            diagnostics = await check_database_connection(self._engine)
             
             # Start health monitoring
             self._health_check_task = asyncio.create_task(
@@ -229,7 +229,7 @@ class ConnectionManager:
                 }
             
             # Test basic connectivity
-            diagnostics = await test_database_connection(self._engine)
+            diagnostics = await check_database_connection(self._engine)
             
             # Get pool status (handle different pool types)
             try:
