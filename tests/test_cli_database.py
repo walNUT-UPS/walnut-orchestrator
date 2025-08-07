@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch, call
@@ -17,9 +18,19 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 import pytest
 from typer.testing import CliRunner
 from rich.console import Console
+from rich.json import JSON
 
 from walnut.cli import database
-from walnut.cli.database import handle_async_command
+from walnut.cli.database import (
+    app,
+    handle_async_command,
+    health,
+    info,
+    init,
+    reset,
+    test_encryption,
+    version,
+)
 from walnut.database.engine import DatabaseError
 
 
@@ -165,8 +176,8 @@ class TestInitCommand:
                         "custom_field": "test_value"
                     }
                     
-                    from walnut.cli import database
-                    await init(db_path=str(self.temp_db), force=False, echo=False)
+                    from walnut.cli.database import init
+                    await init.__wrapped__(db_path=str(self.temp_db), force=False, echo=False)
                     
                     # Check that table formatting was called with diagnostics
                     mock_print.assert_any_call("\n[green]✅ Database initialized successfully![/green]")
@@ -205,8 +216,8 @@ class TestHealthCommand:
         }
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await health(db_path=str(self.temp_db), json_output=False)
+        from walnut.cli.database import health
+        await health.__wrapped__(db_path=str(self.temp_db), json_output=False)
         
         mock_init.assert_called_once_with(db_path=str(self.temp_db), create_tables=False)
         mock_manager.health_check.assert_called_once()
@@ -226,13 +237,13 @@ class TestHealthCommand:
         mock_manager.health_check.return_value = health_data
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await health(db_path=None, json_output=True)
+        from walnut.cli.database import health
+        await health.__wrapped__(db_path=None, json_output=True)
         
         # Check that JSON was printed
         mock_print.assert_called()
         print_call = mock_print.call_args[0][0]
-        assert hasattr(print_call, 'json')  # Rich JSON object
+        assert isinstance(print_call, JSON)
     
     @patch('walnut.cli.database.init_database')
     @patch('walnut.cli.database.get_connection_manager')
@@ -247,8 +258,8 @@ class TestHealthCommand:
         }
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await health(db_path=None, json_output=False)
+        from walnut.cli.database import health
+        await health.__wrapped__(db_path=None, json_output=False)
         
         mock_print.assert_any_call("[red]❌ Database health check failed[/red]")
         mock_print.assert_any_call("[red]Error: Connection timeout[/red]")
@@ -261,8 +272,8 @@ class TestHealthCommand:
         mock_init.side_effect = Exception("Database not found")
         
         with patch('walnut.cli.database.console.print') as mock_print:
-            from walnut.cli import database
-            await health(db_path=None, json_output=False)
+            from walnut.cli.database import health
+            await health.__wrapped__(db_path=None, json_output=False)
             
             mock_print.assert_any_call("[red]Health check failed: Database not found[/red]")
             mock_exit.assert_called_with(1)
@@ -275,8 +286,8 @@ class TestHealthCommand:
         mock_init.side_effect = Exception("Database not found")
         
         with patch('walnut.cli.database.console.print') as mock_print:
-            from walnut.cli import database
-            await health(db_path=None, json_output=True)
+            from walnut.cli.database import health
+            await health.__wrapped__(db_path=None, json_output=True)
             
             # Should print JSON error response
             mock_print.assert_called()
@@ -306,7 +317,12 @@ class TestInfoCommand:
         # Mock session and database queries
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Mock query results
@@ -338,8 +354,8 @@ class TestInfoCommand:
         
         mock_session.execute = AsyncMock(side_effect=mock_execute)
         
-        from walnut.cli import database
-        await info(db_path=str(self.temp_db))
+        from walnut.cli.database import info
+        await info.__wrapped__(db_path=str(self.temp_db))
         
         mock_init.assert_called_once_with(db_path=str(self.temp_db), create_tables=False)
         mock_close.assert_called_once()
@@ -354,14 +370,19 @@ class TestInfoCommand:
         
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Make table count query fail
         mock_session.execute.side_effect = Exception("Table not found")
         
-        from walnut.cli import database
-        await info(db_path=None)
+        from walnut.cli.database import info
+        await info.__wrapped__(db_path=None)
         
         # Should handle the error gracefully and still complete
         mock_close.assert_called_once()
@@ -374,8 +395,7 @@ class TestInfoCommand:
         mock_init.side_effect = Exception("Cannot connect to database")
         
         with patch('walnut.cli.database.console.print') as mock_print:
-            from walnut.cli import database
-            await info(db_path=None)
+            await info.__wrapped__(db_path=None)
             
             mock_print.assert_any_call("[red]Failed to get database info: Cannot connect to database[/red]")
             mock_exit.assert_called_with(1)
@@ -400,8 +420,8 @@ class TestResetCommand:
         mock_manager = AsyncMock()
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await reset(db_path=str(self.temp_db), confirm=True)
+        from walnut.cli.database import reset
+        await reset.__wrapped__(db_path=str(self.temp_db), confirm=True)
         
         mock_init.assert_called_once_with(db_path=str(self.temp_db), create_tables=False)
         mock_manager.drop_tables.assert_called_once()
@@ -414,8 +434,8 @@ class TestResetCommand:
         """Test reset cancelled by user."""
         mock_confirm.return_value = False
         
-        from walnut.cli import database
-        await reset(db_path=None, confirm=False)
+        from walnut.cli.database import reset
+        await reset.__wrapped__(db_path=None, confirm=False)
         
         mock_print.assert_any_call("[red]⚠️  WARNING: This will delete ALL database data![/red]")
         mock_print.assert_any_call("Operation cancelled")
@@ -431,8 +451,8 @@ class TestResetCommand:
         mock_manager = AsyncMock()
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await reset(db_path=None, confirm=False)
+        from walnut.cli.database import reset
+        await reset.__wrapped__(db_path=None, confirm=False)
         
         mock_confirm.assert_called_once()
         mock_manager.drop_tables.assert_called_once()
@@ -446,8 +466,8 @@ class TestResetCommand:
         mock_init.side_effect = Exception("Database locked")
         
         with patch('walnut.cli.database.console.print') as mock_print:
-            from walnut.cli import database
-            await reset(db_path=None, confirm=True)
+            from walnut.cli.database import reset
+            await reset.__wrapped__(db_path=None, confirm=True)
             
             mock_print.assert_any_call("[red]Database reset failed: Database locked[/red]")
             mock_exit.assert_called_with(1)
@@ -476,8 +496,8 @@ class TestEncryptionTestCommand:
                     }
                     mock_get_manager.return_value = mock_manager
                     
-                    from walnut.cli import database
-                    await test_encryption()
+                    from walnut.cli.database import test_encryption
+                    await test_encryption.__wrapped__()
                     
                     mock_print.assert_any_call("[green]✅ Master key loaded successfully[/green]")
                     mock_print.assert_any_call("[green]✅ Key length meets security requirements[/green]")
@@ -489,8 +509,8 @@ class TestEncryptionTestCommand:
         """Test encryption test with short key warning."""
         mock_get_key.return_value = "short_key"
         
-        from walnut.cli import database
-        await test_encryption()
+        from walnut.cli.database import test_encryption
+        await test_encryption.__wrapped__()
         
         mock_print.assert_any_call("[green]✅ Master key loaded successfully[/green]")
         mock_print.assert_any_call("[red]⚠️  WARNING: Key is shorter than recommended 32 characters[/red]")
@@ -501,8 +521,8 @@ class TestEncryptionTestCommand:
         """Test encryption test when master key fails."""
         mock_get_key.side_effect = Exception("Key not found")
         
-        from walnut.cli import database
-        await test_encryption()
+        from walnut.cli.database import test_encryption
+        await test_encryption.__wrapped__()
         
         mock_print.assert_any_call("[red]❌ Master key test failed: Key not found[/red]")
     
@@ -519,8 +539,8 @@ class TestEncryptionTestCommand:
         mock_manager.health_check.return_value = {"healthy": False}
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await test_encryption()
+        from walnut.cli.database import test_encryption
+        await test_encryption.__wrapped__()
         
         mock_print.assert_any_call("[red]❌ Database health check failed[/red]")
     
@@ -540,8 +560,8 @@ class TestEncryptionTestCommand:
         }
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await test_encryption()
+        from walnut.cli.database import test_encryption
+        await test_encryption.__wrapped__()
         
         mock_print.assert_any_call("[red]❌ Database encryption not detected[/red]")
     
@@ -554,8 +574,8 @@ class TestEncryptionTestCommand:
         mock_get_key.return_value = "secure_key_32_characters_long_123"
         mock_init.side_effect = Exception("Database connection failed")
         
-        from walnut.cli import database
-        await test_encryption()
+        from walnut.cli.database import test_encryption
+        await test_encryption.__wrapped__()
         
         mock_print.assert_any_call("[red]❌ Encryption test failed: Database connection failed[/red]")
         mock_close.assert_called()
@@ -581,8 +601,8 @@ class TestEncryptionTestCommand:
         mock_db_file.exists.return_value = True
         mock_path.return_value = mock_db_file
         
-        from walnut.cli import database
-        await test_encryption()
+        from walnut.cli.database import test_encryption
+        await test_encryption.__wrapped__()
         
         mock_db_file.unlink.assert_called_once()
 
@@ -594,7 +614,7 @@ class TestVersionCommand:
     def test_version_display(self, mock_print):
         """Test version command displays correct information."""
         with patch('walnut.__version__', '1.2.3'):
-            from walnut.cli import database
+            from walnut.cli.database import version
             version()
             
             mock_print.assert_any_call("[bold blue]walNUT Database CLI[/bold blue]")
@@ -615,6 +635,7 @@ class TestCLIIntegration:
     
     def test_version_command_integration(self):
         """Test version command through CLI runner."""
+        from walnut.cli.database import app
         result = self.runner.invoke(app, ["version"])
         assert result.exit_code == 0
         assert "walNUT Database CLI" in result.stdout
@@ -623,6 +644,7 @@ class TestCLIIntegration:
     @patch.dict(os.environ, {'WALNUT_DB_KEY': 'test_key_32_characters_minimum_length'})
     def test_cli_help(self):
         """Test CLI help command."""
+        from walnut.cli.database import app
         result = self.runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "walNUT Database Management Commands" in result.stdout
@@ -640,6 +662,7 @@ class TestCLIIntegration:
         commands = ["init", "health", "info", "reset", "test-encryption"]
         
         for command in commands:
+            from walnut.cli.database import app
             result = self.runner.invoke(app, [command, "--help"])
             assert result.exit_code == 0, f"Help for {command} failed"
             assert command in result.stdout or command.replace("-", "_") in result.stdout
@@ -660,8 +683,8 @@ class TestEdgeCases:
         }
         
         with patch('walnut.cli.database.console.print'):
-            from walnut.cli import database
-            await init(db_path=None, force=False, echo=False)
+            from walnut.cli.database import init
+            await init.__wrapped__(db_path=None, force=False, echo=False)
     
     @patch('walnut.cli.database.init_database')
     @patch('walnut.cli.database.get_connection_manager')
@@ -672,8 +695,8 @@ class TestEdgeCases:
         mock_manager.health_check.return_value = {"healthy": True}  # No engine_diagnostics or pool_status
         mock_get_manager.return_value = mock_manager
         
-        from walnut.cli import database
-        await health(db_path=None, json_output=False)
+        from walnut.cli.database import health
+        await health.__wrapped__(db_path=None, json_output=False)
         
         mock_manager.health_check.assert_called_once()
     
@@ -687,7 +710,12 @@ class TestEdgeCases:
         
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Mock PRAGMA queries
@@ -698,8 +726,8 @@ class TestEdgeCases:
         
         mock_session.execute = AsyncMock(side_effect=mock_execute)
         
-        from walnut.cli import database
-        await info(db_path=None)
+        from walnut.cli.database import info
+        await info.__wrapped__(db_path=None)
         
         mock_close.assert_called_once()
     
@@ -713,13 +741,18 @@ class TestEdgeCases:
         
         mock_session = AsyncMock()
         mock_manager = AsyncMock()
-        mock_manager.get_session.return_value.__aenter__.return_value = mock_session
+
+        @asynccontextmanager
+        async def get_session_mock():
+            yield mock_session
+
+        mock_manager.get_session = get_session_mock
         mock_get_manager.return_value = mock_manager
         
         # Make all PRAGMA queries fail
         mock_session.execute = AsyncMock(side_effect=Exception("PRAGMA failed"))
         
-        from walnut.cli import database
-        await info(db_path=None)
+        from walnut.cli.database import info
+        await info.__wrapped__(db_path=None)
         
         mock_close.assert_called_once()
