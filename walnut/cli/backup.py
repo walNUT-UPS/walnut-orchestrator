@@ -32,17 +32,16 @@ def all_cmd(ctx, include_key, output):
         # 1. Backup the database
         ctx.invoke(db_backup, output=str(db_backup_path))
 
-        # 2. Backup the key if requested
-        key_file_path = None
+        # 2. Prepare the key if requested
+        key = None
         if include_key:
-            key_file_path = Path(temp_dir) / "walnut.key"
+            console.print("[yellow]⚠️  WARNING: Including the master encryption key in the backup is a security risk. Store the backup securely and do not share it with untrusted parties.[/yellow]")
             key = get_master_key()
-            key_file_path.write_text(key)
 
         # 3. Create a zip archive
         with zipfile.ZipFile(output, 'w') as zipf:
             zipf.write(db_backup_path, arcname="walnut.db")
-            if key_file_path:
-                zipf.write(key_file_path, arcname="walnut.key")
+            if key is not None:
+                zipf.writestr("walnut.key", key)
 
     console.print(f"[green]✅ Complete backup created successfully at {output}[/green]")
