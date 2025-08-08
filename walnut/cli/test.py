@@ -53,7 +53,7 @@ async def database(samples: int) -> None:
     start_time = time.time()
     async with get_db_session() as session:
         result = await session.execute(select(UPSSample).where(UPSSample.status == "TESTING"))
-        read_samples = await result.scalars().all()
+        read_samples = await result.scalars().fetchall()
     read_time = time.time() - start_time
     console.print(f"Read test completed in {read_time:.2f} seconds.")
 
