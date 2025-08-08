@@ -1,47 +1,42 @@
-"""
-Main CLI application for walNUT UPS Management Platform.
 
-Provides unified command-line interface for all walNUT operations including
-database management, host management, and shutdown operations.
-"""
-
-import typer
+import click
+import logging
 from rich.console import Console
 
-from walnut.cli import database, hosts
+from .database import db_cli
+from .keys import key_cli
+from .test import test_cli
+from .system import system_cli
+from .hosts import hosts_cli
+from .backup import backup_cli
 
-app = typer.Typer(
-    name="walnut",
-    help="walNUT UPS Management Platform - Network UPS Tools integration with coordinated shutdown",
-    no_args_is_help=True,
-)
 
-console = Console()
+@click.group()
+@click.option('--verbose', '-v', is_flag=True, help='Enables verbose mode.')
+@click.option('--quiet', '-q', is_flag=True, help='Enables quiet mode.')
+@click.pass_context
+def app(ctx, verbose, quiet):
+    """
+    walNUT UPS Management Platform CLI.
+    """
+    ctx.ensure_object(dict)
+    ctx.obj['VERBOSE'] = verbose
+    ctx.obj['QUIET'] = quiet
+
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    elif quiet:
+        logging.basicConfig(level=logging.ERROR)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
 # Add subcommands
-app.add_typer(database.app, name="db", help="Database management commands")
-app.add_typer(hosts.app, name="hosts", help="Host management and shutdown commands")
+app.add_command(db_cli, name='db')
+app.add_command(key_cli, name='key')
+app.add_command(test_cli, name='test')
+app.add_command(system_cli, name='system')
+app.add_command(hosts_cli, name='hosts')
+app.add_command(backup_cli, name='backup')
 
-@app.command("version")
-def show_version():
-    """Show walNUT version information."""
-    console.print("[bold]walNUT UPS Management Platform[/bold]")
-    console.print("Version: 0.1.0")
-    console.print("Network UPS Tools integration with coordinated shutdown")
-
-
-@app.command("status")
-def show_status():
-    """Show walNUT system status."""
-    console.print("[blue]walNUT System Status[/blue]")
-    console.print("🔋 UPS Monitoring: [yellow]Not implemented yet[/yellow]")
-    console.print("🖥️  Host Management: [green]Available[/green]")
-    console.print("🔐 Database: [green]Available[/green]")
-    console.print("⚡ Shutdown System: [green]Available[/green]")
-    
-    console.print("\n[dim]Use 'walnut hosts list' to see managed hosts")
-    console.print("Use 'walnut db version' to check database status")
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     app()
