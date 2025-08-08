@@ -70,7 +70,7 @@ async def remove(name: str) -> None:
         result = await session.execute(select(Host).where(Host.hostname == name))
         host = result.scalar_one_or_none()
         if host:
-            await session.delete(host)
+            session.delete(host)
             await session.commit()
             console.print(f"[green]✅ Host '{name}' removed successfully![/green]")
         else:
