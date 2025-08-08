@@ -19,7 +19,7 @@ def nut(host: str, port: int) -> None:
     console.print(f"[bold blue]Testing NUT Server Connection to {host}:{port}[/bold blue]")
     try:
         client = PyNUTClient(host=host, port=port)
-        # This will fail as we can't connect, but it's the right logic
+        # Attempt to list UPS devices; this will raise an exception if the NUT server is not reachable.
         client.list_ups()
         console.print("[green]✅ NUT server connection successful![/green]")
     except PyNUTError as e:
