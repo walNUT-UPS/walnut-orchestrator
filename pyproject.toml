@@ -62,11 +62,15 @@ dependencies = [
     "psutil>=5.9.6",
     "python-dotenv>=1.0.0",
     
+    # SSH connections
+    "asyncssh>=2.14.0",
+    
     # Date/time handling
     "python-dateutil>=2.8.2",
     
     # JSON handling
     "orjson>=3.9.10",
+
 ]
 
 [project.optional-dependencies]
