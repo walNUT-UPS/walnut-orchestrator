@@ -91,7 +91,6 @@ dev = [
 
 [project.scripts]
 walnut = "walnut.cli.main:app"
-walnut-db = "walnut.cli.database:app"
 
 [project.urls]
 "Homepage" = "https://github.com/walnut-orchestrator/walnut"

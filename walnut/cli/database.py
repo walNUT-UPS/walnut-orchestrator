@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import typer
+import click
 from rich.console import Console
 from rich.json import JSON
 from rich.table import Table
@@ -25,6 +25,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from sqlalchemy import text
 
+from .utils import handle_async_command
 from ..database.connection import (
     ConnectionManager,
     close_database,
@@ -34,12 +35,7 @@ from ..database.connection import (
 from ..database.engine import DatabaseError, get_master_key
 from ..database.models import Base
 
-# Initialize CLI app and console
-app = typer.Typer(
-    name="walnut-db",
-    help="walNUT Database Management Commands",
-    add_completion=False,
-)
+# Initialize console
 console = Console()
 
 # Configure logging for CLI
@@ -50,42 +46,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def handle_async_command(async_func):
-    """Decorator to handle async CLI commands."""
-    @functools.wraps(async_func)
-    def wrapper(*args, **kwargs):
-        try:
-            return asyncio.run(async_func(*args, **kwargs))
-        except KeyboardInterrupt:
-            console.print("\n[yellow]Operation cancelled by user[/yellow]")
-            sys.exit(1)
-        except Exception as e:
-            console.print(f"[red]Error: {e}[/red]")
-            sys.exit(1)
-    return wrapper
+@click.group(name="db")
+def db_cli():
+    """walNUT Database Management Commands"""
+    pass
 
-
-@app.command()
+@db_cli.command()
+@click.option(
+    "--db-path",
+    "-d",
+    help="Database file path (default: data/walnut.db)"
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force initialization even if database exists"
+)
+@click.option(
+    "--echo",
+    is_flag=True,
+    help="Echo SQL statements for debugging"
+)
 @handle_async_command
-async def init(
-    db_path: Optional[str] = typer.Option(
-        None,
-        "--db-path",
-        "-d", 
-        help="Database file path (default: data/walnut.db)"
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Force initialization even if database exists"
-    ),
-    echo: bool = typer.Option(
-        False,
-        "--echo",
-        help="Echo SQL statements for debugging"
-    ),
-) -> None:
+async def init(db_path: Optional[str], force: bool, echo: bool) -> None:
     """
     Initialize the walNUT database with encryption and schema.
     """
@@ -141,22 +125,21 @@ async def init(
     console.print(table)
 
 
-@app.command()
+@db_cli.command()
+@click.option(
+    "--db-path",
+    "-d",
+    help="Database file path"
+)
+@click.option(
+    "--json",
+    "-j",
+    "json_output",
+    is_flag=True,
+    help="Output in JSON format"
+)
 @handle_async_command
-async def health(
-    db_path: Optional[str] = typer.Option(
-        None,
-        "--db-path", 
-        "-d",
-        help="Database file path"
-    ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        "-j",
-        help="Output in JSON format"
-    ),
-) -> None:
+async def health(db_path: Optional[str], json_output: bool) -> None:
     """
     Check database health and connection status.
     """
@@ -221,16 +204,14 @@ async def health(
         await close_database()
 
 
-@app.command()
-@handle_async_command  
-async def info(
-    db_path: Optional[str] = typer.Option(
-        None,
-        "--db-path",
-        "-d", 
-        help="Database file path"
-    ),
-) -> None:
+@db_cli.command()
+@click.option(
+    "--db-path",
+    "-d",
+    help="Database file path"
+)
+@handle_async_command
+async def stats(db_path: Optional[str]) -> None:
     """
     Display database information and statistics.
     """
@@ -309,22 +290,21 @@ async def info(
         await close_database()
 
 
-@app.command()
+@db_cli.command()
+@click.option(
+    "--db-path",
+    "-d",
+    help="Database file path"
+)
+@click.option(
+    "--yes",
+    "-y",
+    "confirm",
+    is_flag=True,
+    help="Skip confirmation prompt"
+)
 @handle_async_command
-async def reset(
-    db_path: Optional[str] = typer.Option(
-        None,
-        "--db-path",
-        "-d",
-        help="Database file path"
-    ),
-    confirm: bool = typer.Option(
-        False,
-        "--yes",
-        "-y",
-        help="Skip confirmation prompt"
-    ),
-) -> None:
+async def reset(db_path: Optional[str], confirm: bool) -> None:
     """
     Reset database by dropping and recreating all tables.
     
@@ -332,7 +312,7 @@ async def reset(
     """
     if not confirm:
         console.print("[red]⚠️  WARNING: This will delete ALL database data![/red]")
-        confirmed = typer.confirm("Are you sure you want to continue?")
+        confirmed = click.confirm("Are you sure you want to continue?")
         if not confirmed:
             console.print("Operation cancelled")
             return
@@ -368,7 +348,7 @@ async def reset(
         await close_database()
 
 
-@app.command()
+@db_cli.command()
 @handle_async_command
 async def test_encryption() -> None:
     """
@@ -433,7 +413,7 @@ async def test_encryption() -> None:
         await close_database()
 
 
-@app.command()
+@db_cli.command()
 def version() -> None:
     """
     Display walNUT database version information.
@@ -444,6 +424,86 @@ def version() -> None:
     console.print(f"Version: {__version__}")
     console.print("SQLCipher-based encrypted SQLite storage")
 
+@db_cli.command()
+@click.option("--output", help="Path to save the backup file.", required=True)
+@handle_async_command
+async def backup(output: str) -> None:
+    """Backs up the database."""
+    console.print(f"[bold blue]Backing Up Database to {output}[/bold blue]")
+    try:
+        await init_database(create_tables=False)
+        manager = await get_connection_manager()
 
-if __name__ == "__main__":
-    app()
+        # We need the raw connection for the backup API
+        # This is a bit of a hack, as we are reaching into the internals of the connection manager
+        from walnut.database.engine import get_master_key, sqlcipher
+        db_path = manager.db_path
+        key = get_master_key()
+
+        if not db_path:
+            raise DatabaseError("Database path not found in connection manager.")
+
+        import shutil
+        shutil.copy(db_path, output)
+
+        console.print("[green]✅ Database backed up successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to back up database: {e}[/red]")
+        sys.exit(1)
+    finally:
+        await close_database()
+
+@db_cli.command()
+@click.option("--input", help="Path to the backup file to restore.", required=True)
+@handle_async_command
+async def restore(input: str) -> None:
+    """Restores the database from a backup."""
+    console.print(f"[bold blue]Restoring Database from {input}[/bold blue]")
+    try:
+        await init_database(create_tables=False)
+        manager = await get_connection_manager()
+
+        from walnut.database.engine import get_master_key, sqlcipher
+        db_path = manager.db_path
+        key = get_master_key()
+
+        if not db_path:
+            raise DatabaseError("Database path not found in connection manager.")
+
+        import shutil
+        shutil.copy(input, db_path)
+
+        console.print("[green]✅ Database restored successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to restore database: {e}[/red]")
+        sys.exit(1)
+    finally:
+        await close_database()
+
+@db_cli.command()
+@click.option("--target-version", help="The target version to check compatibility with.", required=True)
+def check_compatibility(target_version: str) -> None:
+    """
+    Checks database compatibility with a target version.
+
+    NOTE: This command is not yet implemented.
+    """
+    console.print(f"[bold yellow]Checking compatibility with version {target_version}...[/bold yellow]")
+    console.print("[red]This command is not yet implemented.[/red]")
+
+@db_cli.command()
+@handle_async_command
+async def vacuum() -> None:
+    """Vacuums the database to reclaim space."""
+    console.print("[bold blue]Vacuuming Database[/bold blue]")
+    try:
+        await init_database(create_tables=False)
+        manager = await get_connection_manager()
+        async with manager.get_session() as session:
+            await session.execute(text("VACUUM"))
+        console.print("[green]✅ Database vacuumed successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to vacuum database: {e}[/red]")
+        sys.exit(1)
+    finally:
+        await close_database()
