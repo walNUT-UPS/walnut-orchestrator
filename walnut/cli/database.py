@@ -211,7 +211,7 @@ async def health(db_path: Optional[str], json_output: bool) -> None:
     help="Database file path"
 )
 @handle_async_command
-async def info(db_path: Optional[str]) -> None:
+async def stats(db_path: Optional[str]) -> None:
     """
     Display database information and statistics.
     """
@@ -425,29 +425,85 @@ def version() -> None:
     console.print("SQLCipher-based encrypted SQLite storage")
 
 @db_cli.command()
-@click.option("--output", help="Path to save the backup file.")
-def backup(output):
+@click.option("--output", help="Path to save the backup file.", required=True)
+@handle_async_command
+async def backup(output: str) -> None:
     """Backs up the database."""
-    click.echo(f"Unimplemented: db backup (output: {output})")
+    console.print(f"[bold blue]Backing Up Database to {output}[/bold blue]")
+    try:
+        await init_database(create_tables=False)
+        manager = await get_connection_manager()
+
+        # We need the raw connection for the backup API
+        # This is a bit of a hack, as we are reaching into the internals of the connection manager
+        from walnut.database.engine import get_master_key, sqlcipher
+        db_path = manager.db_path
+        key = get_master_key()
+
+        if not db_path:
+            raise DatabaseError("Database path not found in connection manager.")
+
+        import shutil
+        shutil.copy(db_path, output)
+
+        console.print("[green]✅ Database backed up successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to back up database: {e}[/red]")
+        sys.exit(1)
+    finally:
+        await close_database()
 
 @db_cli.command()
-@click.option("--input", help="Path to the backup file to restore.")
-def restore(input):
+@click.option("--input", help="Path to the backup file to restore.", required=True)
+@handle_async_command
+async def restore(input: str) -> None:
     """Restores the database from a backup."""
-    click.echo(f"Unimplemented: db restore (input: {input})")
+    console.print(f"[bold blue]Restoring Database from {input}[/bold blue]")
+    try:
+        await init_database(create_tables=False)
+        manager = await get_connection_manager()
+
+        from walnut.database.engine import get_master_key, sqlcipher
+        db_path = manager.db_path
+        key = get_master_key()
+
+        if not db_path:
+            raise DatabaseError("Database path not found in connection manager.")
+
+        import shutil
+        shutil.copy(input, db_path)
+
+        console.print("[green]✅ Database restored successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to restore database: {e}[/red]")
+        sys.exit(1)
+    finally:
+        await close_database()
 
 @db_cli.command()
-@click.option("--target-version", help="The target version to check compatibility with.")
-def check_compatibility(target_version):
-    """Checks database compatibility with a target version."""
-    click.echo(f"Unimplemented: db check-compatibility (target-version: {target_version})")
+@click.option("--target-version", help="The target version to check compatibility with.", required=True)
+def check_compatibility(target_version: str) -> None:
+    """
+    Checks database compatibility with a target version.
+
+    NOTE: This command is not yet implemented.
+    """
+    console.print(f"[bold yellow]Checking compatibility with version {target_version}...[/bold yellow]")
+    console.print("[red]This command is not yet implemented.[/red]")
 
 @db_cli.command()
-def vacuum():
+@handle_async_command
+async def vacuum() -> None:
     """Vacuums the database to reclaim space."""
-    click.echo("Unimplemented: db vacuum")
-
-@db_cli.command()
-def stats():
-    """Shows database statistics."""
-    click.echo("Unimplemented: db stats")
+    console.print("[bold blue]Vacuuming Database[/bold blue]")
+    try:
+        await init_database(create_tables=False)
+        manager = await get_connection_manager()
+        async with manager.get_session() as session:
+            await session.execute(text("VACUUM"))
+        console.print("[green]✅ Database vacuumed successfully![/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to vacuum database: {e}[/red]")
+        sys.exit(1)
+    finally:
+        await close_database()
