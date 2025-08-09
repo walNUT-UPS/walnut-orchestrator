@@ -79,4 +79,4 @@ async def plan_policy(policy_id: int, event: Optional[Dict[str, Any]] = None):
         raise HTTPException(status_code=404, detail="Policy not found")
     policy = PolicySchema(**policies_db[policy_id])
     plan = compile_plan(policy, event, policy_id)
-    return plan.dict()
+    return plan.model_dump()
