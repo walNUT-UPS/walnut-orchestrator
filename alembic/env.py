@@ -22,6 +22,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from walnut.database.models import Base
+from walnut.auth.models import User  # Ensure the User model is imported for autogeneration
 from walnut.database.engine import get_database_url, set_sqlite_pragma
 
 # this is the Alembic Config object, which provides
@@ -118,38 +119,21 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
+from walnut.database.engine import create_database_engine
+
 async def run_async_migrations() -> None:
     """
     Run migrations in async mode for SQLCipher database.
     """
     try:
-        # Get the database URL
-        db_url = get_database_config()
-        
-        # Create engine configuration - simplified for SQLite
-        configuration = {
-            'sqlalchemy.url': db_url,
-        }
-        
-        # Create async engine with SQLite-compatible settings
-        connectable = async_engine_from_config(
-            configuration,
-            prefix="sqlalchemy.",
-            poolclass=pool.StaticPool,  # Use StaticPool for SQLite
-            connect_args={"check_same_thread": False},
-        )
-        
-        # Configure SQLite pragmas for the engine
-        from sqlalchemy import event
-        @event.listens_for(connectable.sync_engine, "connect")
-        def set_sqlite_pragma_migration(dbapi_connection, connection_record):
-            set_sqlite_pragma(dbapi_connection, connection_record)
+        # Create engine using the project's custom function
+        connectable = create_database_engine()
 
         async with connectable.connect() as connection:
             await connection.run_sync(do_run_migrations)
 
         await connectable.dispose()
-        
+
     except Exception as e:
         logger.error(f"Async migration failed: {e}")
         raise
