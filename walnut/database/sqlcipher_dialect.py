@@ -146,7 +146,7 @@ class EncryptionError(Exception):
 
 # Register the dialect with SQLAlchemy
 from sqlalchemy.dialects import registry
-registry.register("sqlite.sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDialect")
+registry.register("sqlite.async_sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDialect")
 
 
 def test_sqlcipher_encryption(db_path: str, key: str) -> Dict[str, Any]:

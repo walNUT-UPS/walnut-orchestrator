@@ -5,7 +5,7 @@ This module uses Pydantic's BaseSettings to manage configuration
 through environment variables. It provides a centralized and typed
 way to handle application settings.
 """
-
+import datetime
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,10 +29,22 @@ class Settings(BaseSettings):
     # Data retention
     DATA_RETENTION_HOURS: int = 24
 
+    # Authentication
+    JWT_SECRET: str
+    ACCESS_TTL: datetime.timedelta = datetime.timedelta(minutes=15)
+    REFRESH_TTL: datetime.timedelta = datetime.timedelta(days=7)
+    BCRYPT_WORK_FACTOR: int = 12
+    COOKIE_NAME_ACCESS: str = "walnut_access"
+    COOKIE_NAME_REFRESH: str = "walnut_refresh"
+    SECURE_COOKIES: bool = True
+    ALLOWED_ORIGINS: list[str] = []
+    SIGNUP_ENABLED: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
+        env_prefix="WALNUT_",
     )
 
 

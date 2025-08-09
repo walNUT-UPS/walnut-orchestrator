@@ -168,6 +168,49 @@ class AsyncSQLCipherConnection:
         # Shutdown executor
         self._executor.shutdown(wait=True)
         logger.debug("Closed encrypted database connection")
+
+    async def run_sync(self, fn, *args, **kwargs):
+        """
+        Run a synchronous function in the thread pool.
+        The function will be passed a synchronous SQLAlchemy connection.
+        """
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from sqlalchemy.dialects.sqlite import pysqlite
+        import types
+
+        def _run():
+            # We need a sync SQLAlchemy engine to get a sync connection
+
+            # Store original on_connect for restoration later
+            original_on_connect = pysqlite.dialect.on_connect
+
+            # Define custom on_connect that skips problematic functions
+            def sqlcipher_on_connect(self):
+                """Custom on_connect that skips regexp function registration."""
+                def connect(conn):
+                    # Only enable foreign keys, skip other function registrations
+                    conn.execute("PRAGMA foreign_keys=ON")
+                return connect
+
+            # Temporarily patch the dialect
+            pysqlite.dialect.on_connect = sqlcipher_on_connect
+
+            try:
+                engine = create_engine(
+                    "sqlite://",  # Dummy URL, we use the creator
+                    creator=lambda: self._connection,
+                    poolclass=StaticPool,
+                )
+                with engine.connect() as conn:
+                    return fn(conn, *args, **kwargs)
+            finally:
+                # Restore original on_connect to avoid affecting other engines
+                pysqlite.dialect.on_connect = original_on_connect
+
+        return await asyncio.get_event_loop().run_in_executor(
+            self._executor, _run
+        )
     
     @asynccontextmanager
     async def transaction(self):
