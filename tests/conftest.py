@@ -42,7 +42,17 @@ def mock_session_factory(mock_db_session):
     return factory
 
 from click.testing import CliRunner
+import httpx
+from walnut.app import app
 
 @pytest.fixture
 def cli_runner():
     return CliRunner()
+
+@pytest.fixture
+async def async_client():
+    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+
+def get_current_admin_user_override():
+    return {"username": "testadmin", "roles": ["admin"]}

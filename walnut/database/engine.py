@@ -266,9 +266,8 @@ def get_database_url(db_path = None, use_encryption: bool = True) -> str:
         # Create encrypted database file if it doesn't exist
         _ensure_encrypted_database(db_path, master_key)
         
-        # For encrypted databases, use the async_sqlcipher scheme for test compatibility
-        # The actual connection will be handled by AsyncSQLCipherEngine
-        db_url = f"sqlite+async_sqlcipher:///{db_path}?encryption_key={quote(master_key)}"
+        # Use the registered sqlite.sqlcipher dialect
+        db_url = f"sqlite+sqlcipher:///{db_path}?key={quote(master_key)}"
         logger.info(f"SQLCipher encrypted database configured for: {db_path}")
     else:
         if use_encryption and not SQLCIPHER_AVAILABLE:
@@ -375,7 +374,7 @@ def create_database_engine(
     pool_size: int = 20,
     max_overflow: int = 0,
     use_encryption: bool = True,
-) -> Any:  # Return type can be AsyncEngine or AsyncSQLCipherEngine
+) -> Any:  # Return type can be AsyncEngine
     """
     Create an async SQLAlchemy engine with optional SQLCipher encryption.
     
@@ -395,59 +394,16 @@ def create_database_engine(
     try:
         db_url = get_database_url(db_path, use_encryption)
         
-        # Check if this is an encrypted database
-        if db_url.startswith("sqlite+async_sqlcipher://"):
-            # Use custom SQLCipher engine
-            from .async_engine_wrapper import create_async_sqlcipher_engine
-            
-            logger.info("Creating async SQLCipher engine for encrypted database")
-            engine = create_async_sqlcipher_engine(db_url, echo)
-            
-            logger.info(f"Async SQLCipher engine created for: {db_path}")
-            return engine
-        
-        # Standard SQLAlchemy engine for unencrypted databases
-        # Configure engine parameters based on database type
         engine_kwargs = {
             "echo": echo,
         }
         
-        # Extract encryption key from URL for connection setup
-        encryption_key = None
-        if "encryption_key=" in db_url:
-            from urllib.parse import parse_qs, urlparse
-            parsed = urlparse(db_url)
-            params = parse_qs(parsed.query)
-            if 'encryption_key' in params:
-                encryption_key = params['encryption_key'][0]
-        
         # SQLite-specific configuration
         if "sqlite" in db_url:
-            connect_args = {
-                "check_same_thread": False,
-                "timeout": 30,
-            }
-            
-            # Add custom connection setup for encrypted databases
-            if encryption_key:
-                def creator():
-                    # Use pysqlcipher3 for encrypted connections
-                    db_file = str(db_path) if db_path else parsed.path.lstrip('/')
-                    conn = sqlcipher.connect(db_file, **connect_args)
-                    
-                    # Apply SQLCipher settings immediately
-                    _setup_encrypted_connection(conn, encryption_key)
-                    return conn
-                
-                engine_kwargs.update({
-                    "poolclass": StaticPool,
-                    "creator": creator,
-                })
-            else:
-                engine_kwargs.update({
-                    "poolclass": StaticPool,
-                    "connect_args": connect_args,
-                })
+            engine_kwargs.update({
+                "poolclass": StaticPool,
+                "connect_args": {"check_same_thread": False},
+            })
         else:
             # Non-SQLite databases can use connection pooling
             engine_kwargs.update({
@@ -457,11 +413,8 @@ def create_database_engine(
                 "pool_recycle": 3600,
             })
         
-        # Clean the URL for SQLAlchemy (remove custom encryption_key parameter)
-        clean_db_url = db_url.split('?')[0] if '?' in db_url else db_url
-        
         # Create async engine
-        engine = create_async_engine(clean_db_url, **engine_kwargs)
+        engine = create_async_engine(db_url, **engine_kwargs)
         
         # Store original URL for verification purposes
         engine._original_url = db_url
