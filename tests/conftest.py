@@ -1,6 +1,16 @@
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+import os
+import tempfile
+from pathlib import Path
+from httpx import AsyncClient
+from walnut.app import app
+from walnut.database.connection import init_database, close_database
+from alembic.config import Config
+from alembic import command
+
+
 
 @pytest_asyncio.fixture
 async def mock_db_session():
@@ -42,21 +52,22 @@ def mock_session_factory(mock_db_session):
     return factory
 
 from click.testing import CliRunner
+import httpx
+from walnut.app import app
 
 @pytest.fixture
 def cli_runner():
     return CliRunner()
 
+@pytest.fixture
+async def async_client():
+    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+        yield client
 
-import os
-import tempfile
-from pathlib import Path
-import pytest_asyncio
-from httpx import AsyncClient
-from walnut.app import app
-from walnut.database.connection import init_database, close_database
-from alembic.config import Config
-from alembic import command
+def get_current_admin_user_override():
+    return {"username": "testadmin", "roles": ["admin"]}
+
+
 
 @pytest_asyncio.fixture(scope="function")
 async def test_db():
@@ -94,3 +105,4 @@ async def async_client(test_db):
         yield client
 
     await close_database()
+

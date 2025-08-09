@@ -14,6 +14,7 @@ from pathlib import Path
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+from walnut.database.engine import create_database_engine
 
 from alembic import context
 
@@ -119,7 +120,6 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-from walnut.database.engine import create_database_engine
 
 async def run_async_migrations() -> None:
     """
@@ -146,8 +146,16 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    # Run async migrations
-    asyncio.run(run_async_migrations())
+    try:
+        db_url = get_database_config()
+        from sqlalchemy import create_engine
+        engine = create_engine(db_url)
+
+        with engine.connect() as connection:
+            do_run_migrations(connection)
+    except Exception as e:
+        logger.error(f"Online migration failed: {e}")
+        raise
 
 
 # Determine migration mode
