@@ -20,10 +20,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
+    ForeignKey,
+    desc,
 )
 from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON
 from sqlalchemy.ext.asyncio import AsyncAttrs
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 
@@ -101,14 +103,14 @@ class UPSSample(Base):
     )
 
 
-class Event(Base):
+class LegacyEvent(Base):
     """
-    Power events and system activities.
+    Power events and system activities. (Legacy)
     
     Records significant events like power failures, battery warnings,
     shutdown sequences, and recovery actions.
     """
-    __tablename__ = "events"
+    __tablename__ = "legacy_events"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     timestamp: Mapped[datetime] = mapped_column(
@@ -147,9 +149,9 @@ class Event(Base):
     
     # Add indexes for efficient event queries
     __table_args__ = (
-        Index("idx_events_timestamp", "timestamp"),
-        Index("idx_events_type_severity", "event_type", "severity"),
-        Index("idx_events_type_timestamp", "event_type", "timestamp"),
+        Index("idx_legacy_events_timestamp", "timestamp"),
+        Index("idx_legacy_events_type_severity", "event_type", "severity"),
+        Index("idx_legacy_events_type_timestamp", "event_type", "timestamp"),
     )
 
 
@@ -306,14 +308,14 @@ class Secret(Base):
     )
 
 
-class Policy(Base):
+class LegacyPolicy(Base):
     """
-    Shutdown policies and automation rules.
+    Shutdown policies and automation rules. (Legacy)
     
     Defines when and how systems should be shut down based on
     battery levels, time conditions, and other criteria.
     """
-    __tablename__ = "policies"
+    __tablename__ = "legacy_policies"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(
@@ -353,9 +355,89 @@ class Policy(Base):
     
     # Add indexes for policy evaluation
     __table_args__ = (
-        Index("idx_policies_enabled_priority", "enabled", "priority"),
-        Index("idx_policies_priority", "priority"),
+        Index("idx_legacy_policies_enabled_priority", "enabled", "priority"),
+        Index("idx_legacy_policies_priority", "priority"),
     )
+
+
+# New Policy and Orchestration Models
+
+class Lock(Base):
+    __tablename__ = 'locks'
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    holder: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class EventBus(Base):
+    __tablename__ = 'event_bus'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(Text, nullable=False) # nut|system|sim
+    type: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    dedupe_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+
+    __table_args__ = (
+        Index('ix_event_bus_occurred_at', 'occurred_at'), # TODO: occurred_at should be DESC
+    )
+
+
+class Policy(Base):
+    __tablename__ = 'policies'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=128, nullable=False)
+    owner: Mapped[Optional[str]] = mapped_column(Text)
+    suppression_window_sec: Mapped[int] = mapped_column(Integer, default=600, nullable=False)
+    require_dry_run_first: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    global_lock: Mapped[Optional[str]] = mapped_column(Text)
+    never_hosts: Mapped[Optional[Dict[str, Any]]] = mapped_column(SQLiteJSON)
+    version: Mapped[str] = mapped_column(Text, default='1.0', nullable=False)
+    json: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index('ix_policies_enabled_priority', 'enabled', 'priority'), # TODO: priority should be DESC
+    )
+
+
+class PolicyRun(Base):
+    __tablename__ = 'policy_runs'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    policy_id: Mapped[int] = mapped_column(ForeignKey('policies.id'), nullable=False)
+    event_id: Mapped[Optional[int]] = mapped_column(ForeignKey('event_bus.id'))
+    status: Mapped[str] = mapped_column(Text, nullable=False) # planned|probed|dry_run|executed|suppressed|failed
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(Text)
+    suppressed_by_policy_id: Mapped[Optional[int]] = mapped_column(ForeignKey('policies.id'))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    result: Mapped[Optional[Dict[str, Any]]] = mapped_column(SQLiteJSON)
+
+    policy: Mapped["Policy"] = relationship()
+    event: Mapped["EventBus"] = relationship()
+    actions: Mapped[List["PolicyAction"]] = relationship(back_populates="run")
+
+
+class PolicyAction(Base):
+    __tablename__ = 'policy_actions'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey('policy_runs.id'), nullable=False)
+    step_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    target: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    stdout: Mapped[Optional[str]] = mapped_column(Text)
+    stderr: Mapped[Optional[str]] = mapped_column(Text)
+    error_code: Mapped[Optional[str]] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    run: Mapped["PolicyRun"] = relationship(back_populates="actions")
 
 
 # Utility functions for working with models
@@ -418,30 +500,6 @@ def create_ups_sample(
     )
 
 
-def create_event(
-    event_type: str,
-    description: str,
-    severity: str = "INFO",
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Event:
-    """
-    Create an event record with current timestamp.
-    
-    Args:
-        event_type: Type of event
-        description: Event description
-        severity: Event severity level
-        metadata: Additional event metadata
-        
-    Returns:
-        Event instance
-    """
-    return Event(
-        event_type=event_type,
-        description=description,
-        severity=severity,
-        event_metadata=metadata or {},
-    )
 
 
 def create_integration(
@@ -502,31 +560,3 @@ def create_host(
         discovered_at=datetime.now(timezone.utc),
     )
 
-
-def create_policy(
-    name: str,
-    conditions: Dict[str, Any],
-    actions: Dict[str, Any],
-    priority: int = 100,
-    enabled: bool = True,
-) -> Policy:
-    """
-    Create a shutdown policy.
-    
-    Args:
-        name: Policy name
-        conditions: Trigger conditions
-        actions: Actions to take
-        priority: Policy priority
-        enabled: Whether policy is enabled
-        
-    Returns:
-        Policy instance
-    """
-    return Policy(
-        name=name,
-        conditions=conditions,
-        actions=actions,
-        priority=priority,
-        enabled=enabled,
-    )

@@ -118,43 +118,6 @@ def do_run_migrations(connection: Connection) -> None:
         context.run_migrations()
 
 
-async def run_async_migrations() -> None:
-    """
-    Run migrations in async mode for SQLCipher database.
-    """
-    try:
-        # Get the database URL
-        db_url = get_database_config()
-        
-        # Create engine configuration - simplified for SQLite
-        configuration = {
-            'sqlalchemy.url': db_url,
-        }
-        
-        # Create async engine with SQLite-compatible settings
-        connectable = async_engine_from_config(
-            configuration,
-            prefix="sqlalchemy.",
-            poolclass=pool.StaticPool,  # Use StaticPool for SQLite
-            connect_args={"check_same_thread": False},
-        )
-        
-        # Configure SQLite pragmas for the engine
-        from sqlalchemy import event
-        @event.listens_for(connectable.sync_engine, "connect")
-        def set_sqlite_pragma_migration(dbapi_connection, connection_record):
-            set_sqlite_pragma(dbapi_connection, connection_record)
-
-        async with connectable.connect() as connection:
-            await connection.run_sync(do_run_migrations)
-
-        await connectable.dispose()
-        
-    except Exception as e:
-        logger.error(f"Async migration failed: {e}")
-        raise
-
-
 def run_migrations_online() -> None:
     """
     Run migrations in 'online' mode.
@@ -162,8 +125,16 @@ def run_migrations_online() -> None:
     In this scenario we need to create an Engine
     and associate a connection with the context.
     """
-    # Run async migrations
-    asyncio.run(run_async_migrations())
+    try:
+        db_url = get_database_config()
+        from sqlalchemy import create_engine
+        engine = create_engine(db_url)
+
+        with engine.connect() as connection:
+            do_run_migrations(connection)
+    except Exception as e:
+        logger.error(f"Online migration failed: {e}")
+        raise
 
 
 # Determine migration mode
