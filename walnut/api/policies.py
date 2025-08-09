@@ -49,8 +49,8 @@ async def update_policy(policy_id: int, policy: PolicySchema):
     if lint_result["errors"]:
         raise HTTPException(status_code=422, detail={"errors": lint_result["errors"]})
 
-    policies_db[policy_id] = policy.dict()
-    return {"id": policy_id, **policy.dict(), "warnings": lint_result["warnings"]}
+    policies_db[policy_id] = policy.model_dump()
+    return {"id": policy_id, **policy.model_dump(), "warnings": lint_result["warnings"]}
 
 @router.delete("/policies/{policy_id}", summary="Delete a policy", status_code=204)
 async def delete_policy(policy_id: int):
