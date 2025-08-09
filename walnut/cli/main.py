@@ -9,6 +9,7 @@ from .test import test_cli
 from .system import system_cli
 from .hosts import hosts_cli
 from .backup import backup_cli
+from .auth import auth_cli
 
 
 @click.group()
@@ -37,6 +38,7 @@ app.add_command(test_cli, name='test')
 app.add_command(system_cli, name='system')
 app.add_command(hosts_cli, name='hosts')
 app.add_command(backup_cli, name='backup')
+app.add_command(auth_cli, name='auth')
 
 if __name__ == '__main__':
     app()
