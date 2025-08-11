@@ -31,9 +31,9 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     
     # Database
-    "sqlalchemy[asyncio]>=2.0.23",
-    "aiosqlite>=0.19.0",
+    "sqlalchemy>=2.0.23",
     "alembic>=1.13.0",
+    "anyio>=3.7.0", # for async/sync boundary
     
     # SQLCipher support
     "pysqlcipher3>=1.2.0",

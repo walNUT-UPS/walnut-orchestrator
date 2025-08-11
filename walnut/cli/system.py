@@ -10,57 +10,46 @@ def system_cli():
     """System status and health commands."""
     pass
 
-from walnut.database.connection import get_database_health
 from walnut import __version__
-from .utils import handle_async_command
+from walnut.database.engine import engine
 
 @system_cli.command()
-@click.option('--json', 'json_output', is_flag=True, help='Output in JSON format.')
-@handle_async_command
-async def status(json_output: bool) -> None:
+def status() -> None:
     """Shows the system status."""
     console.print("[bold blue]System Status[/bold blue]")
-    db_health = await get_database_health()
+    try:
+        connection = engine.connect()
+        connection.close()
+        db_status = "[green]Healthy[/green]"
+    except Exception:
+        db_status = "[red]Unhealthy[/red]"
+
     status_data = {
         "service": "walNUT",
         "version": __version__,
-        "database_status": "Healthy" if db_health.get("healthy") else "Unhealthy",
-        "database_details": db_health,
+        "database_status": db_status,
     }
-    if json_output:
-        console.print(JSON(json.dumps(status_data, indent=2)))
-    else:
-        for key, value in status_data.items():
-            if isinstance(value, dict):
-                console.print(f"[cyan]{key.replace('_', ' ').title()}[/cyan]:")
-                for sub_key, sub_value in value.items():
-                    console.print(f"  [green]{sub_key.replace('_', ' ').title()}[/green]: {sub_value}")
-            else:
-                console.print(f"[cyan]{key.replace('_', ' ').title()}[/cyan]: {value}")
+    for key, value in status_data.items():
+        console.print(f"[cyan]{key.replace('_', ' ').title()}[/cyan]: {value}")
 
 
 @system_cli.command()
-@click.option('--detailed', is_flag=True, help='Show detailed health information.')
-@handle_async_command
-async def health(detailed: bool) -> None:
+def health() -> None:
     """Checks the system health."""
     console.print("[bold blue]System Health Check[/bold blue]")
-    db_health = await get_database_health()
+    try:
+        connection = engine.connect()
+        connection.close()
+        db_status = "[green]OK[/green]"
+    except Exception:
+        db_status = "[red]FAIL[/red]"
     health_data = {
-        "database_connection": "OK" if db_health.get("healthy") else "FAIL",
+        "database_connection": db_status,
         "nut_server_connection": "UNKNOWN", # Placeholder
         "last_backup": "UNKNOWN", # Placeholder
     }
-    if detailed:
-        health_data["details"] = db_health
-
     for key, value in health_data.items():
-        if isinstance(value, dict):
-            console.print(f"[cyan]{key.replace('_', ' ').title()}[/cyan]:")
-            for sub_key, sub_value in value.items():
-                console.print(f"  [green]{sub_key.replace('_', ' ').title()}[/green]: {sub_value}")
-        else:
-            console.print(f"[cyan]{key.replace('_', ' ').title()}[/cyan]: {value}")
+        console.print(f"[cyan]{key.replace('_', ' ').title()}[/cyan]: {value}")
 
 
 @system_cli.group(name='config')

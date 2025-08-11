@@ -1,29 +1,20 @@
+"""
+Main FastAPI application file for walNUT.
+"""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
-from walnut.database.connection import init_database, close_database
 from walnut.api import policies, policy_runs, admin_events, ups, events, system
 from walnut.api.websocket import websocket_endpoint, get_websocket_info
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Handle application lifespan events."""
-    # Startup
-    await init_database()
-    yield
-    # Shutdown
-    await close_database()
 
 
 app = FastAPI(
     title="walNUT API",
     description="walNUT - UPS Management Platform with Network UPS Tools (NUT) integration",
     version="0.1.0",
-    lifespan=lifespan
 )
 
 # Add CORS middleware

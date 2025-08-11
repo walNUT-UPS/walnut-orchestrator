@@ -9,12 +9,13 @@ events based on status changes.
 import asyncio
 import logging
 import time
+import anyio
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete
 
 from ..config import settings
-from ..database.connection import get_db_transaction
+from ..database.connection import get_db_session
 from ..database.models import UPSSample, create_event, create_ups_sample
 from .client import NUTClient, NUTConnectionError
 from .events import detect_events
@@ -116,7 +117,7 @@ class NUTPoller:
     async def _process_data(self, current_data: UPSData):
         """Process and store a new data sample."""
         try:
-            async with get_db_transaction() as session:
+            async with get_db_session() as session:
                 sample = create_ups_sample(
                     charge_percent=current_data.battery_charge,
                     runtime_seconds=current_data.battery_runtime,
@@ -150,7 +151,7 @@ class NUTPoller:
                 logger.critical(f"NUT server heartbeat timeout for UPS '{self.ups_name}'. Connection lost.")
                 self.is_disconnected = True
                 try:
-                    async with get_db_transaction() as session:
+                    async with get_db_session() as session:
                         event = create_event(
                             event_type="NUT_SERVER_LOST",
                             description=f"Connection to NUT server for UPS '{self.ups_name}' lost (heartbeat timeout).",
@@ -175,10 +176,10 @@ class NUTPoller:
         logger.info("Cleaning up old UPS samples...")
         self.last_cleanup_time = time.time()
         try:
-            async with get_db_transaction() as session:
+            async with get_db_session() as session:
                 cutoff_time = datetime.now(timezone.utc) - timedelta(hours=settings.DATA_RETENTION_HOURS)
                 stmt = delete(UPSSample).where(UPSSample.timestamp < cutoff_time)
-                result = await session.execute(stmt)
+                result = await anyio.to_thread.run_sync(session.execute, stmt)
                 if result.rowcount > 0:
                     logger.info(f"Deleted {result.rowcount} old UPS samples.")
         except Exception:

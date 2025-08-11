@@ -6,6 +6,8 @@ through environment variables. It provides a centralized and typed
 way to handle application settings.
 """
 import datetime
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -51,3 +53,39 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+def get_master_key() -> str:
+    """
+    Retrieve the database master key from environment or Docker secrets.
+
+    Returns:
+        str: The master key for database encryption
+
+    Raises:
+        ValueError: If no master key is found or key is invalid
+    """
+    # Try Docker secrets first
+    secrets_path = Path("/run/secrets/walnut_db_key")
+    if secrets_path.exists():
+        try:
+            key = secrets_path.read_text().strip()
+            if key and len(key) >= 32:  # Minimum 32 chars for AES-256
+                return key
+        except (OSError, IOError):
+            pass
+
+    # Fall back to environment variable
+    key = os.getenv("WALNUT_DB_KEY")
+    if key and len(key) >= 32:
+        return key
+
+    # Development fallback (warn about security)
+    dev_key = os.getenv("WALNUT_DB_KEY_DEV")
+    if dev_key:
+        return dev_key
+
+    raise ValueError(
+        "No valid master key found. Set WALNUT_DB_KEY environment variable "
+        "or mount key as Docker secret at /run/secrets/walnut_db_key. "
+        "Key must be at least 32 characters long."
+    )
