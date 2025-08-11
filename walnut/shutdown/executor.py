@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from walnut.database.connection import get_db_session
-from walnut.database.models import Host, create_event
+from walnut.database.models import Host, EventBus
 from walnut.hosts.manager import HostManager
 from walnut.ssh.client import SSHCommandResult
 
@@ -431,11 +431,14 @@ class ShutdownExecutor:
                     description = f"Shutdown operation: {event_type}"
                 
                 # Create event
-                event = create_event(
-                    event_type=event_type,
-                    description=description,
-                    severity=severity,
-                    metadata=event_metadata,
+                event = EventBus(
+                    source="shutdown_executor",
+                    type=event_type,
+                    payload={
+                        "description": description,
+                        "severity": severity,
+                        "details": event_metadata,
+                    },
                 )
                 
                 session.add(event)

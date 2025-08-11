@@ -12,6 +12,7 @@ from typing import Any, Dict
 from pynut2.nut2 import PyNUTClient
 
 from ..config import settings
+from ..utils.retry import async_retry
 
 
 class NUTError(Exception):
@@ -56,6 +57,7 @@ class NUTClient:
             password=self.password
         )
 
+    @async_retry(retries=3, delay=2, backoff=2, catch_exceptions=NUTConnectionError)
     async def list_ups(self) -> Dict[str, str]:
         """
         List the available UPS devices on the NUT server.
@@ -72,6 +74,7 @@ class NUTClient:
         except Exception as e:
             raise NUTConnectionError(f"Failed to list UPS devices from {self.host}:{self.port}") from e
 
+    @async_retry(retries=3, delay=2, backoff=2, catch_exceptions=NUTConnectionError)
     async def get_vars(self, ups_name: str) -> Dict[str, Any]:
         """
         Get all variables for a specific UPS.
@@ -90,6 +93,7 @@ class NUTClient:
         except Exception as e:
             raise NUTConnectionError(f"Failed to get variables for UPS '{ups_name}'") from e
 
+    @async_retry(retries=3, delay=2, backoff=2, catch_exceptions=NUTConnectionError)
     async def get_var(self, ups_name: str, var: str) -> Any:
         """
         Get a single variable for a specific UPS.

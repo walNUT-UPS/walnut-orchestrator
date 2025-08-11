@@ -15,7 +15,7 @@ from sqlalchemy import delete
 
 from ..config import settings
 from ..database.connection import get_db_transaction
-from ..database.models import UPSSample, create_event, create_ups_sample
+from ..database.models import UPSSample, EventBus, create_ups_sample
 from .client import NUTClient, NUTConnectionError
 from .events import detect_events
 from .models import UPSData
@@ -124,11 +124,14 @@ class NUTPoller:
 
                 events = detect_events(self.previous_data, current_data)
                 for event_type in events:
-                    description = f"Event '{event_type}' detected for UPS '{self.ups_name}'"
-                    event = create_event(
-                        event_type=event_type,
-                        description=description,
-                        severity="WARNING",
+                    event = EventBus(
+                        source="nut",
+                        type=event_type,
+                        payload={
+                            "ups_name": self.ups_name,
+                            "previous_status": self.previous_data.status if self.previous_data else "UNKNOWN",
+                            "current_status": current_data.status,
+                        },
                     )
                     session.add(event)
                     logger.warning(f"Generated event: {event_type} for UPS '{self.ups_name}'")
@@ -143,10 +146,10 @@ class NUTPoller:
                 self.is_disconnected = True
                 try:
                     async with get_db_transaction() as session:
-                        event = create_event(
-                            event_type="NUT_SERVER_LOST",
-                            description=f"Connection to NUT server for UPS '{self.ups_name}' lost (heartbeat timeout).",
-                            severity="CRITICAL",
+                        event = EventBus(
+                            source="nut",
+                            type="NUT_SERVER_LOST",
+                            payload={"ups_name": self.ups_name},
                         )
                         session.add(event)
                 except Exception:

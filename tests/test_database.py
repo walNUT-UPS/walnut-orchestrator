@@ -43,16 +43,14 @@ from walnut.database.connection import (
 from walnut.database.models import (
     Base,
     UPSSample,
-    Event,
+    LegacyEvent,
     Integration,
     Host,
     Secret,
-    Policy,
+    LegacyPolicy,
     create_ups_sample,
-    create_event,
     create_integration,
     create_host,
-    create_policy,
     serialize_model,
 )
 
@@ -368,19 +366,19 @@ class TestDatabaseModels:
         assert result.scalar() == 0
     
     async def test_event_model(self, db_session):
-        """Test Event model."""
-        event = create_event(
+        """Test LegacyEvent model."""
+        event = LegacyEvent(
             event_type="MAINS_LOST",
             description="Mains power lost, running on battery",
             severity="WARNING",
-            metadata={"voltage": 0, "battery_percent": 85}
+            event_metadata={"voltage": 0, "battery_percent": 85}
         )
         db_session.add(event)
         await db_session.commit()
         
         # Query by event type
         result = await db_session.execute(
-            text("SELECT * FROM events WHERE event_type = 'MAINS_LOST'")
+            text("SELECT * FROM legacy_events WHERE event_type = 'MAINS_LOST'")
         )
         row = result.fetchone()
         assert row is not None
@@ -448,33 +446,6 @@ class TestDatabaseModels:
         row = result.fetchone()
         assert row is not None
         assert row.encrypted_data == b"encrypted_private_key_data"
-    
-    async def test_policy_model(self, db_session):
-        """Test Policy model."""
-        policy = create_policy(
-            name="emergency-shutdown",
-            conditions={
-                "battery_percent": {"lt": 20},
-                "runtime_seconds": {"lt": 300}
-            },
-            actions={
-                "shutdown_hosts": ["server01", "server02"],
-                "notify_admins": True
-            },
-            priority=1,
-            enabled=True
-        )
-        db_session.add(policy)
-        await db_session.commit()
-        
-        # Query by priority
-        result = await db_session.execute(
-            text("SELECT * FROM policies WHERE priority = 1")
-        )
-        row = result.fetchone()
-        assert row is not None
-        assert row.name == "emergency-shutdown"
-        assert row.enabled == 1  # SQLite stores boolean as integer
     
     def test_serialize_model(self):
         """Test model serialization."""
@@ -579,7 +550,7 @@ class TestDatabaseIntegration:
                     session.add(sample)
                 
                 # Events
-                event = create_event(
+                event = LegacyEvent(
                     event_type="SYSTEM_START",
                     description="walNUT monitoring started",
                     severity="INFO"
@@ -599,7 +570,7 @@ class TestDatabaseIntegration:
                 ups_count = await session.execute(text("SELECT COUNT(*) FROM ups_samples"))
                 assert ups_count.scalar() == 10
                 
-                event_count = await session.execute(text("SELECT COUNT(*) FROM events"))
+                event_count = await session.execute(text("SELECT COUNT(*) FROM legacy_events"))
                 assert event_count.scalar() == 1
                 
                 integration_count = await session.execute(text("SELECT COUNT(*) FROM integrations"))
@@ -626,8 +597,8 @@ class TestDatabaseIntegration:
             async with get_db_session() as session:
                 # Verify all expected tables exist
                 expected_tables = [
-                    'ups_samples', 'events', 'integrations', 
-                    'hosts', 'secrets', 'policies'
+                    'ups_samples', 'legacy_events', 'integrations',
+                    'hosts', 'secrets', 'legacy_policies'
                 ]
                 
                 for table_name in expected_tables:

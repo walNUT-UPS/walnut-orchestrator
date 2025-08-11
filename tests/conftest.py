@@ -2,6 +2,10 @@ import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import os
+
+# Set dummy environment variables before any modules are imported
+os.environ["WALNUT_DB_KEY"] = "a-dummy-key-that-is-long-enough-for-testing"
+os.environ["WALNUT_JWT_SECRET"] = "a-dummy-secret-for-testing"
 import tempfile
 from pathlib import Path
 from httpx import AsyncClient
@@ -59,50 +63,54 @@ from walnut.app import app
 def cli_runner():
     return CliRunner()
 
-@pytest.fixture
-async def async_client():
-    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
-        yield client
-
 def get_current_admin_user_override():
     return {"username": "testadmin", "roles": ["admin"]}
-
-
 
 @pytest_asyncio.fixture(scope="function")
 async def test_db():
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
-        os.environ["WALNUT_DB_KEY"] = "a-test-key-that-is-long-enough-for-sqlcipher"
+        key = "a-test-key-that-is-long-enough-for-sqlcipher"
+        os.environ["WALNUT_DB_KEY"] = key
         os.environ["WALNUT_JWT_SECRET"] = "test-secret"
 
-        # Set up alembic config
+        # Set up alembic config for the test database
         alembic_cfg = Config("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite+async_sqlcipher:///{db_path}?encryption_key={os.environ['WALNUT_DB_KEY']}")
+        # Use the correct dialect: sqlite+sqlcipher
+        alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite+sqlcipher:///{db_path}?key={key}")
 
-        # Upgrade the database to the latest revision
+        # In a real async context, command.upgrade should be run with asyncio.to_thread
+        # For testing purposes, we run it synchronously before the app starts.
         command.upgrade(alembic_cfg, "head")
 
-        # Yield the database path
         yield str(db_path)
-        # Unset the env var to avoid side effects
-        if "WALNUT_DB_PATH" in os.environ:
-            del os.environ["WALNUT_DB_PATH"]
 
+        # Clean up env vars
+        del os.environ["WALNUT_DB_KEY"]
+        del os.environ["WALNUT_JWT_SECRET"]
 
 @pytest_asyncio.fixture(scope="function")
 async def async_client(test_db):
     """
-    A fixture that provides an httpx.AsyncClient for testing the API.
+    A fixture that provides an httpx.AsyncClient for testing the API,
+    with a fully initialized database.
     """
+    # Set environment variables for the application to use during the test
     os.environ["WALNUT_DB_PATH"] = test_db
-    os.environ["WALNUT_ALLOWED_ORIGINS"] = "http://test.com"
+    os.environ["WALNUT_ALLOWED_ORIGINS"] = "http://test.com,http://localhost"
     os.environ["WALNUT_SIGNUP_ENABLED"] = "true"
 
-    await init_database(db_path=test_db, create_tables=False)
+    # The database schema is already created by alembic in the test_db fixture
+    # We just need to initialize the connection manager
+    await init_database(db_path=Path(test_db), create_tables=False)
 
     async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
 
     await close_database()
+
+    # Clean up env vars
+    del os.environ["WALNUT_DB_PATH"]
+    del os.environ["WALNUT_ALLOWED_ORIGINS"]
+    del os.environ["WALNUT_SIGNUP_ENABLED"]
 
