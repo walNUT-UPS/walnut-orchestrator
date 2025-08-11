@@ -58,8 +58,9 @@ class AsyncSQLCipherConnection:
                 timeout=self.timeout,
             )
             
-            # Set encryption key
-            conn.execute(f"PRAGMA key = '{self.encryption_key}'")
+            # Set encryption key - escape single quotes to prevent SQL injection
+            escaped_key = self.encryption_key.replace("'", "''")
+            conn.execute(f"PRAGMA key = '{escaped_key}'")
             
             # Configure database settings
             conn.execute("PRAGMA journal_mode=WAL")
@@ -280,7 +281,8 @@ def create_encrypted_database(db_path: str, encryption_key: str) -> None:
         raise RuntimeError("pysqlcipher3 not available")
     
     conn = sqlcipher.connect(db_path)
-    conn.execute(f"PRAGMA key = '{encryption_key}'")
+    escaped_key = encryption_key.replace("'", "''")
+    conn.execute(f"PRAGMA key = '{escaped_key}'")
     
     # Configure database settings
     conn.execute("PRAGMA journal_mode=WAL")

@@ -1,32 +1,29 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-
-
-app = FastAPI(
-    title="walNUT API",
-    description="API for walNUT UPS Management Platform",
-    version="1.0.0",
-)
-
-from walnut.api import policies, policy_runs, admin_events
-
-app.include_router(policies.router, prefix="/api", tags=["Policies"])
-app.include_router(policy_runs.router, prefix="/api", tags=["Policy Runs"])
-app.include_router(admin_events.router, prefix="/api/admin", tags=["Admin"]) # Corrected prefix
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to walNUT API"}
-
 from fastapi.middleware.cors import CORSMiddleware
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
 from walnut.database.connection import init_database, close_database
+from walnut.api import policies, policy_runs, admin_events, ups, events, system
+from walnut.api.websocket import websocket_endpoint, get_websocket_info
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application lifespan events."""
+    # Startup
+    await init_database()
+    yield
+    # Shutdown
+    await close_database()
+
 
 app = FastAPI(
     title="walNUT API",
     description="walNUT - UPS Management Platform with Network UPS Tools (NUT) integration",
     version="0.1.0",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -41,16 +38,23 @@ app.add_middleware(
 # Mount routers
 app.include_router(auth_router, prefix="/auth")
 app.include_router(api_router, prefix="/api")
+app.include_router(policies.router, prefix="/api", tags=["Policies"])
+app.include_router(policy_runs.router, prefix="/api", tags=["Policy Runs"])
+app.include_router(admin_events.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(ups.router, prefix="/api", tags=["UPS Monitoring"])
+app.include_router(events.router, prefix="/api", tags=["Events"])
+app.include_router(system.router, prefix="/api", tags=["System Health"])
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    await init_database()
+# Add WebSocket endpoint
+@app.websocket("/ws/updates")
+async def websocket_updates_endpoint(websocket):
+    await websocket_endpoint(websocket)
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Close database on shutdown."""
-    await close_database()
+# Add WebSocket info endpoint for debugging
+@app.get("/api/websocket/info")
+async def websocket_info():
+    return await get_websocket_info()
+
 
 @app.get("/")
 async def root():

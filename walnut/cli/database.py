@@ -243,7 +243,14 @@ async def stats(db_path: Optional[str]) -> None:
                 page_count = size_result.scalar()
                 page_size_result = await session.execute(text("PRAGMA page_size"))
                 page_size = page_size_result.scalar()
-                db_size = page_count * page_size if page_count and page_size else None
+                
+                # Convert to integers and validate
+                if page_count is not None and page_size is not None:
+                    page_count = int(page_count)
+                    page_size = int(page_size)
+                    db_size = page_count * page_size
+                else:
+                    db_size = None
             except Exception:
                 db_size = None
             
@@ -264,7 +271,7 @@ async def stats(db_path: Optional[str]) -> None:
         settings_table.add_column("Setting", style="cyan")
         settings_table.add_column("Value", style="magenta")
         
-        if db_size:
+        if db_size and db_size > 0 and db_size < 10**12:  # Sanity check for reasonable file size
             settings_table.add_row("Database Size", f"{db_size:,} bytes ({db_size/1024/1024:.2f} MB)")
         
         for key, value in settings.items():

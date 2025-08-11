@@ -97,7 +97,8 @@ class SQLCipherDialect(SQLiteDialect):
                 conn = sqlcipher.connect(db_path, **cparams)
                 
                 # Set encryption key
-                conn.execute(f"PRAGMA key = '{encryption_key}'")
+                escaped_key = encryption_key.replace("'", "''")
+                conn.execute(f"PRAGMA key = '{escaped_key}'")
                 
                 # Verify encryption is working by testing access
                 try:
@@ -146,7 +147,7 @@ class EncryptionError(Exception):
 
 # Register the dialect with SQLAlchemy
 from sqlalchemy.dialects import registry
-registry.register("sqlite.async_sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDialect")
+registry.register("sqlite.sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDialect")
 
 
 def test_sqlcipher_encryption(db_path: str, key: str) -> Dict[str, Any]:

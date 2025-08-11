@@ -11,7 +11,8 @@ from rich.json import JSON
 from rich.table import Table
 
 from walnut.auth.deps import get_user_manager
-from walnut.auth.models import Role
+from walnut.auth.models import Role, User
+from fastapi_users.db import SQLAlchemyUserDatabase
 from walnut.database.connection import close_database, init_database
 from walnut.cli.utils import handle_async_command
 
@@ -33,17 +34,24 @@ async def create_admin(email, password):
     console.print(f"[bold blue]Creating admin user: {email}[/bold blue]")
     await init_database(create_tables=False)
     try:
-        async for user_manager in get_user_manager():
-            from fastapi_users.exceptions import UserAlreadyExists
+        from walnut.database.connection import get_connection_manager
+        from walnut.auth.deps import UserManager
+        from fastapi_users.exceptions import UserAlreadyExists
+        from walnut.auth.schemas import UserCreate
+        
+        manager = await get_connection_manager()
+        async with manager.get_session() as session:
+            user_db = SQLAlchemyUserDatabase(session, User)
+            user_manager = UserManager(user_db)
+            
             try:
-                from walnut.auth.schemas import UserCreate
                 user_create = UserCreate(email=email, password=password)
-                user = await user_manager.create(
-                    user_create, safe=True
-                )
-                user.role = Role.ADMIN
-                user.is_superuser = True
-                await user_manager.user_db.update(user)
+                user = await user_manager.create(user_create, safe=True)
+                
+                # Update user to admin role
+                update_dict = {"role": Role.ADMIN, "is_superuser": True}
+                user = await user_manager.user_db.update(user, update_dict)
+                await session.commit()
                 console.print(f"[green]✅ Admin user {user.email} created successfully![/green]")
             except UserAlreadyExists:
                 console.print(f"[red]User with email {email} already exists.[/red]")
@@ -58,10 +66,33 @@ async def list_users(json_output):
     """List all users."""
     await init_database(create_tables=False)
     try:
-        async for user_manager in get_user_manager():
-            users = await user_manager.user_db.get_all()
+        from walnut.database.connection import get_connection_manager
+        from walnut.auth.deps import UserManager
+        
+        manager = await get_connection_manager()
+        async with manager.get_session() as session:
+            user_db = SQLAlchemyUserDatabase(session, User)
+            user_manager = UserManager(user_db)
+            
+            # Get all users - need to implement this method
+            from sqlalchemy import select
+            result = await session.execute(select(User))
+            users = result.scalars().all()
+            
             if json_output:
-                console.print(JSON(json.dumps([user.dict() for user in users], default=str)))
+                user_dicts = []
+                for user in users:
+                    user_dict = {
+                        "id": str(user.id),
+                        "email": user.email,
+                        "role": user.role.value,
+                        "is_active": user.is_active,
+                        "is_verified": user.is_verified,
+                        "is_superuser": user.is_superuser,
+                        "created_at": user.created_at.isoformat() if user.created_at else None,
+                    }
+                    user_dicts.append(user_dict)
+                console.print(JSON(json.dumps(user_dicts, default=str)))
             else:
                 table = Table(title="walNUT Users")
                 table.add_column("ID", style="cyan")

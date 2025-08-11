@@ -73,7 +73,8 @@ def _ensure_encrypted_database(db_path: Path, encryption_key: str) -> None:
                     # If we're in an async context, we can't use run_until_complete
                     # Instead, we'll do a basic sync verification
                     conn = sqlcipher.connect(str(db_path))
-                    conn.execute(f"PRAGMA key = '{encryption_key}'")
+                    escaped_key = encryption_key.replace("'", "''")
+                    conn.execute(f"PRAGMA key = '{escaped_key}'")
                     conn.execute("SELECT count(*) FROM sqlite_master")
                     conn.close()
                     logger.debug("Existing encrypted database verified (sync)")
@@ -324,7 +325,8 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     if hasattr(connection_record, 'info') and 'encryption_key' in connection_record.info:
         encryption_key = connection_record.info['encryption_key']
         logger.debug("Setting up SQLCipher decryption for sync connection")
-        cursor.execute(f"PRAGMA key = '{encryption_key}'")
+        escaped_key = encryption_key.replace("'", "''")
+        cursor.execute(f"PRAGMA key = '{escaped_key}'")
     
     # Enable WAL mode
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -354,7 +356,8 @@ def _setup_encrypted_connection(connection, encryption_key: str):
     cursor = connection.cursor()
     
     # Set encryption key first
-    cursor.execute(f"PRAGMA key = '{encryption_key}'")
+    escaped_key = encryption_key.replace("'", "''")
+    cursor.execute(f"PRAGMA key = '{escaped_key}'")
     
     # Configure database settings
     cursor.execute("PRAGMA journal_mode=WAL")
@@ -374,7 +377,7 @@ def create_database_engine(
     pool_size: int = 20,
     max_overflow: int = 0,
     use_encryption: bool = True,
-) -> Any:  # Return type can be AsyncEngine
+) -> Any:  # Return type can be AsyncEngine or AsyncSQLCipherEngine
     """
     Create an async SQLAlchemy engine with optional SQLCipher encryption.
     
@@ -386,7 +389,7 @@ def create_database_engine(
         use_encryption: Whether to use SQLCipher encryption
         
     Returns:
-        AsyncEngine: Configured async SQLAlchemy engine
+        AsyncEngine or AsyncSQLCipherEngine: Configured async database engine
         
     Raises:
         DatabaseError: If engine creation fails
@@ -394,6 +397,20 @@ def create_database_engine(
     try:
         db_url = get_database_url(db_path, use_encryption)
         
+        # Check if this is a SQLCipher URL that needs special handling
+        if use_encryption and SQLCIPHER_AVAILABLE and "sqlcipher" in db_url:
+            # Use our custom async SQLCipher engine wrapper
+            from .async_engine_wrapper import create_async_sqlcipher_engine
+            
+            logger.info("Creating async SQLCipher engine with thread pool wrapper")
+            engine = create_async_sqlcipher_engine(db_url, echo)
+            
+            logger.info(
+                f"SQLCipher async engine created for encrypted database"
+            )
+            return engine
+        
+        # Standard SQLAlchemy async engine for non-encrypted databases
         engine_kwargs = {
             "echo": echo,
         }
@@ -420,7 +437,7 @@ def create_database_engine(
         engine._original_url = db_url
         
         logger.info(
-            f"Database engine created with pool_size={pool_size}, "
+            f"Standard async database engine created with pool_size={pool_size}, "
             f"max_overflow={max_overflow}"
         )
         return engine

@@ -102,13 +102,22 @@ class ConnectionManager:
             )
             
             # Create session factory
-            self._session_factory = async_sessionmaker(
-                self._engine,
-                class_=AsyncSession,
-                expire_on_commit=False,
-                autoflush=True,
-                autocommit=False,
-            )
+            # For SQLCipher engines, we need to use a custom session adapter
+            from .async_engine_wrapper import AsyncSQLCipherEngine
+            if isinstance(self._engine, AsyncSQLCipherEngine):
+                # For SQLCipher engine, we'll handle sessions differently
+                # since it doesn't fully conform to SQLAlchemy's AsyncEngine interface
+                self._session_factory = None  # Custom session handling will be implemented
+                logger.info("SQLCipher engine detected - using custom session handling")
+            else:
+                # Standard SQLAlchemy async session factory
+                self._session_factory = async_sessionmaker(
+                    self._engine,
+                    class_=AsyncSession,
+                    expire_on_commit=False,
+                    autoflush=True,
+                    autocommit=False,
+                )
             
             # Test connection and get diagnostics
             diagnostics = await check_database_connection(self._engine)
@@ -154,42 +163,58 @@ class ConnectionManager:
         logger.info("Database connection manager shutdown complete")
     
     @asynccontextmanager
-    async def get_session(self) -> AsyncGenerator[AsyncSession, None]:
+    async def get_session(self) -> AsyncGenerator[Any, None]:
         """
         Get a database session with automatic cleanup.
         
         Yields:
-            AsyncSession: Database session
+            AsyncSession or custom session: Database session
             
         Raises:
             DatabaseError: If session creation fails
         """
-        if self._session_factory is None:
-            raise DatabaseError("Connection manager not initialized")
+        from .async_engine_wrapper import AsyncSQLCipherEngine
         
-        session = self._session_factory()
-        try:
-            yield session
-        except Exception as e:
-            await session.rollback()
-            logger.error(f"Database session error: {e}")
-            raise
-        finally:
-            await session.close()
+        if isinstance(self._engine, AsyncSQLCipherEngine):
+            # For SQLCipher engines, provide a transaction context directly
+            async with self._engine.begin() as transaction:
+                yield transaction
+        else:
+            # Standard SQLAlchemy session handling
+            if self._session_factory is None:
+                raise DatabaseError("Connection manager not initialized")
+            
+            session = self._session_factory()
+            try:
+                yield session
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Database session error: {e}")
+                raise
+            finally:
+                await session.close()
     
     @asynccontextmanager
-    async def get_transaction(self) -> AsyncGenerator[AsyncSession, None]:
+    async def get_transaction(self) -> AsyncGenerator[Any, None]:
         """
         Get a database session with automatic transaction management.
         
         Commits on success, rolls back on exception.
         
         Yields:
-            AsyncSession: Database session in transaction
+            AsyncSession or transaction: Database session in transaction
         """
-        async with self.get_session() as session:
-            async with session.begin():
+        from .async_engine_wrapper import AsyncSQLCipherEngine
+        
+        if isinstance(self._engine, AsyncSQLCipherEngine):
+            # For SQLCipher engines, the session already provides transaction context
+            async with self.get_session() as session:
                 yield session
+        else:
+            # Standard SQLAlchemy transaction handling
+            async with self.get_session() as session:
+                async with session.begin():
+                    yield session
     
     async def execute_raw_sql(
         self, 
@@ -311,8 +336,17 @@ class ConnectionManager:
             DatabaseError: If table creation fails
         """
         try:
-            async with self.engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
+            from .async_engine_wrapper import AsyncSQLCipherEngine
+            
+            if isinstance(self._engine, AsyncSQLCipherEngine):
+                # For SQLCipher engines, use the custom transaction interface
+                async with self._engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            else:
+                # Standard SQLAlchemy approach
+                async with self.engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                    
             logger.info("Database tables created successfully")
             
         except Exception as e:
@@ -329,8 +363,17 @@ class ConnectionManager:
             DatabaseError: If table dropping fails
         """
         try:
-            async with self.engine.begin() as conn:
-                await conn.run_sync(Base.metadata.drop_all)
+            from .async_engine_wrapper import AsyncSQLCipherEngine
+            
+            if isinstance(self._engine, AsyncSQLCipherEngine):
+                # For SQLCipher engines, use the custom transaction interface
+                async with self._engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.drop_all)
+            else:
+                # Standard SQLAlchemy approach
+                async with self.engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.drop_all)
+                    
             logger.info("Database tables dropped successfully")
             
         except Exception as e:

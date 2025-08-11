@@ -417,8 +417,8 @@ class PolicyRun(Base):
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     result: Mapped[Optional[Dict[str, Any]]] = mapped_column(SQLiteJSON)
 
-    policy: Mapped["Policy"] = relationship()
-    event: Mapped["EventBus"] = relationship()
+    policy: Mapped["Policy"] = relationship(foreign_keys=[policy_id])
+    event: Mapped["EventBus"] = relationship(foreign_keys=[event_id])
     actions: Mapped[List["PolicyAction"]] = relationship(back_populates="run")
 
 
@@ -558,5 +558,31 @@ def create_host(
         credentials_ref=credentials_ref,
         host_metadata=metadata or {},
         discovered_at=datetime.now(timezone.utc),
+    )
+
+
+def create_event(
+    event_type: str,
+    description: str,
+    severity: str = "INFO",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> LegacyEvent:
+    """
+    Create a legacy event record.
+    
+    Args:
+        event_type: Type of event
+        description: Event description
+        severity: Event severity level
+        metadata: Additional event metadata
+        
+    Returns:
+        LegacyEvent instance
+    """
+    return LegacyEvent(
+        event_type=event_type,
+        description=description,
+        severity=severity,
+        event_metadata=metadata or {},
     )
 

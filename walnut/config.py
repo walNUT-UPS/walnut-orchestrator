@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     SECURE_COOKIES: bool = True
     ALLOWED_ORIGINS: list[str] = []
     SIGNUP_ENABLED: bool = False
+    TESTING_MODE: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

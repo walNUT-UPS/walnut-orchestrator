@@ -19,6 +19,7 @@ from ..database.models import UPSSample, create_event, create_ups_sample
 from .client import NUTClient, NUTConnectionError
 from .events import detect_events
 from .models import UPSData
+from ..core.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,10 @@ class NUTPoller:
                 current_data = UPSData.model_validate(ups_vars, from_attributes=True)
 
                 await self._process_data(current_data)
+                
+                # Broadcast UPS status via WebSocket
+                await self._broadcast_ups_status(current_data)
+                
                 self.previous_data = current_data
 
                 if time.time() - self.last_cleanup_time > 3600:  # Every hour
@@ -132,6 +137,9 @@ class NUTPoller:
                     )
                     session.add(event)
                     logger.warning(f"Generated event: {event_type} for UPS '{self.ups_name}'")
+                    
+                    # Broadcast event via WebSocket
+                    await self._broadcast_event(event_type, current_data)
         except Exception:
             logger.exception("Failed to process and store UPS data.")
 
@@ -149,6 +157,16 @@ class NUTPoller:
                             severity="CRITICAL",
                         )
                         session.add(event)
+                        
+                        # Broadcast critical connection lost event
+                        await websocket_manager.broadcast_event(
+                            "NUT_SERVER_LOST",
+                            {
+                                "ups_name": self.ups_name,
+                                "description": f"Connection to NUT server for UPS '{self.ups_name}' lost"
+                            },
+                            "CRITICAL"
+                        )
                 except Exception:
                     logger.exception("Failed to store NUT server lost event.")
 
@@ -165,3 +183,56 @@ class NUTPoller:
                     logger.info(f"Deleted {result.rowcount} old UPS samples.")
         except Exception:
             logger.exception("Failed to clean up old UPS data.")
+    
+    async def _broadcast_ups_status(self, ups_data: UPSData):
+        """
+        Broadcast UPS status update via WebSocket.
+        
+        Args:
+            ups_data: Current UPS data to broadcast
+        """
+        try:
+            # Convert UPS data to dictionary format for WebSocket broadcast
+            status_data = {
+                "ups_name": self.ups_name,
+                "battery_percent": ups_data.battery_charge,
+                "runtime_seconds": ups_data.battery_runtime,
+                "load_percent": ups_data.ups_load,
+                "input_voltage": ups_data.input_voltage,
+                "output_voltage": ups_data.output_voltage,
+                "status": ups_data.status,
+                "timestamp": time.time()
+            }
+            
+            # Broadcast via WebSocket manager
+            await websocket_manager.broadcast_ups_status(status_data)
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast UPS status: {e}")
+    
+    async def _broadcast_event(self, event_type: str, ups_data: UPSData):
+        """
+        Broadcast power event via WebSocket.
+        
+        Args:
+            event_type: Type of event that occurred
+            ups_data: Current UPS data context
+        """
+        try:
+            event_data = {
+                "ups_name": self.ups_name,
+                "event_type": event_type,
+                "description": f"Event '{event_type}' detected for UPS '{self.ups_name}'",
+                "battery_percent": ups_data.battery_charge,
+                "status": ups_data.status,
+                "timestamp": time.time()
+            }
+            
+            # Determine severity based on event type
+            severity = "CRITICAL" if event_type in ["MAINS_LOST", "LOW_BATTERY"] else "WARNING"
+            
+            # Broadcast via WebSocket manager
+            await websocket_manager.broadcast_event(event_type, event_data, severity)
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast event {event_type}: {e}")

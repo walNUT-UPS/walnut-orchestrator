@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from walnut.auth.auth import auth_backend
+from walnut.auth.csrf import csrf_protect
 from walnut.auth.deps import (
     current_active_user,
     current_admin,

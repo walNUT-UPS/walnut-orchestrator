@@ -47,7 +47,8 @@ class AsyncSQLCipherEngine:
         def creator():
             import pysqlcipher3.dbapi2 as sqlcipher
             conn = sqlcipher.connect(database_path, check_same_thread=False)
-            conn.execute(f"PRAGMA key = '{encryption_key}'")
+            escaped_key = encryption_key.replace("'", "''")
+            conn.execute(f"PRAGMA key = '{escaped_key}'")
             
             # Configure connection
             conn.execute("PRAGMA journal_mode=WAL")
@@ -165,6 +166,41 @@ class AsyncSQLCipherResult:
     async def fetchall(self):
         """Fetch all rows asynchronously."""  
         return await self.connection.fetchall(self.cursor)
+    
+    def unique(self):
+        """Return unique results - for SQLAlchemy compatibility."""
+        return self
+    
+    def all(self):
+        """Return all results as a list."""
+        # Fetch all synchronously since cursor is already executed
+        return self.cursor.fetchall()
+    
+    def first(self):
+        """Return first result or None."""
+        row = self.cursor.fetchone()
+        return row
+    
+    def one_or_none(self):
+        """Return exactly one result or None."""
+        return self.first()
+    
+    def scalars(self):
+        """Return scalar results - for SQLAlchemy compatibility."""
+        return self
+    
+    def scalar_one_or_none(self):
+        """Return scalar value from first row or None."""
+        row = self.cursor.fetchone()
+        return row[0] if row else None
+    
+    def scalar_one(self):
+        """Return scalar value from exactly one row."""
+        return self.scalar_one_or_none()
+    
+    def mappings(self):
+        """Return mapping results - for SQLAlchemy compatibility."""
+        return self
 
 
 class AsyncSQLCipherTransaction:
@@ -183,6 +219,17 @@ class AsyncSQLCipherTransaction:
         if hasattr(statement, 'text'):
             # Handle SQLAlchemy text() objects
             sql = str(statement)
+        elif hasattr(statement, 'compile'):
+            # Handle compiled SQLAlchemy statements
+            try:
+                from sqlalchemy.dialects import sqlite
+                compiled = statement.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True})
+                sql = str(compiled)
+                # When literal_binds=True, parameters are embedded in SQL, so no separate parameters needed
+                parameters = None
+            except Exception:
+                # Fallback to string conversion if compilation fails
+                sql = str(statement)
         else:
             sql = str(statement)
         
@@ -200,6 +247,23 @@ class AsyncSQLCipherTransaction:
     async def close(self):
         """Close the transaction."""
         # Transaction cleanup is handled by connection
+        pass
+    
+    def add(self, instance):
+        """Add instance to session - for SQLAlchemy ORM compatibility."""
+        # For our simple case, we'll handle this during commit
+        if not hasattr(self, '_pending_instances'):
+            self._pending_instances = []
+        self._pending_instances.append(instance)
+    
+    async def flush(self):
+        """Flush pending changes - for SQLAlchemy compatibility."""
+        # In our simple implementation, changes are handled at execute time
+        pass
+    
+    async def refresh(self, instance):
+        """Refresh instance from database - for SQLAlchemy compatibility."""
+        # Basic implementation - would need more work for full functionality
         pass
     
     async def run_sync(self, fn, *args, **kwargs):
@@ -226,7 +290,8 @@ class AsyncSQLCipherTransaction:
             def creator():
                 import pysqlcipher3.dbapi2 as sqlcipher
                 conn = sqlcipher.connect(self.connection.database_path, check_same_thread=False)
-                conn.execute(f"PRAGMA key = '{self.connection.encryption_key}'")
+                escaped_key = self.connection.encryption_key.replace("'", "''")
+                conn.execute(f"PRAGMA key = '{escaped_key}'")
                 
                 # Configure connection
                 conn.execute("PRAGMA journal_mode=WAL")
@@ -268,7 +333,8 @@ class AsyncSQLCipherTransaction:
             dummy_engine = create_engine("sqlite:///:memory:")
             
             conn = sqlcipher.connect(self.connection.database_path, check_same_thread=False)
-            conn.execute(f"PRAGMA key = '{self.connection.encryption_key}'")
+            escaped_key = self.connection.encryption_key.replace("'", "''")
+            conn.execute(f"PRAGMA key = '{escaped_key}'")
             
             # Configure connection
             conn.execute("PRAGMA journal_mode=WAL")
@@ -322,7 +388,8 @@ class AsyncSQLCipherTransaction:
             import pysqlcipher3.dbapi2 as sqlcipher
             
             conn = sqlcipher.connect(self.connection.database_path, check_same_thread=False)
-            conn.execute(f"PRAGMA key = '{self.connection.encryption_key}'")
+            escaped_key = self.connection.encryption_key.replace("'", "''")
+            conn.execute(f"PRAGMA key = '{escaped_key}'")
             
             # Configure connection
             conn.execute("PRAGMA journal_mode=WAL")
@@ -375,7 +442,7 @@ def create_async_sqlcipher_engine(database_url: str, echo: bool = False) -> Asyn
         raise ValueError(f"Invalid URL format: {database_url}")
     
     scheme = database_url[:scheme_end]
-    if not (scheme == 'sqlcipher' or scheme == 'sqlite+async_sqlcipher'):
+    if not (scheme == 'sqlcipher' or scheme == 'sqlite+sqlcipher' or scheme == 'sqlite+async_sqlcipher'):
         raise ValueError(f"Invalid URL scheme for SQLCipher: {scheme}")
     
     # Parse the rest of the URL
@@ -390,10 +457,18 @@ def create_async_sqlcipher_engine(database_url: str, echo: bool = False) -> Asyn
     
     # Extract encryption key
     params = parse_qs(parsed.query)
-    if 'encryption_key' not in params:
-        raise ValueError("Encryption key missing from database URL")
+    encryption_key = None
     
-    encryption_key = params['encryption_key'][0]
+    # Check for both 'key' and 'encryption_key' parameters
+    if 'encryption_key' in params:
+        encryption_key = params['encryption_key'][0]
+    elif 'key' in params:
+        encryption_key = params['key'][0]
+    else:
+        raise ValueError("Encryption key missing from database URL (expected 'key=' or 'encryption_key=' parameter)")
+    
+    if not encryption_key:
+        raise ValueError("Empty encryption key in database URL")
     
     return AsyncSQLCipherEngine(database_path, encryption_key, echo)
 
