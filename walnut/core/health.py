@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 
 import psutil
+import anyio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from walnut.config import settings
 from walnut.database.connection import get_db_session
@@ -89,14 +89,15 @@ class SystemHealthChecker:
             start_time = time.time()
             async with get_db_session() as session:
                 # Simple connectivity test
-                result = await session.execute(text("SELECT 1"))
-                result.fetchone()
+                result = await anyio.to_thread.run_sync(session.execute, text("SELECT 1"))
+                await anyio.to_thread.run_sync(result.fetchone)
                 
                 # Performance test - count recent samples
-                count_result = await session.execute(
+                count_result = await anyio.to_thread.run_sync(
+                    session.execute,
                     text("SELECT COUNT(*) FROM ups_samples WHERE timestamp > datetime('now', '-1 hour')")
                 )
-                recent_samples = count_result.scalar() or 0
+                recent_samples = await anyio.to_thread.run_sync(count_result.scalar) or 0
                 
             latency_ms = round((time.time() - start_time) * 1000, 2)
             
@@ -183,17 +184,19 @@ class SystemHealthChecker:
                 # Count samples in last hour
                 one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
                 
-                result = await session.execute(
+                result = await anyio.to_thread.run_sync(
+                    session.execute,
                     text("SELECT COUNT(*) FROM ups_samples WHERE timestamp > :cutoff"),
                     {"cutoff": one_hour_ago}
                 )
-                samples_last_hour = result.scalar() or 0
+                samples_last_hour = await anyio.to_thread.run_sync(result.scalar) or 0
                 
                 # Get latest sample timestamp
-                latest_result = await session.execute(
+                latest_result = await anyio.to_thread.run_sync(
+                    session.execute,
                     text("SELECT MAX(timestamp) FROM ups_samples")
                 )
-                latest_timestamp = latest_result.scalar()
+                latest_timestamp = await anyio.to_thread.run_sync(latest_result.scalar)
                 
                 # Expected samples per hour (assuming 5 second polling interval)
                 expected_samples = 720  # 60 * 60 / 5
@@ -346,19 +349,20 @@ class SystemHealthChecker:
             async with get_db_session() as session:
                 # Test 1: Simple query
                 start_time = time.time()
-                await session.execute(text("SELECT 1"))
+                await anyio.to_thread.run_sync(session.execute, text("SELECT 1"))
                 results["simple_query_ms"] = round((time.time() - start_time) * 1000, 2)
                 
                 # Test 2: Count records
                 start_time = time.time()
-                result = await session.execute(text("SELECT COUNT(*) FROM ups_samples"))
-                total_samples = result.scalar() or 0
+                result = await anyio.to_thread.run_sync(session.execute, text("SELECT COUNT(*) FROM ups_samples"))
+                total_samples = await anyio.to_thread.run_sync(result.scalar) or 0
                 results["count_query_ms"] = round((time.time() - start_time) * 1000, 2)
                 results["total_samples"] = total_samples
                 
                 # Test 3: Recent data query
                 start_time = time.time()
-                await session.execute(
+                await anyio.to_thread.run_sync(
+                    session.execute,
                     text("SELECT * FROM ups_samples WHERE timestamp > datetime('now', '-1 hour') LIMIT 100")
                 )
                 results["recent_data_query_ms"] = round((time.time() - start_time) * 1000, 2)
@@ -474,13 +478,14 @@ class SystemHealthChecker:
         try:
             async with get_db_session() as session:
                 # Look for power-related events in the new event_bus table
-                result = await session.execute(
+                result = await anyio.to_thread.run_sync(
+                    session.execute,
                     text("""
                         SELECT MAX(occurred_at) FROM event_bus 
                         WHERE type IN ('MAINS_LOST', 'MAINS_RETURNED', 'LOW_BATTERY', 'BATTERY_WARNING')
                     """)
                 )
-                timestamp = result.scalar()
+                timestamp = await anyio.to_thread.run_sync(result.scalar)
                 return timestamp.isoformat() if timestamp else None
                 
         except Exception as e:

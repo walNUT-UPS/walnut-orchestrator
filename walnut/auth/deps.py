@@ -3,7 +3,7 @@ import logging
 
 from fastapi import Depends, HTTPException, status
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin
-from fastapi_users.db import SQLAlchemyUserDatabase
+from walnut.auth.sync_user_db import SyncSQLAlchemyUserDatabase
 
 from walnut.auth.auth import auth_backend
 from walnut.auth.models import Role, User
@@ -30,11 +30,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
 async def get_user_db():
     async with get_db_session() as session:  # this yields a sync Session
-        yield SQLAlchemyUserDatabase(session, User)
+        yield SyncSQLAlchemyUserDatabase(session, User)
 
 
 async def get_user_manager(
-    user_db: SQLAlchemyUserDatabase = Depends(get_user_db),
+    user_db: SyncSQLAlchemyUserDatabase = Depends(get_user_db),
 ):
     yield UserManager(user_db)
 

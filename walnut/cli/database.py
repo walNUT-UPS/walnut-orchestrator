@@ -85,27 +85,39 @@ def stats() -> None:
                     text(f"SELECT COUNT(*) FROM {table_name}")
                 )
                 row_count = result.scalar()
+                # Ensure row count is an integer for consistent display
+                try:
+                    row_count = int(row_count) if row_count is not None else 0
+                except (ValueError, TypeError):
+                    row_count = 0
                 tables_info.append((table_name, row_count))
             except Exception as e:
                 tables_info.append((table_name, f"Error: {e}"))
 
         # Get database file size
         try:
-            page_count = session.execute(text("PRAGMA page_count")).scalar()
-            page_size = session.execute(text("PRAGMA page_size")).scalar()
+            page_count_result = session.execute(text("PRAGMA page_count")).scalar()
+            page_size_result = session.execute(text("PRAGMA page_size")).scalar()
             
-            if page_count is not None and page_size is not None:
-                db_size = page_count * page_size
+            if page_count_result is not None and page_size_result is not None:
+                try:
+                    page_count = int(page_count_result)
+                    page_size = int(page_size_result)
+                    db_size = page_count * page_size if page_count > 0 and page_size > 0 else 0
+                except (ValueError, TypeError):
+                    db_size = 0
             else:
-                db_size = None
+                db_size = 0
         except Exception:
-            db_size = None
+            db_size = 0
 
         # Get some database settings
         settings = {}
         for pragma in ["journal_mode", "synchronous", "cache_size", "foreign_keys"]:
             try:
-                settings[pragma] = session.execute(text(f"PRAGMA {pragma}")).scalar()
+                result = session.execute(text(f"PRAGMA {pragma}")).scalar()
+                # Convert to string for display, handling potential type issues
+                settings[pragma] = str(result) if result is not None else "Unknown"
             except Exception:
                 settings[pragma] = "Unknown"
         
@@ -117,7 +129,7 @@ def stats() -> None:
         settings_table.add_column("Setting", style="cyan")
         settings_table.add_column("Value", style="magenta")
         
-        if db_size and db_size > 0 and db_size < 10**12:
+        if isinstance(db_size, int) and db_size > 0 and db_size < 10**12:
             settings_table.add_row("Database Size", f"{db_size:,} bytes ({db_size/1024/1024:.2f} MB)")
         
         for key, value in settings.items():

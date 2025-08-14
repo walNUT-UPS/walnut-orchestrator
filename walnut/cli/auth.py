@@ -12,7 +12,7 @@ from rich.table import Table
 from walnut.auth.models import Role, User
 from walnut.auth.schemas import UserCreate
 from walnut.database.engine import SessionLocal
-from fastapi_users.db import SQLAlchemyUserDatabase
+from walnut.auth.sync_user_db import SyncSQLAlchemyUserDatabase
 from walnut.auth.deps import UserManager
 from fastapi_users.exceptions import UserAlreadyExists
 
@@ -33,22 +33,34 @@ def create_admin(email, password):
     console.print(f"[bold blue]Creating admin user: {email}[/bold blue]")
     session = SessionLocal()
     try:
-        user_db = SQLAlchemyUserDatabase(session, User)
+        user_db = SyncSQLAlchemyUserDatabase(session, User)
         user_manager = UserManager(user_db)
 
-        # The user manager's create method is async, so we need to run it in a thread.
+        # Check if user already exists using sync query
+        from sqlalchemy import select
+        existing_user = session.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        if existing_user:
+            console.print(f"[red]User with email {email} already exists.[/red]")
+            return
+
+        # Create user using sync operations
         user_create = UserCreate(email=email, password=password)
 
-        user = anyio.run(user_manager.create, user_create, True)
+        # Hash password using sync operation
+        hashed_password = user_manager.password_helper.hash(password)
         
-        # Update user to admin role
-        update_dict = {"role": Role.ADMIN, "is_superuser": True}
-
-        user = anyio.run(user_manager.user_db.update, user, update_dict)
+        # Create user directly with sync session
+        user = User(
+            email=email,
+            hashed_password=hashed_password,
+            role=Role.ADMIN,
+            is_superuser=True,
+            is_active=True,
+            is_verified=True
+        )
+        session.add(user)
         session.commit()
         console.print(f"[green]✅ Admin user {user.email} created successfully![/green]")
-    except UserAlreadyExists:
-        console.print(f"[red]User with email {email} already exists.[/red]")
     except Exception as e:
         console.print(f"[red]An error occurred: {e}[/red]")
         session.rollback()
@@ -106,10 +118,13 @@ def set_role(email, role):
     """Set the role for a user."""
     session = SessionLocal()
     try:
-        user_db = SQLAlchemyUserDatabase(session, User)
+        user_db = SyncSQLAlchemyUserDatabase(session, User)
         user_manager = UserManager(user_db)
 
-        user = anyio.run(user_manager.get_by_email, email)
+        # Get user using sync query
+        from sqlalchemy import select
+        result = session.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -121,7 +136,7 @@ def set_role(email, role):
         else:
             user.is_superuser = False
 
-        anyio.run(user_manager.user_db.update, user)
+        # User object is already tracked by session, just commit
         session.commit()
         console.print(f"[green]✅ Role for {email} set to {role}[/green]")
     except Exception as e:
@@ -137,10 +152,13 @@ def disable(email):
     """Disable a user."""
     session = SessionLocal()
     try:
-        user_db = SQLAlchemyUserDatabase(session, User)
+        user_db = SyncSQLAlchemyUserDatabase(session, User)
         user_manager = UserManager(user_db)
 
-        user = anyio.run(user_manager.get_by_email, email)
+        # Get user using sync query
+        from sqlalchemy import select
+        result = session.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -148,7 +166,7 @@ def disable(email):
 
         user.is_active = False
 
-        anyio.run(user_manager.user_db.update, user)
+        # User object is already tracked by session, just commit
         session.commit()
         console.print(f"[green]✅ User {email} disabled.[/green]")
     except Exception as e:
@@ -164,10 +182,13 @@ def enable(email):
     """Enable a user."""
     session = SessionLocal()
     try:
-        user_db = SQLAlchemyUserDatabase(session, User)
+        user_db = SyncSQLAlchemyUserDatabase(session, User)
         user_manager = UserManager(user_db)
 
-        user = anyio.run(user_manager.get_by_email, email)
+        # Get user using sync query
+        from sqlalchemy import select
+        result = session.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -175,7 +196,7 @@ def enable(email):
 
         user.is_active = True
 
-        anyio.run(user_manager.user_db.update, user)
+        # User object is already tracked by session, just commit
         session.commit()
         console.print(f"[green]✅ User {email} enabled.[/green]")
     except Exception as e:
@@ -192,10 +213,13 @@ def reset_password(email, password):
     """Reset a user's password."""
     session = SessionLocal()
     try:
-        user_db = SQLAlchemyUserDatabase(session, User)
+        user_db = SyncSQLAlchemyUserDatabase(session, User)
         user_manager = UserManager(user_db)
 
-        user = anyio.run(user_manager.get_by_email, email)
+        # Get user using sync query
+        from sqlalchemy import select
+        result = session.execute(select(User).where(User.email == email))
+        user = result.scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -203,7 +227,7 @@ def reset_password(email, password):
 
         user.hashed_password = user_manager.password_helper.hash(password)
 
-        anyio.run(user_manager.user_db.update, user)
+        # User object is already tracked by session, just commit
         session.commit()
         console.print(f"[green]✅ Password for {email} reset.[/green]")
     except Exception as e:

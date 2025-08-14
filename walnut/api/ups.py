@@ -4,7 +4,7 @@ from typing import Optional, List, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
-from sqlalchemy.ext.asyncio import AsyncSession
+import anyio
 
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
@@ -45,7 +45,7 @@ class UPSSamplesResponse(BaseModel):
 @router.get("/ups/status", response_model=UPSStatusResponse, summary="Get current UPS status")
 async def get_ups_status(
     user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_db_session)
+    session = Depends(get_db_session)
 ) -> UPSStatusResponse:
     """
     Get the most recent UPS status data.
@@ -56,8 +56,8 @@ async def get_ups_status(
     try:
         # Get the most recent UPS sample
         stmt = select(UPSSample).order_by(desc(UPSSample.timestamp)).limit(1)
-        result = await session.execute(stmt)
-        sample = result.scalar_one_or_none()
+        result = await anyio.to_thread.run_sync(session.execute, stmt)
+        sample = await anyio.to_thread.run_sync(result.scalar_one_or_none)
         
         if sample is None:
             raise HTTPException(
@@ -88,7 +88,7 @@ async def get_ups_samples(
     offset: int = Query(0, ge=0, description="Number of samples to skip"),
     since: Optional[datetime] = Query(None, description="Return samples since this timestamp (ISO 8601)"),
     user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_db_session)
+    session = Depends(get_db_session)
 ) -> UPSSamplesResponse:
     """
     Get historical UPS samples with pagination.
@@ -109,15 +109,15 @@ async def get_ups_samples(
         if since:
             count_query = count_query.where(UPSSample.timestamp >= since)
         
-        total_count_result = await session.execute(count_query)
-        total_count = total_count_result.scalar()
+        total_count_result = await anyio.to_thread.run_sync(session.execute, count_query)
+        total_count = await anyio.to_thread.run_sync(total_count_result.scalar)
         
         # Apply ordering, limit, and offset
         query = query.order_by(desc(UPSSample.timestamp)).limit(limit).offset(offset)
         
         # Execute query
-        result = await session.execute(query)
-        samples = result.scalars().all()
+        result = await anyio.to_thread.run_sync(session.execute, query)
+        samples = await anyio.to_thread.run_sync(result.scalars().all)
         
         # Convert to response format
         sample_responses = [
@@ -152,7 +152,7 @@ async def get_ups_samples(
 async def get_ups_health(
     hours: int = Query(24, ge=1, le=168, description="Number of hours to include in health summary"),
     user: User = Depends(current_active_user),
-    session: AsyncSession = Depends(get_db_session)
+    session = Depends(get_db_session)
 ) -> UPSHealthSummary:
     """
     Get UPS health summary for the specified time period.
@@ -172,8 +172,8 @@ async def get_ups_health(
             UPSSample.timestamp <= end_time
         )
         
-        result = await session.execute(query)
-        samples = result.scalars().all()
+        result = await anyio.to_thread.run_sync(session.execute, query)
+        samples = await anyio.to_thread.run_sync(result.scalars().all)
         
         if not samples:
             raise HTTPException(
