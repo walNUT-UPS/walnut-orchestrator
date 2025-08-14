@@ -2,8 +2,9 @@
 Main FastAPI application file for walNUT.
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Query, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
@@ -20,7 +21,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=settings.ALLOWED_ORIGINS if settings.ALLOWED_ORIGINS else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,10 +37,14 @@ app.include_router(ups.router, prefix="/api", tags=["UPS Monitoring"])
 app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(system.router, prefix="/api", tags=["System Health"])
 
-# Add WebSocket endpoint
+# Add WebSocket endpoints
+@app.websocket("/ws")
+async def websocket_main_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
+    await websocket_endpoint(websocket, token)
+
 @app.websocket("/ws/updates")
-async def websocket_updates_endpoint(websocket):
-    await websocket_endpoint(websocket)
+async def websocket_updates_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
+    await websocket_endpoint(websocket, token)
 
 # Add WebSocket info endpoint for debugging
 @app.get("/api/websocket/info")

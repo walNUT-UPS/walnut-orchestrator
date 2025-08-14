@@ -28,6 +28,7 @@ def nut(host: str, port: int) -> None:
 from walnut.database.connection import get_db_session
 from walnut.database.models import UPSSample
 from sqlalchemy import select, delete
+import anyio
 import time
 
 @test_cli.command()
@@ -40,20 +41,20 @@ async def database(samples: int) -> None:
     start_time = time.time()
     async with get_db_session() as session:
         # Clean up old test data
-        await session.execute(delete(UPSSample).where(UPSSample.status == "TESTING"))
+        await anyio.to_thread.run_sync(session.execute, delete(UPSSample).where(UPSSample.status == "TESTING"))
 
         # Write new samples
         for i in range(samples):
             sample = UPSSample(charge_percent=float(i), status="TESTING")
             session.add(sample)
-        await session.commit()
+        # commit is handled by the context manager
     write_time = time.time() - start_time
     console.print(f"Write test completed in {write_time:.2f} seconds.")
 
     start_time = time.time()
     async with get_db_session() as session:
-        result = await session.execute(select(UPSSample).where(UPSSample.status == "TESTING"))
-        read_samples = await result.scalars().all()
+        result = await anyio.to_thread.run_sync(session.execute, select(UPSSample).where(UPSSample.status == "TESTING"))
+        read_samples = await anyio.to_thread.run_sync(result.scalars().all)
     read_time = time.time() - start_time
     console.print(f"Read test completed in {read_time:.2f} seconds.")
 

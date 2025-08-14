@@ -53,7 +53,7 @@ async def authenticate_websocket_token(token: str) -> Optional[User]:
         import anyio
         async with get_db_session() as session:
             result = await anyio.to_thread.run_sync(session.execute, select(User).where(User.id == user_id))
-            user = await anyio.to_thread.run_sync(result.scalar_one_or_none)
+            user = result.scalar_one_or_none()
             return user if user and user.is_active else None
             
     except JWTError:
