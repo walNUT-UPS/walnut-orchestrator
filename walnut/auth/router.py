@@ -12,7 +12,8 @@ from walnut.auth.schemas import MeResponse, UserCreate, UserRead, UserUpdate
 from walnut.config import settings
 
 # APIRouter for all authentication-related endpoints
-auth_router = APIRouter(dependencies=[Depends(csrf_protect)])
+# Note: CSRF protection removed from router level to avoid affecting WebSocket routes
+auth_router = APIRouter()
 
 # Mount the login/logout router
 auth_router.include_router(

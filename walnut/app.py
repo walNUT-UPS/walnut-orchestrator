@@ -37,7 +37,7 @@ app.include_router(ups.router, prefix="/api", tags=["UPS Monitoring"])
 app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(system.router, prefix="/api", tags=["System Health"])
 
-# Add WebSocket endpoints
+# WebSocket endpoints
 @app.websocket("/ws")
 async def websocket_main_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
     await websocket_endpoint(websocket, token)
@@ -55,3 +55,4 @@ async def websocket_info():
 @app.get("/")
 async def root():
     return {"message": "Welcome to walNUT!"}
+
