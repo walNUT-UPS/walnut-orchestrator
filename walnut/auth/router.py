@@ -41,7 +41,8 @@ auth_router.include_router(
 )
 
 # Router for user management and API endpoints
-api_router = APIRouter()
+# Add CSRF protection for API endpoints (but NOT auth endpoints)
+api_router = APIRouter(dependencies=[Depends(csrf_protect)])
 
 # Mount the users router from fastapi-users
 api_router.include_router(

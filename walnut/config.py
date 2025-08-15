@@ -51,8 +51,21 @@ class Settings(BaseSettings):
     )
 
 
-# Global settings instance
-settings = Settings()
+# Global settings instance with user-friendly error handling
+try:
+    settings = Settings()
+except Exception as e:
+    # Provide user-friendly error messages for missing environment variables
+    if "JWT_SECRET" in str(e) and "Field required" in str(e):
+        print(f"Environment Configuration Error")
+        print(f"Missing required environment variable: WALNUT_JWT_SECRET")
+        print(f"Please set the JWT signing secret (minimum 32 characters):")
+        print(f"  export WALNUT_JWT_SECRET=\"your_32_character_jwt_secret_here\"")
+        import sys
+        sys.exit(1)
+    else:
+        # Re-raise other validation errors
+        raise
 
 def get_master_key() -> str:
     """
