@@ -12,7 +12,23 @@ from sqlalchemy.dialects import registry
 registry.register("sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDialect")
 
 DB_PATH = os.path.abspath("data/walnut.db")
-KEY = os.environ["WALNUT_DB_KEY"]  # must be set
+
+def get_db_key():
+    """Get database key with user-friendly error handling."""
+    key = os.environ.get("WALNUT_DB_KEY")
+    if not key:
+        raise ValueError(
+            "Missing WALNUT_DB_KEY environment variable.\n"
+            "Please set the database encryption key (minimum 32 characters):\n"
+            "  export WALNUT_DB_KEY=\"your_32_character_encryption_key_here\""
+        )
+    if len(key) < 32:
+        raise ValueError(
+            f"WALNUT_DB_KEY must be at least 32 characters (current: {len(key)})\n"
+            "Please set a longer encryption key:\n"
+            "  export WALNUT_DB_KEY=\"your_32_character_encryption_key_here\""
+        )
+    return key
 
 def _sqlcipher_creator():
     # Import here to avoid circular imports
@@ -30,7 +46,8 @@ def _sqlcipher_creator():
     conn.execute("PRAGMA cipher_compatibility = 3")
 
     # Always parameterize; no manual escaping.
-    escaped_key = KEY.replace("'", "''")
+    key = get_db_key()
+    escaped_key = key.replace("'", "''")
     conn.execute(f"PRAGMA key = '{escaped_key}'")
 
     # Your usual pragmas

@@ -1,7 +1,10 @@
 
 import click
 import logging
+import os
+import sys
 from rich.console import Console
+from pydantic import ValidationError
 
 from .database import db_cli
 from .keys import key_cli
@@ -10,6 +13,8 @@ from .system import system_cli
 from .hosts import hosts_cli
 from .backup import backup_cli
 from .auth import auth_cli
+
+console = Console()
 
 
 @click.group()

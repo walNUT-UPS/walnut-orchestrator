@@ -1,6 +1,7 @@
 
 import click
 import json
+import anyio
 from rich.console import Console
 from rich.json import JSON
 from .utils import handle_async_command
@@ -23,7 +24,7 @@ async def list_hosts(json_output: bool) -> None:
     """Lists all hosts."""
     console.print("[bold blue]Managed Hosts[/bold blue]")
     async with get_db_session() as session:
-        result = await session.execute(select(Host))
+        result = await anyio.to_thread.run_sync(session.execute, select(Host))
         hosts = result.scalars().all()
         if json_output:
             hosts_data = [
@@ -57,8 +58,7 @@ async def add(name: str, ip: str, ssh_key: str, user: str) -> None:
         host_metadata={"ssh_user": user, "ssh_key_path": ssh_key},
     )
     async with get_db_session() as session:
-        session.add(new_host)
-        await session.commit()
+        await anyio.to_thread.run_sync(session.add, new_host)
     console.print(f"[green]✅ Host '{name}' added successfully![/green]")
 
 @hosts_cli.command()
@@ -68,11 +68,10 @@ async def remove(name: str) -> None:
     """Removes a host."""
     console.print(f"[bold blue]Removing Host: {name}[/bold blue]")
     async with get_db_session() as session:
-        result = await session.execute(select(Host).where(Host.hostname == name))
+        result = await anyio.to_thread.run_sync(session.execute, select(Host).where(Host.hostname == name))
         host = result.scalar_one_or_none()
         if host:
-            await session.delete(host)
-            await session.commit()
+            await anyio.to_thread.run_sync(session.delete, host)
             console.print(f"[green]✅ Host '{name}' removed successfully![/green]")
         else:
             console.print(f"[red]Host '{name}' not found.[/red]")

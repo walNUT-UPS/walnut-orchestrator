@@ -36,7 +36,8 @@ async def authenticate_websocket_token(token: str) -> Optional[User]:
         payload = jwt.decode(
             token,
             settings.JWT_SECRET,
-            algorithms=["HS256"]
+            algorithms=["HS256"],
+            audience="fastapi-users:auth"
         )
         
         user_id: str = payload.get("sub")
@@ -70,8 +71,8 @@ async def websocket_endpoint(
     """
     WebSocket endpoint for real-time updates.
     
-    Accepts WebSocket connections with JWT authentication and handles
-    real-time communication for UPS status updates and events.
+    Accepts WebSocket connections ONLY after JWT authentication succeeds.
+    This prevents unauthenticated connections from consuming resources.
     
     Query Parameters:
         token: JWT authentication token (required)
@@ -91,26 +92,18 @@ async def websocket_endpoint(
     client_id = None
     
     try:
-        # Connect to WebSocket manager
-        client_id = await websocket_manager.connect(websocket)
-        
-        # Authenticate the client
+        # AUTHENTICATE FIRST - BEFORE accepting connection
         if not token:
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "data": {"message": "Authentication token required"}
-            }))
-            await websocket.close(code=4001)
+            await websocket.close(code=4001, reason="Authentication token required")
             return
         
         user = await authenticate_websocket_token(token)
         if not user:
-            await websocket.send_text(json.dumps({
-                "type": "error", 
-                "data": {"message": "Invalid authentication token"}
-            }))
-            await websocket.close(code=4001)
+            await websocket.close(code=4001, reason="Invalid authentication token")
             return
+        
+        # ONLY accept connection if authentication succeeds
+        client_id = await websocket_manager.connect(websocket)
         
         # Mark client as authenticated
         websocket_manager.authenticate_client(client_id, str(user.id))

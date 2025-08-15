@@ -210,12 +210,81 @@ alembic/
 └── script.py.mako     # Migration template
 ```
 
+## API Security & CSRF Protection
+
+walNUT implements selective CSRF protection to balance security and usability:
+
+### CSRF Requirements by Endpoint Type
+
+| Endpoint Type | Path Pattern | CSRF Required | Notes |
+|---------------|--------------|---------------|-------|
+| **Authentication** | `/auth/*` | ❌ No | Login, logout, registration |
+| **API Endpoints** | `/api/*` | ✅ Yes | All data operations |
+| **WebSocket** | `/ws*` | ❌ No | Real-time connections |
+
+### Using CSRF-Protected API Endpoints
+
+For all API calls to `/api/*` endpoints, include the `X-CSRF-Token` header:
+
+```javascript
+// Example API call with CSRF protection
+fetch('/api/me', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer ' + token,
+    'X-CSRF-Token': 'any-value-works'  // Header presence is validated, not content
+  }
+})
+```
+
+```bash
+# cURL example
+curl -X GET /api/me \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-CSRF-Token: required"
+```
+
+### CSRF Behavior Details
+
+- **Login Flow**: `/auth/jwt/login` works without CSRF token for initial authentication
+- **API Access**: All `/api/*` endpoints require `X-CSRF-Token` header for POST/PUT/PATCH/DELETE
+- **WebSocket Auth**: WebSocket connections authenticate via query parameter, no CSRF needed
+- **Header Validation**: Only header presence is checked, any value works
+
+### Example Integration
+
+```javascript
+// Complete login and API access flow
+async function loginAndFetchData() {
+  // 1. Login (no CSRF required)
+  const loginResponse = await fetch('/auth/jwt/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'username=user&password=pass'
+  });
+  
+  const { access_token } = await loginResponse.json();
+  
+  // 2. API call (CSRF required)
+  const dataResponse = await fetch('/api/me', {
+    headers: {
+      'Authorization': `Bearer ${access_token}`,
+      'X-CSRF-Token': 'required'  // Any value works
+    }
+  });
+  
+  return await dataResponse.json();
+}
+```
+
 ## Security Considerations
 
 1. **Master Key Security**: Store the master key securely using environment variables or Docker secrets
 2. **Local Storage Only**: Database validation prevents network filesystem usage
 3. **Encrypted Credentials**: All sensitive data stored with SQLCipher encryption
 4. **Connection Timeouts**: Prevent connection hanging with busy timeouts
+5. **CSRF Protection**: State-changing API endpoints require X-CSRF-Token header
+6. **Authentication**: JWT-based authentication with separate login/API token requirements
 
 ## Performance Optimizations
 
