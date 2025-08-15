@@ -92,6 +92,7 @@ cython_debug/
 *.db-wal
 *.db-shm
 data/
+walnut.db
 
 # Logs
 *.log
@@ -125,3 +126,19 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+
+# Test environments and artifacts
+*test-env/
+walnut-test-env/
+test-backup.db
+cookies.txt
+
+# Node modules and frontend build artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/.cache/

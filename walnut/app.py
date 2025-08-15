@@ -46,6 +46,28 @@ async def websocket_main_endpoint(websocket: WebSocket, token: Optional[str] = Q
 async def websocket_updates_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
     await websocket_endpoint(websocket, token)
 
+# Public health check for testing
+@app.get("/health")
+async def public_health_check():
+    """Public health check endpoint for testing"""
+    return {
+        "status": "ok",
+        "service": "walNUT",
+        "message": "Backend is running",
+        "auth_required": False
+    }
+
+# Public API health check for testing proxy
+@app.get("/api/health")
+async def api_health_check():
+    """Public API health check endpoint for testing proxy"""
+    return {
+        "status": "ok",
+        "service": "walNUT API",
+        "message": "API proxy is working",
+        "auth_required": False
+    }
+
 # Add WebSocket info endpoint for debugging
 @app.get("/api/websocket/info")
 async def websocket_info():
