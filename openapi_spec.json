@@ -1,0 +1,2829 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "walNUT API",
+        "description": "walNUT - UPS Management Platform with Network UPS Tools (NUT) integration",
+        "version": "0.1.0"
+    },
+    "paths": {
+        "/auth/jwt/login": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Auth:Jwt.Login",
+                "operationId": "auth_jwt_login_auth_jwt_login_post",
+                "requestBody": {
+                    "content": {
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_auth_jwt_login_auth_jwt_login_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorModel"
+                                },
+                                "examples": {
+                                    "LOGIN_BAD_CREDENTIALS": {
+                                        "summary": "Bad credentials or the user is inactive.",
+                                        "value": {
+                                            "detail": "LOGIN_BAD_CREDENTIALS"
+                                        }
+                                    },
+                                    "LOGIN_USER_NOT_VERIFIED": {
+                                        "summary": "The user is not verified.",
+                                        "value": {
+                                            "detail": "LOGIN_USER_NOT_VERIFIED"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/jwt/logout": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Auth:Jwt.Logout",
+                "operationId": "auth_jwt_logout_auth_jwt_logout_post",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing token or inactive user."
+                    },
+                    "204": {
+                        "description": "No Content"
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/auth/forgot-password": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Reset:Forgot Password",
+                "operationId": "reset_forgot_password_auth_forgot_password_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_reset_forgot_password_auth_forgot_password_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/reset-password": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Reset:Reset Password",
+                "operationId": "reset_reset_password_auth_reset_password_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_reset_reset_password_auth_reset_password_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorModel"
+                                },
+                                "examples": {
+                                    "RESET_PASSWORD_BAD_TOKEN": {
+                                        "summary": "Bad or expired token.",
+                                        "value": {
+                                            "detail": "RESET_PASSWORD_BAD_TOKEN"
+                                        }
+                                    },
+                                    "RESET_PASSWORD_INVALID_PASSWORD": {
+                                        "summary": "Password validation failed.",
+                                        "value": {
+                                            "detail": {
+                                                "code": "RESET_PASSWORD_INVALID_PASSWORD",
+                                                "reason": "Password should be at least 3 characters"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/request-verify-token": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Verify:Request-Token",
+                "operationId": "verify_request_token_auth_request_verify_token_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_verify_request_token_auth_request_verify_token_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/verify": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Verify:Verify",
+                "operationId": "verify_verify_auth_verify_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Body_verify_verify_auth_verify_post"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserRead"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorModel"
+                                },
+                                "examples": {
+                                    "VERIFY_USER_BAD_TOKEN": {
+                                        "summary": "Bad token, not existing user ornot the e-mail currently set for the user.",
+                                        "value": {
+                                            "detail": "VERIFY_USER_BAD_TOKEN"
+                                        }
+                                    },
+                                    "VERIFY_USER_ALREADY_VERIFIED": {
+                                        "summary": "The user is already verified.",
+                                        "value": {
+                                            "detail": "VERIFY_USER_ALREADY_VERIFIED"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/users/me": {
+            "get": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Users:Current User",
+                "operationId": "users_current_user_api_users_me_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserRead"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing token or inactive user."
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Users:Patch Current User",
+                "operationId": "users_patch_current_user_api_users_me_patch",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserRead"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing token or inactive user."
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorModel"
+                                },
+                                "examples": {
+                                    "UPDATE_USER_EMAIL_ALREADY_EXISTS": {
+                                        "summary": "A user with this email already exists.",
+                                        "value": {
+                                            "detail": "UPDATE_USER_EMAIL_ALREADY_EXISTS"
+                                        }
+                                    },
+                                    "UPDATE_USER_INVALID_PASSWORD": {
+                                        "summary": "Password validation failed.",
+                                        "value": {
+                                            "detail": {
+                                                "code": "UPDATE_USER_INVALID_PASSWORD",
+                                                "reason": "Password should beat least 3 characters"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/users/{id}": {
+            "get": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Users:User",
+                "operationId": "users_user_api_users__id__get",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserRead"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing token or inactive user."
+                    },
+                    "403": {
+                        "description": "Not a superuser."
+                    },
+                    "404": {
+                        "description": "The user does not exist."
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Users:Patch User",
+                "operationId": "users_patch_user_api_users__id__patch",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserUpdate"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserRead"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing token or inactive user."
+                    },
+                    "403": {
+                        "description": "Not a superuser."
+                    },
+                    "404": {
+                        "description": "The user does not exist."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "UPDATE_USER_EMAIL_ALREADY_EXISTS": {
+                                        "summary": "A user with this email already exists.",
+                                        "value": {
+                                            "detail": "UPDATE_USER_EMAIL_ALREADY_EXISTS"
+                                        }
+                                    },
+                                    "UPDATE_USER_INVALID_PASSWORD": {
+                                        "summary": "Password validation failed.",
+                                        "value": {
+                                            "detail": {
+                                                "code": "UPDATE_USER_INVALID_PASSWORD",
+                                                "reason": "Password should beat least 3 characters"
+                                            }
+                                        }
+                                    }
+                                },
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorModel"
+                                }
+                            }
+                        },
+                        "description": "Bad Request"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Users:Delete User",
+                "operationId": "users_delete_user_api_users__id__delete",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "title": "Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "401": {
+                        "description": "Missing token or inactive user."
+                    },
+                    "403": {
+                        "description": "Not a superuser."
+                    },
+                    "404": {
+                        "description": "The user does not exist."
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/me": {
+            "get": {
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Me",
+                "description": "Get current user details.",
+                "operationId": "me_api_me_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MeResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/admin-only": {
+            "get": {
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Admin Only Endpoint",
+                "description": "An example endpoint that only admin users can access.",
+                "operationId": "admin_only_endpoint_api_admin_only_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/policies": {
+            "get": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "List all policies",
+                "operationId": "list_policies_api_policies_get",
+                "parameters": [
+                    {
+                        "name": "enabled",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Enabled"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Create a new policy",
+                "operationId": "create_policy_api_policies_post",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicySchema"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/policies/{policy_id}": {
+            "get": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Get a single policy",
+                "operationId": "get_policy_api_policies__policy_id__get",
+                "parameters": [
+                    {
+                        "name": "policy_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Policy Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Update a policy",
+                "operationId": "update_policy_api_policies__policy_id__put",
+                "parameters": [
+                    {
+                        "name": "policy_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Policy Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PolicySchema"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Delete a policy",
+                "operationId": "delete_policy_api_policies__policy_id__delete",
+                "parameters": [
+                    {
+                        "name": "policy_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Policy Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/policies/reorder": {
+            "post": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Reorder policies",
+                "operationId": "reorder_policies_api_policies_reorder_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "items": {
+                                    "additionalProperties": true,
+                                    "type": "object"
+                                },
+                                "type": "array",
+                                "title": "Ordered Policies"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/policies/{policy_id}/lint": {
+            "post": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Lint a policy",
+                "operationId": "lint_policy_endpoint_api_policies__policy_id__lint_post",
+                "parameters": [
+                    {
+                        "name": "policy_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Policy Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/policies/{policy_id}/plan": {
+            "post": {
+                "tags": [
+                    "Policies"
+                ],
+                "summary": "Generate a plan for a policy",
+                "operationId": "plan_policy_api_policies__policy_id__plan_post",
+                "parameters": [
+                    {
+                        "name": "policy_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Policy Id"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "anyOf": [
+                                    {
+                                        "type": "object",
+                                        "additionalProperties": true
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "title": "Event"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/policy-runs": {
+            "get": {
+                "tags": [
+                    "Policy Runs"
+                ],
+                "summary": "List policy runs",
+                "operationId": "list_policy_runs_api_policy_runs_get",
+                "parameters": [
+                    {
+                        "name": "policy_id",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "integer"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "title": "Policy Id"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "default": 20,
+                            "title": "Limit"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/policy-runs/{run_id}": {
+            "get": {
+                "tags": [
+                    "Policy Runs"
+                ],
+                "summary": "Get a single policy run",
+                "operationId": "get_policy_run_api_policy_runs__run_id__get",
+                "parameters": [
+                    {
+                        "name": "run_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "title": "Run Id"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/admin/events/inject": {
+            "post": {
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Inject a simulation event",
+                "operationId": "inject_event_api_admin_admin_events_inject_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "additionalProperties": true,
+                                "type": "object",
+                                "title": "Event"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ups/status": {
+            "get": {
+                "tags": [
+                    "UPS Monitoring"
+                ],
+                "summary": "Get current UPS status",
+                "description": "Get the most recent UPS status data.\n\nReturns the latest sample with battery charge, runtime, load, voltages, and status.\nRequires authentication.",
+                "operationId": "get_ups_status_api_ups_status_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UPSStatusResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/ups/samples": {
+            "get": {
+                "tags": [
+                    "UPS Monitoring"
+                ],
+                "summary": "Get historical UPS samples",
+                "description": "Get historical UPS samples with pagination.\n\nSupports filtering by timestamp and pagination. Results are ordered by timestamp descending (newest first).\nRequires authentication.",
+                "operationId": "get_ups_samples_api_ups_samples_get",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "description": "Maximum number of samples to return",
+                            "default": 100,
+                            "title": "Limit"
+                        },
+                        "description": "Maximum number of samples to return"
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Number of samples to skip",
+                            "default": 0,
+                            "title": "Offset"
+                        },
+                        "description": "Number of samples to skip"
+                    },
+                    {
+                        "name": "since",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Return samples since this timestamp (ISO 8601)",
+                            "title": "Since"
+                        },
+                        "description": "Return samples since this timestamp (ISO 8601)"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UPSSamplesResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/ups/health": {
+            "get": {
+                "tags": [
+                    "UPS Monitoring"
+                ],
+                "summary": "Get 24-hour UPS health summary",
+                "description": "Get UPS health summary for the specified time period.\n\nReturns battery statistics, time on battery, and sample counts for health monitoring.\nDefaults to 24 hours but can be configured up to 168 hours (1 week).\nRequires authentication.",
+                "operationId": "get_ups_health_api_ups_health_get",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "hours",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 168,
+                            "minimum": 1,
+                            "description": "Number of hours to include in health summary",
+                            "default": 24,
+                            "title": "Hours"
+                        },
+                        "description": "Number of hours to include in health summary"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UPSHealthSummary"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/events": {
+            "get": {
+                "tags": [
+                    "Events"
+                ],
+                "summary": "Get Events",
+                "description": "Get event timeline with optional filtering.\n\nReturns events sorted by timestamp descending (most recent first).\nSupports filtering by severity level and date range.",
+                "operationId": "get_events_api_events_get",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 1000,
+                            "minimum": 1,
+                            "description": "Number of events to return",
+                            "default": 50,
+                            "title": "Limit"
+                        },
+                        "description": "Number of events to return"
+                    },
+                    {
+                        "name": "severity",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/components/schemas/SeverityLevel"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter by severity level",
+                            "title": "Severity"
+                        },
+                        "description": "Filter by severity level"
+                    },
+                    {
+                        "name": "since",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "anyOf": [
+                                {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Filter events since this ISO8601 timestamp",
+                            "title": "Since"
+                        },
+                        "description": "Filter events since this ISO8601 timestamp"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/EventResponse"
+                                    },
+                                    "title": "Response Get Events Api Events Get"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Events"
+                ],
+                "summary": "Create Event",
+                "description": "Create a manual event entry.\n\nUseful for testing or manual event logging.",
+                "operationId": "create_event_api_events_post",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EventCreate"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EventResponse"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/events/stats": {
+            "get": {
+                "tags": [
+                    "Events"
+                ],
+                "summary": "Get Event Stats",
+                "description": "Get event statistics including count by severity and recent activity.",
+                "operationId": "get_event_stats_api_events_stats_get",
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "days",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 365,
+                            "minimum": 1,
+                            "description": "Number of days to include in statistics",
+                            "default": 7,
+                            "title": "Days"
+                        },
+                        "description": "Number of days to include in statistics"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EventStats"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/events/severity-colors": {
+            "get": {
+                "tags": [
+                    "Events"
+                ],
+                "summary": "Get Severity Color Hints",
+                "description": "Get severity color coding hints for frontend display.",
+                "operationId": "get_severity_color_hints_api_events_severity_colors_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/SeverityColor"
+                                    },
+                                    "type": "array",
+                                    "title": "Response Get Severity Color Hints Api Events Severity Colors Get"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/system/health": {
+            "get": {
+                "tags": [
+                    "System Health"
+                ],
+                "summary": "Get System Health",
+                "description": "Get overall system health status.\n\nReturns comprehensive health information including:\n- Overall system status (healthy/degraded/critical)\n- Individual component health status\n- System uptime and last power event\n\nRequires authentication.",
+                "operationId": "get_system_health_api_system_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/system/config": {
+            "get": {
+                "tags": [
+                    "System Health"
+                ],
+                "summary": "Get System Config",
+                "description": "Get current system configuration status.\n\nReturns non-sensitive configuration settings including:\n- System version and polling intervals\n- Database and NUT server configuration\n- CORS and security settings\n\nRequires authentication.",
+                "operationId": "get_system_config_api_system_config_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ConfigResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/system/test/database": {
+            "post": {
+                "tags": [
+                    "System Health"
+                ],
+                "summary": "Test Database Performance",
+                "description": "Test database connectivity and performance.\n\nPerforms various database operations to test:\n- Basic connectivity\n- Query performance\n- Data retrieval speed\n\nReturns detailed performance metrics.\nRequires authentication.",
+                "operationId": "test_database_performance_api_system_test_database_post",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TestResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/system/test/nut": {
+            "post": {
+                "tags": [
+                    "System Health"
+                ],
+                "summary": "Test Nut Connection",
+                "description": "Test NUT server connection and functionality.\n\nPerforms comprehensive NUT server tests:\n- Connection establishment\n- UPS device discovery\n- Variable retrieval\n- Response time measurement\n\nReturns detailed connection diagnostics.\nRequires authentication.",
+                "operationId": "test_nut_connection_api_system_test_nut_post",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TestResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/api/system/status": {
+            "get": {
+                "tags": [
+                    "System Health"
+                ],
+                "summary": "Get Basic Status",
+                "description": "Get basic system status for quick health checks.\n\nReturns minimal status information without detailed diagnostics.\nUseful for load balancer health checks or monitoring systems.\n\nRequires authentication.",
+                "operationId": "get_basic_status_api_system_status_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "type": "object",
+                                    "title": "Response Get Basic Status Api System Status Get"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "APIKeyCookie": []
+                    }
+                ]
+            }
+        },
+        "/health": {
+            "get": {
+                "summary": "Public Health Check",
+                "description": "Public health check endpoint for testing",
+                "operationId": "public_health_check_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/health": {
+            "get": {
+                "summary": "Api Health Check",
+                "description": "Public API health check endpoint for testing proxy",
+                "operationId": "api_health_check_api_health_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/websocket/info": {
+            "get": {
+                "summary": "Websocket Info",
+                "operationId": "websocket_info_api_websocket_info_get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/": {
+            "get": {
+                "summary": "Root",
+                "operationId": "root__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Body_auth_jwt_login_auth_jwt_login_post": {
+                "properties": {
+                    "grant_type": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "pattern": "^password$"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Grant Type"
+                    },
+                    "username": {
+                        "type": "string",
+                        "title": "Username"
+                    },
+                    "password": {
+                        "type": "string",
+                        "format": "password",
+                        "title": "Password"
+                    },
+                    "scope": {
+                        "type": "string",
+                        "title": "Scope",
+                        "default": ""
+                    },
+                    "client_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Client Id"
+                    },
+                    "client_secret": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "format": "password",
+                        "title": "Client Secret"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "title": "Body_auth_jwt_login_auth_jwt_login_post"
+            },
+            "Body_reset_forgot_password_auth_forgot_password_post": {
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "email"
+                ],
+                "title": "Body_reset_forgot_password_auth_forgot_password_post"
+            },
+            "Body_reset_reset_password_auth_reset_password_post": {
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "title": "Token"
+                    },
+                    "password": {
+                        "type": "string",
+                        "title": "Password"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "token",
+                    "password"
+                ],
+                "title": "Body_reset_reset_password_auth_reset_password_post"
+            },
+            "Body_verify_request_token_auth_request_verify_token_post": {
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "email"
+                ],
+                "title": "Body_verify_request_token_auth_request_verify_token_post"
+            },
+            "Body_verify_verify_auth_verify_post": {
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "title": "Token"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "token"
+                ],
+                "title": "Body_verify_verify_auth_verify_post"
+            },
+            "Conditions": {
+                "properties": {
+                    "all": {
+                        "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "title": "All",
+                        "default": []
+                    },
+                    "any": {
+                        "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "title": "Any",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "title": "Conditions"
+            },
+            "ConfigResponse": {
+                "properties": {
+                    "version": {
+                        "type": "string",
+                        "title": "Version"
+                    },
+                    "poll_interval_seconds": {
+                        "type": "integer",
+                        "title": "Poll Interval Seconds"
+                    },
+                    "heartbeat_timeout_seconds": {
+                        "type": "integer",
+                        "title": "Heartbeat Timeout Seconds"
+                    },
+                    "data_retention_hours": {
+                        "type": "integer",
+                        "title": "Data Retention Hours"
+                    },
+                    "database_type": {
+                        "type": "string",
+                        "title": "Database Type"
+                    },
+                    "nut_server": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Nut Server"
+                    },
+                    "cors_enabled": {
+                        "type": "boolean",
+                        "title": "Cors Enabled"
+                    },
+                    "allowed_origins_count": {
+                        "type": "integer",
+                        "title": "Allowed Origins Count"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "version",
+                    "poll_interval_seconds",
+                    "heartbeat_timeout_seconds",
+                    "data_retention_hours",
+                    "database_type",
+                    "nut_server",
+                    "cors_enabled",
+                    "allowed_origins_count"
+                ],
+                "title": "ConfigResponse",
+                "description": "Response model for configuration status."
+            },
+            "ErrorModel": {
+                "properties": {
+                    "detail": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            }
+                        ],
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "detail"
+                ],
+                "title": "ErrorModel"
+            },
+            "EventCreate": {
+                "properties": {
+                    "event_type": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "title": "Event Type",
+                        "description": "Event type identifier"
+                    },
+                    "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "title": "Description",
+                        "description": "Human-readable event description"
+                    },
+                    "severity": {
+                        "$ref": "#/components/schemas/SeverityLevel",
+                        "description": "Event severity level"
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata",
+                        "description": "Optional event metadata"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "event_type",
+                    "description",
+                    "severity"
+                ],
+                "title": "EventCreate"
+            },
+            "EventResponse": {
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "title": "Id"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Timestamp"
+                    },
+                    "event_type": {
+                        "type": "string",
+                        "title": "Event Type"
+                    },
+                    "description": {
+                        "type": "string",
+                        "title": "Description"
+                    },
+                    "severity": {
+                        "type": "string",
+                        "title": "Severity"
+                    },
+                    "metadata": {
+                        "anyOf": [
+                            {
+                                "additionalProperties": true,
+                                "type": "object"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Metadata"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "timestamp",
+                    "event_type",
+                    "description",
+                    "severity",
+                    "metadata"
+                ],
+                "title": "EventResponse"
+            },
+            "EventStats": {
+                "properties": {
+                    "total_count": {
+                        "type": "integer",
+                        "title": "Total Count"
+                    },
+                    "info_count": {
+                        "type": "integer",
+                        "title": "Info Count"
+                    },
+                    "warning_count": {
+                        "type": "integer",
+                        "title": "Warning Count"
+                    },
+                    "critical_count": {
+                        "type": "integer",
+                        "title": "Critical Count"
+                    },
+                    "recent_activity": {
+                        "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                        },
+                        "type": "array",
+                        "title": "Recent Activity"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "total_count",
+                    "info_count",
+                    "warning_count",
+                    "critical_count",
+                    "recent_activity"
+                ],
+                "title": "EventStats"
+            },
+            "HTTPValidationError": {
+                "properties": {
+                    "detail": {
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        },
+                        "type": "array",
+                        "title": "Detail"
+                    }
+                },
+                "type": "object",
+                "title": "HTTPValidationError"
+            },
+            "HealthResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "timestamp": {
+                        "type": "string",
+                        "title": "Timestamp"
+                    },
+                    "components": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Components"
+                    },
+                    "uptime_seconds": {
+                        "type": "integer",
+                        "title": "Uptime Seconds"
+                    },
+                    "last_power_event": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Last Power Event"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "timestamp",
+                    "components",
+                    "uptime_seconds"
+                ],
+                "title": "HealthResponse",
+                "description": "Response model for health check endpoints."
+            },
+            "MeResponse": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Id"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email"
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/Role"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "email",
+                    "role"
+                ],
+                "title": "MeResponse"
+            },
+            "PolicySchema": {
+                "properties": {
+                    "version": {
+                        "type": "string",
+                        "title": "Version",
+                        "default": "1.0"
+                    },
+                    "name": {
+                        "type": "string",
+                        "title": "Name"
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "title": "Enabled",
+                        "default": true
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "maximum": 255.0,
+                        "minimum": 0.0,
+                        "title": "Priority"
+                    },
+                    "trigger": {
+                        "$ref": "#/components/schemas/Trigger"
+                    },
+                    "conditions": {
+                        "$ref": "#/components/schemas/Conditions"
+                    },
+                    "targets": {
+                        "$ref": "#/components/schemas/Targets"
+                    },
+                    "safeties": {
+                        "$ref": "#/components/schemas/Safeties"
+                    },
+                    "steps": {
+                        "items": {
+                            "$ref": "#/components/schemas/Step"
+                        },
+                        "type": "array",
+                        "title": "Steps"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "name",
+                    "priority",
+                    "trigger",
+                    "conditions",
+                    "targets",
+                    "safeties",
+                    "steps"
+                ],
+                "title": "PolicySchema"
+            },
+            "Role": {
+                "type": "string",
+                "enum": [
+                    "admin",
+                    "viewer"
+                ],
+                "title": "Role"
+            },
+            "Safeties": {
+                "properties": {
+                    "suppression_window": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Suppression Window"
+                    },
+                    "global_lock": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Global Lock"
+                    },
+                    "never_hosts": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Never Hosts",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "title": "Safeties"
+            },
+            "SeverityColor": {
+                "properties": {
+                    "severity": {
+                        "type": "string",
+                        "title": "Severity"
+                    },
+                    "color": {
+                        "type": "string",
+                        "title": "Color"
+                    },
+                    "text_color": {
+                        "type": "string",
+                        "title": "Text Color"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "severity",
+                    "color",
+                    "text_color"
+                ],
+                "title": "SeverityColor"
+            },
+            "SeverityLevel": {
+                "type": "string",
+                "enum": [
+                    "INFO",
+                    "WARNING",
+                    "CRITICAL"
+                ],
+                "title": "SeverityLevel"
+            },
+            "Step": {
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "ssh.shutdown",
+                            "proxmox.suspend",
+                            "webhook.post",
+                            "notify",
+                            "sleep"
+                        ],
+                        "title": "Type"
+                    },
+                    "params": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Params",
+                        "default": {}
+                    },
+                    "timeout": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Timeout",
+                        "default": "120s"
+                    },
+                    "retries": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Retries",
+                        "default": 0
+                    },
+                    "backoff": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Backoff",
+                        "default": "10s"
+                    },
+                    "continue_on_error": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Continue On Error",
+                        "default": false
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "type"
+                ],
+                "title": "Step"
+            },
+            "TargetSelector": {
+                "properties": {
+                    "hosts": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Hosts",
+                        "default": []
+                    },
+                    "tags": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Tags",
+                        "default": []
+                    },
+                    "types": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array",
+                        "title": "Types",
+                        "default": []
+                    }
+                },
+                "type": "object",
+                "title": "TargetSelector"
+            },
+            "Targets": {
+                "properties": {
+                    "selector": {
+                        "$ref": "#/components/schemas/TargetSelector"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "selector"
+                ],
+                "title": "Targets"
+            },
+            "TestResponse": {
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "title": "Status"
+                    },
+                    "details": {
+                        "additionalProperties": true,
+                        "type": "object",
+                        "title": "Details"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status",
+                    "details"
+                ],
+                "title": "TestResponse",
+                "description": "Response model for component test endpoints."
+            },
+            "Trigger": {
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": [
+                            "status_transition",
+                            "duration",
+                            "schedule"
+                        ],
+                        "title": "Type"
+                    },
+                    "from": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "From"
+                    },
+                    "to": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "To"
+                    },
+                    "stable_for": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Stable For"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "type"
+                ],
+                "title": "Trigger"
+            },
+            "UPSHealthSummary": {
+                "properties": {
+                    "period_hours": {
+                        "type": "integer",
+                        "title": "Period Hours",
+                        "description": "Time period covered in hours"
+                    },
+                    "avg_battery": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Avg Battery",
+                        "description": "Average battery charge percentage"
+                    },
+                    "min_battery": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Min Battery",
+                        "description": "Minimum battery charge percentage"
+                    },
+                    "max_battery": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Max Battery",
+                        "description": "Maximum battery charge percentage"
+                    },
+                    "time_on_battery_seconds": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Time On Battery Seconds",
+                        "description": "Total time on battery power"
+                    },
+                    "samples_count": {
+                        "type": "integer",
+                        "title": "Samples Count",
+                        "description": "Number of samples in this period"
+                    },
+                    "last_updated": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Last Updated",
+                        "description": "Timestamp of most recent sample"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "period_hours",
+                    "samples_count",
+                    "last_updated"
+                ],
+                "title": "UPSHealthSummary"
+            },
+            "UPSSamplesResponse": {
+                "properties": {
+                    "samples": {
+                        "items": {
+                            "$ref": "#/components/schemas/UPSStatusResponse"
+                        },
+                        "type": "array",
+                        "title": "Samples"
+                    },
+                    "total_count": {
+                        "type": "integer",
+                        "title": "Total Count"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "title": "Limit"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "title": "Offset"
+                    },
+                    "has_more": {
+                        "type": "boolean",
+                        "title": "Has More"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "samples",
+                    "total_count",
+                    "limit",
+                    "offset",
+                    "has_more"
+                ],
+                "title": "UPSSamplesResponse"
+            },
+            "UPSStatusResponse": {
+                "properties": {
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time",
+                        "title": "Timestamp"
+                    },
+                    "battery_percent": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Battery Percent",
+                        "description": "Battery charge percentage (0-100)"
+                    },
+                    "runtime_seconds": {
+                        "anyOf": [
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Runtime Seconds",
+                        "description": "Estimated runtime in seconds"
+                    },
+                    "load_percent": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Load Percent",
+                        "description": "UPS load percentage (0-100)"
+                    },
+                    "input_voltage": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Input Voltage",
+                        "description": "Input voltage from mains"
+                    },
+                    "output_voltage": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Output Voltage",
+                        "description": "Output voltage to devices"
+                    },
+                    "status": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Status",
+                        "description": "UPS status string"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "timestamp"
+                ],
+                "title": "UPSStatusResponse"
+            },
+            "UserRead": {
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "title": "Id"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email"
+                    },
+                    "is_active": {
+                        "type": "boolean",
+                        "title": "Is Active",
+                        "default": true
+                    },
+                    "is_superuser": {
+                        "type": "boolean",
+                        "title": "Is Superuser",
+                        "default": false
+                    },
+                    "is_verified": {
+                        "type": "boolean",
+                        "title": "Is Verified",
+                        "default": false
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/Role"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "id",
+                    "email",
+                    "role"
+                ],
+                "title": "UserRead"
+            },
+            "UserUpdate": {
+                "properties": {
+                    "password": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Password"
+                    },
+                    "email": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "email"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Email"
+                    },
+                    "is_active": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Is Active"
+                    },
+                    "is_superuser": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Is Superuser"
+                    },
+                    "is_verified": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "title": "Is Verified"
+                    },
+                    "role": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/Role"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "type": "object",
+                "title": "UserUpdate"
+            },
+            "ValidationError": {
+                "properties": {
+                    "loc": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
+                        },
+                        "type": "array",
+                        "title": "Location"
+                    },
+                    "msg": {
+                        "type": "string",
+                        "title": "Message"
+                    },
+                    "type": {
+                        "type": "string",
+                        "title": "Error Type"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "title": "ValidationError"
+            }
+        },
+        "securitySchemes": {
+            "APIKeyCookie": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "walnut_access"
+            }
+        }
+    }
+}
