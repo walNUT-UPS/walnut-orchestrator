@@ -5,7 +5,6 @@ import os
 from unittest.mock import patch, AsyncMock
 import pytest
 from walnut.cli.main import app
-from walnut.database.engine import DatabaseError
 
 @pytest.mark.usefixtures("mock_create_database_engine")
 class TestDatabaseCLI:
@@ -28,8 +27,8 @@ class TestDatabaseCLI:
 
     @patch('walnut.cli.database.init_database')
     def test_init_command_database_error(self, mock_init, cli_runner):
-        """Test init command handles DatabaseError."""
-        mock_init.side_effect = DatabaseError("Connection failed")
+        """Test init command handles ValueError."""
+        mock_init.side_effect = ValueError("Connection failed")
         result = cli_runner.invoke(app, ["db", "init"])
         assert "Database initialization failed: Connection failed" in result.output
 

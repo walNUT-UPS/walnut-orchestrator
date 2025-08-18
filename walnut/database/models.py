@@ -155,53 +155,139 @@ class LegacyEvent(Base):
     )
 
 
-class Integration(Base):
+# --- Integration Framework Models ---
+
+class IntegrationType(Base):
     """
-    Integration configurations for external systems.
-    
-    Stores connection details for Proxmox, Tapo devices, SSH hosts,
-    and other systems that walNUT can manage during power events.
+    Stores YAML manifests for integration types (e.g., proxmox-ve, tapo-smartplug).
     """
-    __tablename__ = "integrations"
-    
+    __tablename__ = "integration_types"
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False,
-        unique=True,
-        comment="Unique integration name"
-    )
-    type: Mapped[str] = mapped_column(
-        String(100),
-        nullable=False,
-        index=True,
-        comment="Integration type: proxmox, tapo, ssh, winrm, etc."
-    )
-    
-    # Configuration and status
-    config: Mapped[Dict[str, Any]] = mapped_column(
-        SQLiteJSON,
-        nullable=False,
-        comment="Integration configuration (encrypted connection details)"
-    )
-    enabled: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=True,
-        index=True,
-        comment="Whether integration is active"
-    )
-    last_success: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-        comment="Timestamp of last successful connection"
-    )
-    
-    # Add indexes for queries
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    min_core_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    manifest_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    capabilities: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+    driver_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    driver_entrypoint: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
+
+    instances: Mapped[List["IntegrationInstance"]] = relationship(back_populates="type")
+
     __table_args__ = (
-        Index("idx_integrations_type_enabled", "type", "enabled"),
-        Index("idx_integrations_enabled", "enabled"),
+        UniqueConstraint("name", "version", name="uq_integration_type_name_version"),
     )
+
+
+class IntegrationInstance(Base):
+    """
+    A configured and enabled instance of an IntegrationType (e.g., pve-01).
+    """
+    __tablename__ = "integration_instances"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    type_id: Mapped[int] = mapped_column(ForeignKey("integration_types.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    config: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    health_status: Mapped[str] = mapped_column(String(50), default="unknown", nullable=False)
+
+    # Circuit breaker fields
+    state: Mapped[str] = mapped_column(String(50), default="closed", nullable=False) # closed, open, half-open
+    failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_failure: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    type: Mapped["IntegrationType"] = relationship(back_populates="instances")
+    secrets: Mapped[List["IntegrationSecret"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
+    targets: Mapped[List["Target"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
+    health_checks: Mapped[List["IntegrationHealth"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
+    events: Mapped[List["IntegrationEvent"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
+
+
+class IntegrationSecret(Base):
+    """
+    Field-level encrypted storage for integration instance secrets.
+    """
+    __tablename__ = "integration_secrets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instance_id: Mapped[int] = mapped_column(ForeignKey("integration_instances.id"), nullable=False, index=True)
+    field_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    secret_type: Mapped[str] = mapped_column(String(100), nullable=False) # e.g., api_token, basic_auth
+    encrypted_value: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+
+    # Audit fields
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
+    last_accessed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    instance: Mapped["IntegrationInstance"] = relationship(back_populates="secrets")
+
+    __table_args__ = (
+        UniqueConstraint("instance_id", "field_name", name="uq_integration_secret_instance_field"),
+    )
+
+
+class Target(Base):
+    """
+    Discovered/managed resources that actions operate on (e.g., a VM, a host, a PoE port).
+    """
+    __tablename__ = "targets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instance_id: Mapped[int] = mapped_column(ForeignKey("integration_instances.id"), nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(100), nullable=False, index=True) # e.g., vm, host, poe-port
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    attrs: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+    labels: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+
+    # Discovery tracking
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+
+    instance: Mapped["IntegrationInstance"] = relationship(back_populates="targets")
+
+    __table_args__ = (
+        UniqueConstraint("instance_id", "type", "external_id", name="uq_target_instance_type_external_id"),
+        Index("idx_target_labels", "labels"),
+    )
+
+
+class IntegrationHealth(Base):
+    """
+    Stores SLA metrics and health tracking data for each integration instance.
+    """
+    __tablename__ = "integration_health"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instance_id: Mapped[int] = mapped_column(ForeignKey("integration_instances.id"), nullable=False, index=True)
+    capability: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    error_details: Mapped[Optional[str]] = mapped_column(Text)
+
+    instance: Mapped["IntegrationInstance"] = relationship(back_populates="health_checks")
+
+
+class IntegrationEvent(Base):
+    """
+    Audit trail for integration operations (e.g., instance created, config changed, target discovered).
+    """
+    __tablename__ = "integration_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instance_id: Mapped[Optional[int]] = mapped_column(ForeignKey("integration_instances.id"), index=True) # Optional for system-wide events
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    details: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    instance: Mapped[Optional["IntegrationInstance"]] = relationship(back_populates="events")
 
 
 class Host(Base):
@@ -500,32 +586,6 @@ def create_ups_sample(
     )
 
 
-
-
-def create_integration(
-    name: str,
-    integration_type: str,
-    config: Dict[str, Any],
-    enabled: bool = True,
-) -> Integration:
-    """
-    Create an integration configuration.
-    
-    Args:
-        name: Integration name
-        integration_type: Type of integration
-        config: Configuration dictionary
-        enabled: Whether integration is enabled
-        
-    Returns:
-        Integration instance
-    """
-    return Integration(
-        name=name,
-        type=integration_type,
-        config=config,
-        enabled=enabled,
-    )
 
 
 def create_host(

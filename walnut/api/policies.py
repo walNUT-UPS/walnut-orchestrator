@@ -3,7 +3,6 @@ from typing import List, Dict, Any, Optional
 
 from walnut.policies.schemas import PolicySchema
 from walnut.policies.linter import lint_policy
-from walnut.policies.plan import compile_plan
 from walnut.policies.priority import recompute_priorities
 
 router = APIRouter()
@@ -72,11 +71,3 @@ async def lint_policy_endpoint(policy_id: int):
         raise HTTPException(status_code=404, detail="Policy not found")
     policy = PolicySchema(**policies_db[policy_id])
     return lint_policy(policy)
-
-@router.post("/policies/{policy_id}/plan", summary="Generate a plan for a policy")
-async def plan_policy(policy_id: int, event: Optional[Dict[str, Any]] = None):
-    if policy_id not in policies_db:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    policy = PolicySchema(**policies_db[policy_id])
-    plan = compile_plan(policy, event, policy_id)
-    return plan.model_dump()
