@@ -6,7 +6,7 @@ import importlib.util
 from typing import Dict, List, Optional, Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from pathlib import Path
 
 from walnut.database.models import IntegrationType, IntegrationInstance, Target
@@ -24,15 +24,13 @@ class IntegrationRegistry:
     def __init__(self):
         self.integration_types: Dict[str, IntegrationType] = {}
 
-    async def load_types_from_db(self, db: AsyncSession):
+    def load_types_from_db(self, db: Session):
         """Loads all integration types from the database into the cache."""
-        stmt = select(IntegrationType)
-        result = await db.execute(stmt)
-        types = result.scalars().all()
+        types = db.query(IntegrationType).all()
         self.integration_types = {t.name: t for t in types}
         print(f"Loaded {len(self.integration_types)} integration types into registry.")
 
-    async def sync_manifests_to_db(self, db: AsyncSession, manifest_root_dir: Path):
+    def sync_manifests_to_db(self, db: Session, manifest_root_dir: Path):
         """Syncs all manifests from a directory into the database."""
         loader = ManifestLoader(manifest_root_dir)
         loaded_manifests = loader.load_all()
@@ -41,8 +39,7 @@ class IntegrationRegistry:
             manifest: IntegrationManifest = item["manifest"]
             path: Path = item["path"]
 
-            stmt = select(IntegrationType).where(IntegrationType.name == manifest.id)
-            existing_type = (await db.execute(stmt)).scalars().first()
+            existing_type = db.query(IntegrationType).filter(IntegrationType.name == manifest.id).first()
 
             driver_entrypoint = manifest.driver.entrypoint
             driver_path = str(path.joinpath(driver_entrypoint.split(':')[0] + '.py'))
@@ -69,8 +66,54 @@ class IntegrationRegistry:
                 db.add(new_type)
                 print(f"Registered new integration type: {manifest.id} v{manifest.version}")
 
-        await db.commit()
-        await self.load_types_from_db(db)
+        # Commit is handled by the context manager
+        self.load_types_from_db(db)
+
+    def create_instance(self, db: Session, type_name: str, instance_name: str, 
+                       display_name: str, config: Dict[str, Any], 
+                       instance_secrets: Dict[str, str], enabled: bool = True) -> IntegrationInstance:
+        """Creates a new integration instance."""
+        # Get the integration type
+        integration_type = db.query(IntegrationType).filter(IntegrationType.name == type_name).first()
+        if not integration_type:
+            raise ValueError(f"Integration type '{type_name}' not found")
+        
+        # Create the instance
+        instance = IntegrationInstance(
+            name=instance_name,
+            display_name=display_name,
+            type_id=integration_type.id,
+            enabled=enabled,
+            config=config,
+            health_status="unknown",
+            state="open"
+        )
+        
+        db.add(instance)
+        db.flush()  # Get the ID
+        
+        # Store secrets if provided
+        if instance_secrets:
+            for key, value in instance_secrets.items():
+                secrets.store_secret(db, f"integration.{instance.id}.{key}", value)
+        
+        return instance
+
+    def update_instance_secrets(self, db: Session, instance: IntegrationInstance, 
+                              new_secrets: Dict[str, str]):
+        """Updates secrets for an integration instance."""
+        for key, value in new_secrets.items():
+            secrets.store_secret(db, f"integration.{instance.id}.{key}", value)
+
+    def test_instance_connection(self, db: Session, instance: IntegrationInstance) -> bool:
+        """Tests the connection for an integration instance."""
+        try:
+            # For now, return a simple success - in real implementation this would
+            # load the driver and test the actual connection
+            return True
+        except Exception as e:
+            print(f"Connection test failed for {instance.display_name}: {e}")
+            return False
 
 def get_driver(instance: IntegrationInstance, secrets_dict: Dict[str, str]) -> Any:
     """

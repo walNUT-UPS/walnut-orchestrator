@@ -142,3 +142,15 @@ frontend/dist/
 frontend/build/
 frontend/.next/
 frontend/.cache/
+
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+bin/
+
+.playwright-mcp/
+test-results/
+ui-screenshots/
