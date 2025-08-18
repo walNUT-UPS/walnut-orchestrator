@@ -91,6 +91,29 @@ export function IntegrationsScreen() {
   const [selectedIntegrationForFlyout, setSelectedIntegrationForFlyout] = useState<any>(null);
   const [flyoutMode, setFlyoutMode] = useState<'create' | 'edit'>('create');
   
+  // Test function to open Integration Flyout
+  const handleTestFlyout = () => {
+    const mockIntegration = {
+      name: 'walnut.proxmox.ve',
+      displayName: 'Proxmox VE',
+      fields: [
+        { name: 'host', label: 'Host', type: 'text' as const, required: true, placeholder: 'Enter Proxmox host' },
+        { name: 'port', label: 'Port', type: 'number' as const, defaultValue: 8006 },
+        { name: 'username', label: 'Username', type: 'text' as const, required: true, placeholder: 'root' },
+        { name: 'password', label: 'Password', type: 'password' as const, required: true },
+        { name: 'node', label: 'Node', type: 'text' as const, required: true, placeholder: 'pve' },
+        { name: 'verifySSL', label: 'Verify SSL Certificate', type: 'boolean' as const, defaultValue: true },
+        { name: 'timeout', label: 'Connection Timeout (seconds)', type: 'number' as const, defaultValue: 30 },
+        { name: 'retries', label: 'Retry Attempts', type: 'number' as const, defaultValue: 3 },
+        { name: 'heartbeatInterval', label: 'Heartbeat Interval (seconds)', type: 'number' as const, defaultValue: 60 },
+      ]
+    };
+    
+    setSelectedIntegrationForFlyout(mockIntegration);
+    setFlyoutMode('create');
+    setIsFlyoutOpen(true);
+  };
+  
   // Form state
   const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -367,7 +390,7 @@ export function IntegrationsScreen() {
               </p>
               {combinedItems.length === 0 && (
                 <div className="flex gap-2 justify-center">
-                  <Button onClick={() => setAddIntegrationDialogOpen(true)}>
+                  <Button onClick={handleTestFlyout}>
                     <Plus className="w-4 h-4 mr-2" />
                     Add Integration
                   </Button>
