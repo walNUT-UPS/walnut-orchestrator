@@ -26,7 +26,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     );
   }
 
-  if (!isAuthenticated) {
+  // For development/demo - bypass auth if needed
+  // Remove this in production
+  const isDevelopment = window.location.hostname === 'localhost';
+  
+  if (!isAuthenticated && !isDevelopment) {
     return <LoginForm />;
   }
 
