@@ -184,63 +184,69 @@ export function OverviewScreen() {
 
         {/* Metrics Grid */}
         {viewMode === 'cards' && (
-          <div className="grid-12">
-            <div className="col-span-4">
-              <MetricCard
-                title="UPS Status"
-                status={upsStatus?.status?.includes('OB') ? 'warn' : 'ok'}
-                metrics={upsMetrics}
-                meta={{
-                  uptime: systemHealth ? `${Math.floor(systemHealth.uptime_seconds / 86400)}d ${Math.floor((systemHealth.uptime_seconds % 86400) / 3600)}h` : 'Unknown',
-                  lastUpdate: wsConnected ? 'Live' : upsStatus ? new Date(upsStatus.timestamp).toLocaleString() : 'No data',
-                  driver: upsStatus?.status || 'Unknown'
-                }}
-              />
+          <>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Top row - 3 equal height cards */}
+              <div className="h-[300px]">
+                <MetricCard
+                  title="UPS Status"
+                  status={upsStatus?.status?.includes('OB') ? 'warn' : 'ok'}
+                  metrics={upsMetrics}
+                  meta={{
+                    uptime: systemHealth ? `${Math.floor(systemHealth.uptime_seconds / 86400)}d ${Math.floor((systemHealth.uptime_seconds % 86400) / 3600)}h` : 'Unknown',
+                    lastUpdate: wsConnected ? 'Live' : upsStatus ? new Date(upsStatus.timestamp).toLocaleString() : 'No data',
+                    driver: upsStatus?.status || 'Unknown'
+                  }}
+                />
+              </div>
+              
+              <div className="h-[300px]">
+                <MetricCard
+                  title="Event Summary (24h)"
+                  status="warn"
+                  metrics={[
+                    { label: 'OnBattery Events', value: 2, max: 10, unit: '' },
+                    { label: 'Recoveries', value: 2, max: 10, unit: '' },
+                    { label: 'Low Battery', value: 0, max: 5, unit: '' }
+                  ]}
+                  meta={{
+                    lastUpdate: '2m ago'
+                  }}
+                />
+              </div>
+
+              <div className="h-[300px]">
+                <MetricCard
+                  title="Orchestration State"
+                  status="ok"
+                  metrics={[
+                    { label: 'Active Policies', value: 3, max: 5, unit: '' },
+                    { label: 'Pending Actions', value: 0, max: 10, unit: '' },
+                    { label: 'Success Rate', value: 98, max: 100, unit: '%', inverse: true }
+                  ]}
+                  meta={{
+                    lastUpdate: '1m ago'
+                  }}
+                />
+              </div>
             </div>
             
-            <div className="col-span-4">
-              <MetricCard
-                title="Event Summary (24h)"
-                status="warn"
-                metrics={[
-                  { label: 'OnBattery Events', value: 2, max: 10, unit: '' },
-                  { label: 'Recoveries', value: 2, max: 10, unit: '' },
-                  { label: 'Low Battery', value: 0, max: 5, unit: '' }
-                ]}
-                meta={{
-                  lastUpdate: '2m ago'
-                }}
-              />
+            {/* Bottom row - Integration status */}
+            <div className="mt-6">
+              <div className="h-[200px]">
+                <MetricCard
+                  title="Integration Status"
+                  status="ok"
+                  metrics={[
+                    { label: 'Proxmox', value: 1, max: 1, unit: ' connected', status: 'ok', inverse: true },
+                    { label: 'TrueNAS', value: 1, max: 1, unit: ' connected', status: 'ok', inverse: true },
+                    { label: 'Tapo Smart Plugs', value: 3, max: 3, unit: ' connected', status: 'ok', inverse: true }
+                  ]}
+                  size="L"
+                />
+              </div>
             </div>
-
-            <div className="col-span-4">
-              <MetricCard
-                title="Orchestration State"
-                status="ok"
-                metrics={[
-                  { label: 'Active Policies', value: 3, max: 5, unit: '' },
-                  { label: 'Pending Actions', value: 0, max: 10, unit: '' },
-                  { label: 'Success Rate', value: 98, max: 100, unit: '%', inverse: true }
-                ]}
-                meta={{
-                  lastUpdate: '1m ago'
-                }}
-              />
-            </div>
-
-            <div className="col-span-8">
-              <MetricCard
-                title="Integration Status"
-                status="ok"
-                metrics={[
-                  { label: 'Proxmox', value: 1, max: 1, unit: ' connected', status: 'ok', inverse: true },
-                  { label: 'TrueNAS', value: 1, max: 1, unit: ' connected', status: 'ok', inverse: true },
-                  { label: 'Tapo Smart Plugs', value: 3, max: 3, unit: ' connected', status: 'ok', inverse: true }
-                ]}
-                size="L"
-              />
-            </div>
-          </div>
+          </>
         )}
 
         {/* Events Table */}

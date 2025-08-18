@@ -50,17 +50,17 @@
 
 /* Light Theme */
 :root {
-  --bg-canvas: #FFFFFF;
-  --bg-surface: #F8FAFC;
-  --bg-elevated: #FFFFFF;
-  --bg-muted: #F1F5F9;
+  --bg-canvas: 0 0% 100%;
+  --bg-surface: 210 40% 98%;
+  --bg-elevated: 0 0% 100%;
+  --bg-muted: 220 14% 96%;
   
-  --text-primary: #1E293B;
-  --text-secondary: #475569;
-  --text-muted: #64748B;
+  --text-primary: 222 84% 18%;
+  --text-secondary: 215 25% 38%;
+  --text-muted: 215 20% 65%;
   
-  --border-muted: #E2E8F0;
-  --border-focus: #3B82F6;
+  --border-muted: 214 32% 91%;
+  --border-focus: 221 83% 53%;
   
   /* Status Colors (Light) */
   --status-ok: #16A34A;
@@ -83,17 +83,17 @@
 .dark {
   --theme-mode: dark;
   
-  --bg-canvas: #0D1117;
-  --bg-surface: #11161C;
-  --bg-elevated: #141A22;
-  --bg-muted: #0D1117;
+  --bg-canvas: 220 13% 9%;
+  --bg-surface: 215 28% 11%;
+  --bg-elevated: 216 27% 12%;
+  --bg-muted: 220 13% 9%;
   
-  --text-primary: #E6EDF3;
-  --text-secondary: #9AA7B2;
-  --text-muted: #70808F;
+  --text-primary: 213 27% 84%;
+  --text-secondary: 218 20% 63%;
+  --text-muted: 215 15% 50%;
   
-  --border-muted: #222B36;
-  --border-focus: #3B82F6;
+  --border-muted: 215 27% 17%;
+  --border-focus: 221 83% 53%;
   
   /* Status Colors (Dark) */
   --status-ok: #22C55E;
@@ -285,6 +285,20 @@
 /* Theme Toggle Animation */
 * {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Fix dropdown positioning issues */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}
+
+[data-slot="dropdown-menu-content"] {
+  z-index: 9999 !important;
+}
+
+/* Ensure dropdown menu items are clickable */
+[data-slot="dropdown-menu-item"] {
+  pointer-events: auto !important;
 }
 
 /* Progress Bar Thresholds */

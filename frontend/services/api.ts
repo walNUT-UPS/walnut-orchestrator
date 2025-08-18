@@ -45,12 +45,18 @@ class ApiService {
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      credentials: 'include', // Include cookies for authentication
       headers: {
         'Content-Type': 'application/json',
         ...options?.headers,
       },
       ...options,
     });
+
+    if (response.status === 401) {
+      // Don't redirect here - let the auth context handle it
+      throw new Error('Authentication required');
+    }
 
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
@@ -100,7 +106,7 @@ class ApiService {
     return this.request('/system/status');
   }
 
-  // WebSocket connection helper
+  // WebSocket connection helper - cookies are included automatically
   createWebSocket(): WebSocket {
     const wsUrl = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.host;

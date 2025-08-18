@@ -1,52 +1,48 @@
 import React from 'react';
 import { Button } from './ui/button';
-import { Moon, Sun, Monitor } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+
+  const toggleTheme = () => {
+    // Toggle between light and dark, ignore system preference for simplicity
+    if (theme === 'light' || resolvedTheme === 'light') {
+      setTheme('dark');
+    } else {
+      setTheme('light');
+    }
+  };
 
   const getIcon = () => {
-    switch (theme) {
-      case 'light':
-        return <Sun className="w-4 h-4" />;
-      case 'dark':
-        return <Moon className="w-4 h-4" />;
-      case 'system':
-        return <Monitor className="w-4 h-4" />;
-      default:
-        return <Monitor className="w-4 h-4" />;
+    // Show the icon for the NEXT theme that will be activated
+    if (theme === 'light' || resolvedTheme === 'light') {
+      return <Moon className="w-4 h-4" />; // Will switch to dark
+    } else {
+      return <Sun className="w-4 h-4" />; // Will switch to light
+    }
+  };
+
+  const getAriaLabel = () => {
+    if (theme === 'light' || resolvedTheme === 'light') {
+      return 'Switch to dark mode';
+    } else {
+      return 'Switch to light mode';
     }
   };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm">
-          {getIcon()}
-          <span className="sr-only">Toggle theme</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme('light')}>
-          <Sun className="w-4 h-4 mr-2" />
-          Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme('dark')}>
-          <Moon className="w-4 h-4 mr-2" />
-          Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme('system')}>
-          <Monitor className="w-4 h-4 mr-2" />
-          System
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button 
+      variant="ghost" 
+      size="sm"
+      onClick={toggleTheme}
+      data-testid="theme-toggle"
+      className="min-w-[44px] min-h-[44px]"
+      aria-label={getAriaLabel()}
+    >
+      {getIcon()}
+      <span className="sr-only">{getAriaLabel()}</span>
+    </Button>
   );
 }

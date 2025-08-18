@@ -91,7 +91,14 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
                   <ChevronDown className="w-4 h-4 ml-1" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuContent 
+                align="start" 
+                side="bottom"
+                sideOffset={8}
+                alignOffset={0}
+                sticky="always"
+                className="w-56"
+              >
                 {tabs.map((tab) => {
                   const isActive = location.pathname === tab.path;
                   return (

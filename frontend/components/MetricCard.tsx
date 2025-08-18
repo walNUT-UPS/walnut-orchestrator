@@ -39,8 +39,7 @@ export function MetricCard({
   return (
     <Card 
       className={cn(
-        'card-standard hover:bg-accent/10 transition-all cursor-pointer',
-        cardHeight,
+        'card-standard hover:bg-accent/10 transition-all cursor-pointer h-full flex flex-col',
         size === 'L' ? 'col-span-2' : '',
         'focus-ring'
       )}

@@ -86,10 +86,10 @@ export function EventsTable({ events, onRowClick }: EventsTableProps) {
         <TableHeader className="bg-muted/30">
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-12"></TableHead>
-            <TableHead className="text-right min-w-[160px]">Timestamp</TableHead>
-            <TableHead className="text-left">Type</TableHead>
-            <TableHead className="text-left">Source</TableHead>
-            <TableHead className="text-left">Severity</TableHead>
+            <TableHead className="text-left min-w-[180px] w-[180px]">Timestamp</TableHead>
+            <TableHead className="text-left w-[120px]">Type</TableHead>
+            <TableHead className="text-left w-[80px]">Source</TableHead>
+            <TableHead className="text-left w-[100px]">Severity</TableHead>
             <TableHead className="text-left">Message</TableHead>
             <TableHead className="text-center w-24">Actions</TableHead>
           </TableRow>
@@ -116,18 +116,18 @@ export function EventsTable({ events, onRowClick }: EventsTableProps) {
                         )}
                       </Button>
                     </TableCell>
-                    <TableCell className="font-mono text-micro tabular-nums text-right">
+                    <TableCell className="font-mono text-micro tabular-nums text-left w-[180px]">
                       {formatTimestamp(event.timestamp)}
                     </TableCell>
-                    <TableCell className="text-left">
+                    <TableCell className="text-left w-[120px]">
                       <Tag variant={typeVariant.variant} size="sm">
                         {event.type}
                       </Tag>
                     </TableCell>
-                    <TableCell className="text-left">
+                    <TableCell className="text-left w-[80px]">
                       <span className="text-micro text-muted-foreground">{event.source}</span>
                     </TableCell>
-                    <TableCell className="text-left">
+                    <TableCell className="text-left w-[100px]">
                       <Tag variant={severityVariant.variant} size="sm">
                         {event.severity}
                       </Tag>

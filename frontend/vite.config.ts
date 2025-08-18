@@ -12,9 +12,14 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 3000,
+    port: process.env.VITE_PORT ? parseInt(process.env.VITE_PORT) : 3000,
     proxy: {
       '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/auth': {
         target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,

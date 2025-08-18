@@ -149,6 +149,23 @@ export function IntegrationsScreen() {
     });
   };
 
+  const openIntegrationUrl = (integration: Integration) => {
+    // Open integration web interface if available
+    const urls: Record<string, string> = {
+      'proxmox': 'https://proxmox.local:8006',
+      'truenas': 'https://truenas.local',
+      'tapo': 'https://tapo.local',
+      'nut-server': 'http://ups.local:3493'
+    };
+    
+    const url = urls[integration.type];
+    if (url) {
+      window.open(url, '_blank');
+    } else {
+      alert(`No web interface available for ${integration.name}`);
+    }
+  };
+
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -349,7 +366,7 @@ export function IntegrationsScreen() {
                     Test
                   </Button>
 
-                  <Button variant="ghost" size="sm">
+                  <Button variant="ghost" size="sm" onClick={() => openIntegrationUrl(integration)}>
                     <ExternalLink className="w-3 h-3" />
                   </Button>
                 </div>

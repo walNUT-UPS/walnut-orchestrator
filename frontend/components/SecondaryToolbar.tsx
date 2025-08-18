@@ -32,8 +32,8 @@ export function SecondaryToolbar({
   return (
     <div className="w-full bg-card border-b border-border">
       <div className="container-grid py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4 flex-1">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-6 flex-1">
             {/* Search */}
             <div className="relative flex-1 max-w-md">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -50,46 +50,46 @@ export function SecondaryToolbar({
               type="single" 
               value={viewMode} 
               onValueChange={(value) => value && onViewModeChange(value as 'cards' | 'table')}
-              className="border border-border rounded-md"
+              className="border border-border rounded-md shrink-0"
             >
               <ToggleGroupItem value="cards" size="sm" className="h-8">
                 <Grid3X3 className="w-4 h-4" />
-                <span className="ml-1 text-micro">Cards</span>
+                <span className="ml-1 text-micro hidden sm:inline">Cards</span>
               </ToggleGroupItem>
               <ToggleGroupItem value="table" size="sm" className="h-8">
                 <Table className="w-4 h-4" />
-                <span className="ml-1 text-micro">Table</span>
+                <span className="ml-1 text-micro hidden sm:inline">Table</span>
               </ToggleGroupItem>
             </ToggleGroup>
+          </div>
 
-            {/* Filter Pills */}
-            <div className="flex items-center space-x-2 flex-wrap">
-              <span className="text-micro text-muted-foreground">Filters:</span>
-              {availableFilters.map((filter) => {
-                const isActive = activeFilters.includes(filter);
-                return (
-                  <Button
-                    key={filter}
-                    variant={isActive ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => onFilterToggle(filter)}
-                    className={cn(
-                      "h-8 text-xs focus-ring",
-                      isActive && "bg-primary text-primary-foreground"
-                    )}
-                  >
-                    {filter}
-                    {isActive && (
-                      <X className="w-3 h-3 ml-1" />
-                    )}
-                  </Button>
-                );
-              })}
-            </div>
+          {/* Filter Pills */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-micro text-muted-foreground shrink-0">Filters:</span>
+            {availableFilters.map((filter) => {
+              const isActive = activeFilters.includes(filter);
+              return (
+                <Button
+                  key={filter}
+                  variant={isActive ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => onFilterToggle(filter)}
+                  className={cn(
+                    "h-8 text-xs focus-ring shrink-0 px-3",
+                    isActive && "bg-primary text-primary-foreground"
+                  )}
+                >
+                  {filter}
+                  {isActive && (
+                    <X className="w-3 h-3 ml-1" />
+                  )}
+                </Button>
+              );
+            })}
           </div>
 
           {/* Right side actions */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-3 flex-wrap">
             {onChartsToggle && (
               <Button
                 variant={showCharts ? "default" : "outline"}
@@ -102,12 +102,22 @@ export function SecondaryToolbar({
               </Button>
             )}
             
-            <Button variant="outline" size="sm" className="h-8 focus-ring">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-8 focus-ring"
+              onClick={() => alert('Thresholds configuration not yet implemented')}
+            >
               <Settings2 className="w-4 h-4 mr-1" />
               <span className="text-micro">Thresholds</span>
             </Button>
             
-            <Button variant="outline" size="sm" className="h-8 focus-ring">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-8 focus-ring"
+              onClick={() => alert('Alert management not yet implemented')}
+            >
               <AlertTriangle className="w-4 h-4 mr-1" />
               <span className="text-micro">Alerts</span>
             </Button>

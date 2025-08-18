@@ -121,12 +121,54 @@ Last 5 Events:
 - 2024-01-15T15:40:00Z: Database backup completed`;
 
     navigator.clipboard.writeText(diagnostics);
+    alert('Diagnostics copied to clipboard');
+  };
+
+  const downloadLogs = () => {
+    const logContent = `[2024-01-15 15:30:00] WARN: Host monitoring-pi connection timeout
+[2024-01-15 14:45:00] INFO: UPS battery test completed successfully
+[2024-01-15 14:30:00] WARN: UPS switched to battery power
+[2024-01-15 14:32:15] INFO: Utility power restored
+[2024-01-15 13:15:00] INFO: Scheduled policy evaluation completed
+[2024-01-15 12:00:00] INFO: Database backup completed
+[2024-01-15 11:30:00] DEBUG: Integration sync: Proxmox API call succeeded
+[2024-01-15 10:15:00] INFO: System started successfully
+[2024-01-14 23:59:00] INFO: Daily maintenance tasks completed
+[2024-01-14 22:30:00] WARN: Tapo device temporarily unreachable`;
+
+    const blob = new Blob([logContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `walnut-logs-${new Date().toISOString().split('T')[0]}.log`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleKeyRotation = () => {
+    if (confirm('This will rotate the database encryption key and require all hosts to be reconfigured. Continue?')) {
+      alert('Key rotation feature not yet implemented');
+    }
+  };
+
+  const handleInviteUser = () => {
+    alert('User invitation is currently disabled');
+  };
+
+  const handleEditUser = (userId: string) => {
+    alert(`Edit user ${userId} - not yet implemented`);
+  };
+
+  const testAllConnections = async () => {
+    alert('Testing all connections - feature not yet implemented');
   };
 
   return (
     <div className="flex-1">
       <div className="container-grid py-6">
-        <div className="mb-6">
+        <div className="mb-6 mt-6">
           <h1 className="text-display">Settings</h1>
           <p className="text-micro text-muted-foreground mt-1">
             Configure system settings and integrations
@@ -134,26 +176,28 @@ Last 5 Events:
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="ups" className="flex items-center space-x-2">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <TabsTrigger value="ups" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Settings2 className="w-4 h-4" />
-              <span>UPS / NUT</span>
+              <span className="hidden sm:inline">UPS / NUT</span>
+              <span className="sm:hidden">UPS</span>
             </TabsTrigger>
-            <TabsTrigger value="security" className="flex items-center space-x-2">
+            <TabsTrigger value="security" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Shield className="w-4 h-4" />
               <span>Security</span>
             </TabsTrigger>
-            <TabsTrigger value="users" className="flex items-center space-x-2">
+            <TabsTrigger value="users" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Users className="w-4 h-4" />
               <span>Users</span>
             </TabsTrigger>
-            <TabsTrigger value="system" className="flex items-center space-x-2">
+            <TabsTrigger value="system" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Activity className="w-4 h-4" />
               <span>System</span>
             </TabsTrigger>
-            <TabsTrigger value="diagnostics" className="flex items-center space-x-2">
+            <TabsTrigger value="diagnostics" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm col-span-2 sm:col-span-1">
               <Bug className="w-4 h-4" />
-              <span>Diagnostics</span>
+              <span className="hidden sm:inline">Diagnostics</span>
+              <span className="sm:hidden">Debug</span>
             </TabsTrigger>
           </TabsList>
 
@@ -167,18 +211,26 @@ Last 5 Events:
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-[120px_1fr_120px_1fr] gap-4 items-center">
-                  <Label htmlFor="nut-host">Host</Label>
-                  <Input id="nut-host" defaultValue="ups.local" onChange={handleInputChange} />
-                  <Label htmlFor="nut-port">Port</Label>
-                  <Input id="nut-port" defaultValue="3493" onChange={handleInputChange} />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="nut-host">Host</Label>
+                    <Input id="nut-host" defaultValue="ups.local" onChange={handleInputChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="nut-port">Port</Label>
+                    <Input id="nut-port" defaultValue="3493" onChange={handleInputChange} />
+                  </div>
                 </div>
                 
-                <div className="grid grid-cols-[120px_1fr_120px_1fr] gap-4 items-center">
-                  <Label htmlFor="nut-username">Username</Label>
-                  <Input id="nut-username" defaultValue="upsmon" onChange={handleInputChange} />
-                  <Label htmlFor="nut-password">Password</Label>
-                  <Input id="nut-password" type="password" defaultValue="••••••••" onChange={handleInputChange} />
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="nut-username">Username</Label>
+                    <Input id="nut-username" defaultValue="upsmon" onChange={handleInputChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="nut-password">Password</Label>
+                    <Input id="nut-password" type="password" defaultValue="••••••••" onChange={handleInputChange} />
+                  </div>
                 </div>
 
                 {testResult && (
@@ -198,12 +250,12 @@ Last 5 Events:
                   </div>
                 )}
 
-                <div className="flex items-center space-x-2">
-                  <Button variant="outline" onClick={testConnection}>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <Button variant="outline" onClick={testConnection} className="min-h-[44px]">
                     <TestTube className="w-4 h-4 mr-2" />
                     Test Connection
                   </Button>
-                  <Button onClick={saveConfiguration} disabled={!isDirty || isSaving}>
+                  <Button onClick={saveConfiguration} disabled={!isDirty || isSaving} className="min-h-[44px]">
                     <Save className="w-4 h-4 mr-2" />
                     {isSaving ? 'Saving...' : 'Save Configuration'}
                   </Button>
@@ -219,28 +271,36 @@ Last 5 Events:
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-[120px_1fr_120px_1fr_120px_1fr] gap-4 items-center">
-                  <Label htmlFor="battery-warn">Battery Warning (%)</Label>
-                  <Input id="battery-warn" defaultValue="30" type="number" onChange={handleInputChange} />
-                  <Label htmlFor="battery-critical">Battery Critical (%)</Label>
-                  <Input id="battery-critical" defaultValue="15" type="number" onChange={handleInputChange} />
-                  <Label htmlFor="load-warn">Load Warning (%)</Label>
-                  <Input id="load-warn" defaultValue="80" type="number" onChange={handleInputChange} />
-                </div>
-                
-                <div className="grid grid-cols-[120px_1fr] gap-4 items-center">
-                  <Label htmlFor="auto-test">Auto Test</Label>
-                  <div className="flex items-center space-x-3">
-                    <Switch id="auto-test" onCheckedChange={handleInputChange} />
-                    <span className="text-micro text-muted-foreground">Enable automatic battery testing (weekly)</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="battery-warn">Battery Warning (%)</Label>
+                    <Input id="battery-warn" defaultValue="30" type="number" onChange={handleInputChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="battery-critical">Battery Critical (%)</Label>
+                    <Input id="battery-critical" defaultValue="15" type="number" onChange={handleInputChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="load-warn">Load Warning (%)</Label>
+                    <Input id="load-warn" defaultValue="80" type="number" onChange={handleInputChange} />
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-[120px_1fr] gap-4 items-center">
-                  <Label htmlFor="email-alerts">Email Alerts</Label>
-                  <div className="flex items-center space-x-3">
-                    <Switch id="email-alerts" defaultChecked onCheckedChange={handleInputChange} />
-                    <span className="text-micro text-muted-foreground">Send email alerts for critical events</span>
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-6">
+                    <Label htmlFor="auto-test" className="font-medium min-w-[120px]">Auto Test</Label>
+                    <div className="flex items-center space-x-3">
+                      <Switch id="auto-test" onCheckedChange={handleInputChange} />
+                      <span className="text-micro text-muted-foreground">Enable automatic battery testing (weekly)</span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-6">
+                    <Label htmlFor="email-alerts" className="font-medium min-w-[120px]">Email Alerts</Label>
+                    <div className="flex items-center space-x-3">
+                      <Switch id="email-alerts" defaultChecked onCheckedChange={handleInputChange} />
+                      <span className="text-micro text-muted-foreground">Send email alerts for critical events</span>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -276,7 +336,7 @@ Last 5 Events:
                   <p className="text-micro text-muted-foreground">
                     Rotate the database encryption key. This will require all hosts to be reconfigured with new credentials.
                   </p>
-                  <Button variant="outline" className="mt-2">
+                  <Button variant="outline" className="mt-2" onClick={handleKeyRotation}>
                     <RotateCcw className="w-4 h-4 mr-2" />
                     Initiate Key Rotation
                   </Button>
@@ -309,8 +369,8 @@ Last 5 Events:
                       Manage user accounts and permissions
                     </CardDescription>
                   </div>
-                  <Button variant="outline" disabled>
-                    Invite User (Disabled)
+                  <Button variant="outline" onClick={handleInviteUser}>
+                    Invite User
                   </Button>
                 </div>
               </CardHeader>
@@ -346,7 +406,7 @@ Last 5 Events:
                             {new Date(user.lastLogin).toLocaleDateString()}
                           </TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="sm">
+                            <Button variant="ghost" size="sm" onClick={() => handleEditUser(user.id)}>
                               Edit
                             </Button>
                           </TableCell>
@@ -375,7 +435,7 @@ Last 5 Events:
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     <div>
                       <Label className="text-micro text-muted-foreground">Version</Label>
@@ -463,12 +523,12 @@ Last 5 Events:
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-3">
                   <Button variant="outline" onClick={copyDiagnostics}>
                     <Copy className="w-4 h-4 mr-2" />
                     Copy Diagnostics Bundle
                   </Button>
-                  <Button variant="outline">
+                  <Button variant="outline" onClick={downloadLogs}>
                     <Download className="w-4 h-4 mr-2" />
                     Download Logs
                   </Button>
@@ -520,8 +580,8 @@ Last 5 Events:
                 <span className="text-status-warn">Unsaved changes</span>
               )}
             </div>
-            <div className="flex items-center space-x-2">
-              <Button variant="outline">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" onClick={testAllConnections}>
                 <TestTube className="w-4 h-4 mr-2" />
                 Test All Connections
               </Button>

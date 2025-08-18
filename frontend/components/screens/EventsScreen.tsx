@@ -82,6 +82,51 @@ export function EventsScreen() {
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [dateRange, setDateRange] = useState<string>('24h');
 
+  const handleDateRangeClick = () => {
+    alert('Date range picker not yet implemented');
+  };
+
+  const handleExportCSV = () => {
+    // Create CSV content from filtered events
+    const csvHeaders = ['Timestamp', 'Type', 'Source', 'Severity', 'Message'];
+    const csvRows = filteredEvents.map(event => [
+      new Date(event.timestamp).toISOString(),
+      event.type,
+      event.source,
+      event.severity,
+      `"${event.message.replace(/"/g, '""')}"`
+    ]);
+    
+    const csvContent = [csvHeaders, ...csvRows]
+      .map(row => row.join(','))
+      .join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `walnut-events-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleAcknowledgeAll = () => {
+    const criticalEvents = filteredEvents.filter(event => event.severity === 'Critical').length;
+    const warningEvents = filteredEvents.filter(event => event.severity === 'Warning').length;
+    
+    if (criticalEvents === 0 && warningEvents === 0) {
+      alert('No events to acknowledge');
+      return;
+    }
+    
+    const message = `Acknowledge ${criticalEvents} critical and ${warningEvents} warning events?`;
+    if (confirm(message)) {
+      alert('Event acknowledgment feature not yet implemented');
+    }
+  };
+
   const availableFilters = ['OnBattery', 'LowBattery', 'Recovered', 'Shutdown', 'Test', 'ConnectionLost'];
 
   const handleFilterToggle = (filter: string) => {
@@ -126,18 +171,33 @@ export function EventsScreen() {
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* Advanced Filters */}
         <div className="bg-card rounded-lg border border-border p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
             <h3 className="text-title">Filters</h3>
-            <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="shrink-0"
+                onClick={handleDateRangeClick}
+              >
                 <Calendar className="w-4 h-4 mr-2" />
                 Date Range
               </Button>
-              <Button variant="outline" size="sm">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="shrink-0"
+                onClick={handleExportCSV}
+              >
                 <Download className="w-4 h-4 mr-2" />
                 Export CSV
               </Button>
-              <Button variant="outline" size="sm">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="shrink-0"
+                onClick={handleAcknowledgeAll}
+              >
                 <CheckCheck className="w-4 h-4 mr-2" />
                 Acknowledge All
               </Button>
