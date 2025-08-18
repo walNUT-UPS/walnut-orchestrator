@@ -11,7 +11,8 @@ from sqlalchemy.dialects import registry
 # Register the SQLCipher dialect
 registry.register("sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDialect")
 
-DB_PATH = os.path.abspath("data/walnut.db")
+engine = None
+SessionLocal = None
 
 def get_db_key():
     """Get database key with user-friendly error handling."""
@@ -30,43 +31,43 @@ def get_db_key():
         )
     return key
 
-def _sqlcipher_creator():
-    # Import here to avoid circular imports
-    import pysqlcipher3.dbapi2 as sqlcipher
-    
-    # Open the encrypted DB directly; don't let SQLAlchemy call connect().
-    conn = sqlcipher.connect(
-        DB_PATH,
-        check_same_thread=False,  # do this here; 'connect_args' is ignored with creator
-        timeout=30.0,
-        detect_types=0,
+def init_db(db_path: str):
+    """Initializes the database engine and session factory."""
+    global engine, SessionLocal
+
+    def _sqlcipher_creator():
+        import pysqlcipher3.dbapi2 as sqlcipher
+
+        conn = sqlcipher.connect(
+            db_path,
+            check_same_thread=False,
+            timeout=30.0,
+            detect_types=0,
+        )
+        key = get_db_key()
+        escaped_key = key.replace("'", "''")
+        conn.execute(f"PRAGMA key = '{escaped_key}'")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
+    engine = create_engine(
+        f"sqlcipher:///{db_path}",
+        creator=_sqlcipher_creator,
+        pool_pre_ping=True,
+        future=True,
     )
 
-    # If your DB was created with SQLCipher 3 formats, keep 3; otherwise try 4.
-    conn.execute("PRAGMA cipher_compatibility = 3")
+    SessionLocal = sessionmaker(
+        bind=engine,
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
+    )
 
-    # Always parameterize; no manual escaping.
-    key = get_db_key()
-    escaped_key = key.replace("'", "''")
-    conn.execute(f"PRAGMA key = '{escaped_key}'")
-
-    # Your usual pragmas
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-
-    return conn
-
-# Use SQLCipher dialect which properly handles supports_regexp = False
-engine = create_engine(
-    f"sqlcipher:///{DB_PATH}",
-    creator=_sqlcipher_creator,
-    pool_pre_ping=True,
-    future=True,
-)
-
-SessionLocal = sessionmaker(
-    bind=engine,
-    autocommit=False,
-    autoflush=False,
-    expire_on_commit=False,
-)
+# Initialize with default path for production
+DB_PATH_DEFAULT = os.path.abspath("data/walnut.db")
+if not os.environ.get("WALNUT_TESTING"):
+    # Ensure the data directory exists
+    os.makedirs(os.path.dirname(DB_PATH_DEFAULT), exist_ok=True)
+    init_db(DB_PATH_DEFAULT)

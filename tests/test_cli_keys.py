@@ -2,7 +2,7 @@ import os
 from unittest.mock import patch, AsyncMock
 import pytest
 from walnut.cli.main import app
-from walnut.database.engine import sqlcipher
+from pysqlcipher3 import dbapi2 as sqlcipher
 
 @pytest.mark.usefixtures("mock_create_database_engine")
 class TestKeysCLI:

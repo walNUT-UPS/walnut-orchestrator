@@ -8,7 +8,7 @@ from typing import Optional
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
-from walnut.api import policies, policy_runs, admin_events, ups, events, system
+from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations
 from walnut.api.websocket import websocket_endpoint, get_websocket_info
 
 
@@ -36,6 +36,7 @@ app.include_router(admin_events.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(ups.router, prefix="/api", tags=["UPS Monitoring"])
 app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(system.router, prefix="/api", tags=["System Health"])
+app.include_router(integrations.router, prefix="/api", tags=["Integrations"])
 
 # WebSocket endpoints
 @app.websocket("/ws")

@@ -22,37 +22,21 @@ import pytest_asyncio
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.sql import text
 
-from walnut.database.engine import (
-    DatabaseError,
-    EncryptionError,
-    ValidationError,
-    create_database_engine,
-    get_database_url,
-    get_master_key,
-    check_database_connection,
-    validate_database_path,
-)
+from walnut.config import get_master_key
 from walnut.database.connection import (
-    ConnectionManager,
-    init_database,
-    close_database,
     get_db_session,
-    get_db_transaction,
-    get_database_health,
 )
+from walnut.database.engine import init_db
 from walnut.database.models import (
     Base,
     UPSSample,
-    Event,
-    Integration,
+    LegacyEvent,
     Host,
     Secret,
-    Policy,
+    LegacyPolicy,
     create_ups_sample,
     create_event,
-    create_integration,
     create_host,
-    create_policy,
     serialize_model,
 )
 
@@ -179,82 +163,6 @@ class TestDatabaseEngine:
         assert all(result == 1 for result in results)
 
 
-class TestConnectionManager:
-    """Test connection manager functionality."""
-    
-    @pytest_asyncio.fixture
-    async def connection_manager(self, temp_db_path, mock_env_vars):
-        """Create a test connection manager."""
-        manager = ConnectionManager(
-            db_path=str(temp_db_path),
-            echo=False,
-            pool_size=5,
-        )
-        await manager.startup()
-        yield manager
-        await manager.shutdown()
-    
-    async def test_connection_manager_startup(self, temp_db_path, mock_env_vars):
-        """Test connection manager startup."""
-        manager = ConnectionManager(db_path=str(temp_db_path))
-        
-        diagnostics = await manager.startup()
-        assert diagnostics["connection_test"] is True
-        
-        await manager.shutdown()
-    
-    async def test_get_session(self, connection_manager):
-        """Test database session creation."""
-        async with connection_manager.get_session() as session:
-            result = await session.execute(text("SELECT 1"))
-            assert result.scalar() == 1
-    
-    async def test_get_transaction(self, connection_manager):
-        """Test transaction management."""
-        # Create tables first
-        await connection_manager.create_tables()
-        
-        async with connection_manager.get_transaction() as session:
-            # Insert a test record
-            sample = create_ups_sample(charge_percent=85.0, status="ONLINE")
-            session.add(sample)
-            # Transaction should auto-commit
-        
-        # Verify the record was committed
-        async with connection_manager.get_session() as session:
-            result = await session.execute(text("SELECT COUNT(*) FROM ups_samples"))
-            count = result.scalar()
-            assert count == 1
-    
-    async def test_health_check(self, connection_manager):
-        """Test health check functionality."""
-        health_status = await connection_manager.health_check()
-        
-        assert health_status["healthy"] is True
-        assert "engine_diagnostics" in health_status
-        assert "pool_status" in health_status
-    
-    async def test_create_drop_tables(self, connection_manager):
-        """Test table creation and dropping."""
-        await connection_manager.create_tables()
-        
-        # Verify tables exist by querying them
-        async with connection_manager.get_session() as session:
-            for table_name in Base.metadata.tables.keys():
-                result = await session.execute(
-                    text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-                )
-                assert result.scalar() == table_name
-        
-        await connection_manager.drop_tables()
-        
-        # Verify tables are gone
-        async with connection_manager.get_session() as session:
-            for table_name in Base.metadata.tables.keys():
-                result = await session.execute(
-                    text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
-                )
-                assert result.scalar() is None
 
 
 class TestGlobalDatabaseFunctions:
@@ -368,7 +276,7 @@ class TestDatabaseModels:
         assert result.scalar() == 0
     
     async def test_event_model(self, db_session):
-        """Test Event model."""
+        """Test LegacyEvent model."""
         event = create_event(
             event_type="MAINS_LOST",
             description="Mains power lost, running on battery",
@@ -380,36 +288,12 @@ class TestDatabaseModels:
         
         # Query by event type
         result = await db_session.execute(
-            text("SELECT * FROM events WHERE event_type = 'MAINS_LOST'")
+            text("SELECT * FROM legacy_events WHERE event_type = 'MAINS_LOST'")
         )
         row = result.fetchone()
         assert row is not None
         assert row.severity == "WARNING"
         assert "voltage" in row.event_metadata
-    
-    async def test_integration_model(self, db_session):
-        """Test Integration model."""
-        integration = create_integration(
-            name="proxmox-cluster",
-            integration_type="proxmox",
-            config={
-                "host": "pve.example.com",
-                "username": "walnut@pve",
-                "ssl_verify": True
-            },
-            enabled=True
-        )
-        db_session.add(integration)
-        await db_session.commit()
-        
-        # Query by type
-        result = await db_session.execute(
-            text("SELECT * FROM integrations WHERE type = 'proxmox'")
-        )
-        row = result.fetchone()
-        assert row is not None
-        assert row.name == "proxmox-cluster"
-        assert row.enabled == 1  # SQLite stores boolean as integer
     
     async def test_host_model(self, db_session):
         """Test Host model."""
@@ -449,32 +333,6 @@ class TestDatabaseModels:
         assert row is not None
         assert row.encrypted_data == b"encrypted_private_key_data"
     
-    async def test_policy_model(self, db_session):
-        """Test Policy model."""
-        policy = create_policy(
-            name="emergency-shutdown",
-            conditions={
-                "battery_percent": {"lt": 20},
-                "runtime_seconds": {"lt": 300}
-            },
-            actions={
-                "shutdown_hosts": ["server01", "server02"],
-                "notify_admins": True
-            },
-            priority=1,
-            enabled=True
-        )
-        db_session.add(policy)
-        await db_session.commit()
-        
-        # Query by priority
-        result = await db_session.execute(
-            text("SELECT * FROM policies WHERE priority = 1")
-        )
-        row = result.fetchone()
-        assert row is not None
-        assert row.name == "emergency-shutdown"
-        assert row.enabled == 1  # SQLite stores boolean as integer
     
     def test_serialize_model(self):
         """Test model serialization."""

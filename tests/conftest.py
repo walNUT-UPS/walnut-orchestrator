@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from httpx import AsyncClient
 from walnut.app import app
-from walnut.database.connection import init_database, close_database
+from walnut.database.engine import init_db
 from alembic.config import Config
 from alembic import command
 
@@ -95,14 +95,14 @@ async def async_client(test_db):
     """
     A fixture that provides an httpx.AsyncClient for testing the API.
     """
+    os.environ["WALNUT_TESTING"] = "true"
     os.environ["WALNUT_DB_PATH"] = test_db
     os.environ["WALNUT_ALLOWED_ORIGINS"] = "http://test.com"
     os.environ["WALNUT_SIGNUP_ENABLED"] = "true"
 
-    await init_database(db_path=test_db, create_tables=False)
+    # Initialize the database with the test DB path
+    init_db(test_db)
 
     async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
-
-    await close_database()
 

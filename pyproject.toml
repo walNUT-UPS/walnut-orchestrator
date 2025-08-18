@@ -73,6 +73,9 @@ dependencies = [
     # JSON handling
     "orjson>=3.9.10",
 
+    # Manifest handling
+    "pyyaml>=6.0.1",
+    "semver>=3.0.2",
 ]
 
 [project.optional-dependencies]
@@ -93,6 +96,7 @@ dev = [
     # Development tools
     "pre-commit>=3.5.0",
     "watchfiles>=0.21.0",
+    "websocket-client>=1.8.0",
 ]
 
 [project.scripts]
