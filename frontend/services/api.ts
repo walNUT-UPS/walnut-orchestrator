@@ -218,6 +218,10 @@ class ApiService {
     return this.request<IntegrationInstance[]>('/integrations/instances');
   }
 
+  async getIntegrationManifest(typeId: string): Promise<{ type_id: string; path: string; manifest_yaml: string }>{
+    return this.request(`/integrations/types/${encodeURIComponent(typeId)}/manifest`);
+  }
+
   async createIntegrationInstance(data: {
     type_id: string;
     name: string;
@@ -275,30 +279,12 @@ class ApiService {
     });
   }
 
-  // Get JWT token from cookies for WebSocket authentication
-  private getJWTTokenFromCookie(): string | null {
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-      const [name, value] = cookie.trim().split('=');
-      if (name === 'fastapiusersauth') { // Default fastapi-users cookie name
-        return decodeURIComponent(value);
-      }
-    }
-    return null;
-  }
-
-  // WebSocket connection helper - needs JWT token for authentication
+  // WebSocket connection helper - prefer cookie-authenticated same-origin WS
   createWebSocket(): WebSocket {
-    const token = this.getJWTTokenFromCookie();
-    if (!token) {
-      throw new Error('No authentication token available for WebSocket connection');
-    }
-
-    // Connect to backend server (port 8000) with JWT token
-    const wsUrl = 'ws://localhost:8000/ws';
-    const wsWithToken = `${wsUrl}?token=${encodeURIComponent(token)}`;
-    
-    return new WebSocket(wsWithToken);
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const wsUrl = `${protocol}://${location.host}/ws`;
+    // Cookies are automatically included for same-origin WS handshake via Vite proxy
+    return new WebSocket(wsUrl);
   }
 }
 

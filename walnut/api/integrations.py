@@ -9,6 +9,7 @@ This implements the new integrations architecture with:
 """
 
 import asyncio
+import anyio
 import os
 import sys
 import tempfile
@@ -276,6 +277,44 @@ async def remove_integration_type(
         raise HTTPException(status_code=500, detail=f"Failed to remove integration type: {str(e)}")
 
 
+@router.get("/types/{type_id}/manifest")
+async def get_integration_manifest(
+    type_id: str,
+    current_user=Depends(current_active_user),
+):
+    """
+    Return the raw plugin.yaml manifest for a given integration type.
+
+    Reads the manifest from the filesystem using the stored IntegrationType.path
+    and returns it as a YAML string so the UI can render it in a dialog.
+    """
+    try:
+        async with get_db_session() as session:
+            # Session is synchronous; run execute in a worker thread
+            result = await anyio.to_thread.run_sync(
+                session.execute, select(IntegrationType).where(IntegrationType.id == type_id)
+            )
+            integration_type = result.scalar_one_or_none()
+            if not integration_type:
+                raise HTTPException(status_code=404, detail="Integration type not found")
+
+            # Prefer saved absolute path; fall back to ./integrations/<id>/plugin.yaml
+            plugin_path = Path(integration_type.path) / "plugin.yaml"
+            if not plugin_path.exists():
+                fallback = Path("./integrations") / type_id / "plugin.yaml"
+                if fallback.exists():
+                    plugin_path = fallback
+                else:
+                    raise HTTPException(status_code=404, detail="plugin.yaml not found for this integration type")
+
+            content = plugin_path.read_text(encoding="utf-8")
+            return {"type_id": type_id, "path": str(plugin_path), "manifest_yaml": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read manifest: {str(e)}")
+
+
 @router.post("/types/{type_id}/validate")
 async def revalidate_integration_type(
     type_id: str,
@@ -318,7 +357,8 @@ async def list_integration_instances(
                 select(IntegrationInstance, IntegrationType)
                 .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
             )
-            result = await session.execute(stmt)
+            # Run sync execute() in a worker thread
+            result = await anyio.to_thread.run_sync(session.execute, stmt)
             rows = result.all()
 
             out: List[IntegrationInstanceOut] = []

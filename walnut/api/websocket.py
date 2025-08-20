@@ -93,10 +93,27 @@ async def websocket_endpoint(
     
     try:
         # AUTHENTICATE FIRST - BEFORE accepting connection
+        # Prefer explicit token, otherwise fall back to cookie set by fastapi-users
+        cookie_token = None
+        try:
+            # Starlette exposes parsed cookies
+            cookies = websocket.cookies or {}
+            # Common cookie names for fastapi-users cookie transport
+            for name in ("fastapiusersauth", "fastapi_users_auth", "auth", "session"):
+                if name in cookies:
+                    cookie_token = cookies.get(name)
+                    if cookie_token:
+                        break
+        except Exception:
+            cookie_token = None
+
+        if not token:
+            token = cookie_token
+
         if not token:
             await websocket.close(code=4001, reason="Authentication token required")
             return
-        
+
         user = await authenticate_websocket_token(token)
         if not user:
             await websocket.close(code=4001, reason="Invalid authentication token")

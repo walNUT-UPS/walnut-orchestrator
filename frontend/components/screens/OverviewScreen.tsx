@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { SecondaryToolbar } from '../SecondaryToolbar';
 import { MetricCard } from '../MetricCard';
 import { EventsTable, Event } from '../EventsTable';
 import { StatusPill } from '../StatusPill';
@@ -80,19 +79,9 @@ const mockTimelineSegments: PowerSegment[] = [
 
 export function OverviewScreen() {
   const { upsStatus, systemHealth, events, isLoading, error, wsConnected } = useWalnutApi();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [viewMode] = useState<'cards' | 'table'>('cards');
   const [timelineDuration, setTimelineDuration] = useState<'6h' | '12h' | '24h'>('24h');
-  const availableFilters = ['INFO', 'WARNING', 'CRITICAL', 'UPS', 'Host', 'Policy'];
-
-  const handleFilterToggle = (filter: string) => {
-    setActiveFilters(prev => 
-      prev.includes(filter) 
-        ? prev.filter(f => f !== filter)
-        : [...prev, filter]
-    );
-  };
+  // Overview has no filters/search controls
 
   // Convert API events to frontend format
   const convertedEvents: Event[] = events.map(event => ({
@@ -105,12 +94,7 @@ export function OverviewScreen() {
     payload: event.metadata || {}
   }));
 
-  const filteredEvents = convertedEvents.filter(event => {
-    if (activeFilters.length === 0) return true;
-    return activeFilters.some(filter => 
-      event.severity === filter || event.source === filter
-    );
-  });
+  const filteredEvents = convertedEvents;
 
   // Convert UPS status to metrics format
   const upsMetrics = upsStatus ? [
@@ -137,16 +121,7 @@ export function OverviewScreen() {
 
   return (
     <div className="flex-1">
-      <SecondaryToolbar
-        searchValue={searchValue}
-        onSearchChange={setSearchValue}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        activeFilters={activeFilters}
-        onFilterToggle={handleFilterToggle}
-        availableFilters={availableFilters}
-        showCharts={false}
-      />
+      {/* No secondary toolbar on Overview */}
 
       <div className="container-grid py-6 space-y-6">
         <div className="grid-12">
@@ -191,6 +166,7 @@ export function OverviewScreen() {
               duration={timelineDuration}
               onZoomChange={setTimelineDuration}
               showLegend={true}
+              className="mb-6"
             />
           </div>
         </div>

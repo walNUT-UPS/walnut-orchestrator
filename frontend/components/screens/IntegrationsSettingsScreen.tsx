@@ -95,6 +95,38 @@ export function IntegrationsSettingsScreen() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [manifestDialogOpen, setManifestDialogOpen] = useState(false);
+  const [manifestLoading, setManifestLoading] = useState(false);
+  const [manifestText, setManifestText] = useState<string>("");
+  const [manifestTypeId, setManifestTypeId] = useState<string>("");
+
+  const handleCopyManifest = async () => {
+    try {
+      await navigator.clipboard.writeText(manifestText);
+      toast.success('Copied manifest');
+    } catch (err) {
+      // Fallback for browsers/environments without clipboard permission
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = manifestText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-1000px';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) {
+          toast.success('Copied manifest');
+        } else {
+          toast.error('Copy failed');
+        }
+      } catch (e) {
+        toast.error('Copy failed');
+      }
+    }
+  };
 
   // Load integration types
   const loadIntegrationTypes = async (rescan = false) => {
@@ -182,6 +214,22 @@ export function IntegrationsSettingsScreen() {
       await loadIntegrationTypes();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to revalidate integration type');
+    }
+  };
+
+  const handleViewManifest = async (typeId: string) => {
+    try {
+      setManifestDialogOpen(true);
+      setManifestLoading(true);
+      setManifestText("");
+      setManifestTypeId(typeId);
+      const res = await apiService.getIntegrationManifest(typeId);
+      setManifestText(res.manifest_yaml || "");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load manifest');
+      setManifestDialogOpen(false);
+    } finally {
+      setManifestLoading(false);
     }
   };
 
@@ -419,7 +467,7 @@ export function IntegrationsSettingsScreen() {
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
+                            <Button data-testid="type-actions-trigger" variant="ghost" size="sm">
                               <MoreVertical className="w-4 h-4" />
                             </Button>
                           </DropdownMenuTrigger>
@@ -428,14 +476,10 @@ export function IntegrationsSettingsScreen() {
                               <RefreshCw className="w-4 h-4 mr-2" />
                               Revalidate
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Eye className="w-4 h-4 mr-2" />
-                              View Manifest
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Folder className="w-4 h-4 mr-2" />
-                              Reveal in Filesystem
-                            </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewManifest(type.id)}>
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Manifest
+                          </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
                               onClick={() => handleRemoveType(type.id)}
@@ -457,6 +501,36 @@ export function IntegrationsSettingsScreen() {
       )}
       
       {/* Info Panel */}
+      <Dialog open={manifestDialogOpen} onOpenChange={setManifestDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manifest: {manifestTypeId}</DialogTitle>
+            <DialogDescription>plugin.yaml</DialogDescription>
+          </DialogHeader>
+          <div className="border rounded-md bg-muted/20 max-h-[60vh] overflow-auto">
+            {manifestLoading ? (
+              <div className="p-4 text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading manifest...
+              </div>
+            ) : (
+              <pre className="p-4 text-xs whitespace-pre-wrap break-all">
+                {manifestText}
+              </pre>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={handleCopyManifest}
+              disabled={!manifestText}
+            >
+              Copy
+            </Button>
+            <Button onClick={() => setManifestDialogOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">How Integration Types Work</CardTitle>
