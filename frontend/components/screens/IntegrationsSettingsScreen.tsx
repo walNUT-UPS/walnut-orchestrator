@@ -95,6 +95,10 @@ export function IntegrationsSettingsScreen() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [manifestDialogOpen, setManifestDialogOpen] = useState(false);
+  const [manifestLoading, setManifestLoading] = useState(false);
+  const [manifestText, setManifestText] = useState<string>("");
+  const [manifestTypeId, setManifestTypeId] = useState<string>("");
 
   // Load integration types
   const loadIntegrationTypes = async (rescan = false) => {
@@ -182,6 +186,22 @@ export function IntegrationsSettingsScreen() {
       await loadIntegrationTypes();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to revalidate integration type');
+    }
+  };
+
+  const handleViewManifest = async (typeId: string) => {
+    try {
+      setManifestDialogOpen(true);
+      setManifestLoading(true);
+      setManifestText("");
+      setManifestTypeId(typeId);
+      const res = await apiService.getIntegrationManifest(typeId);
+      setManifestText(res.manifest_yaml || "");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load manifest');
+      setManifestDialogOpen(false);
+    } finally {
+      setManifestLoading(false);
     }
   };
 
@@ -428,10 +448,10 @@ export function IntegrationsSettingsScreen() {
                               <RefreshCw className="w-4 h-4 mr-2" />
                               Revalidate
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Eye className="w-4 h-4 mr-2" />
-                              View Manifest
-                            </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewManifest(type.id)}>
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Manifest
+                          </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
                               onClick={() => handleRemoveType(type.id)}
@@ -453,6 +473,38 @@ export function IntegrationsSettingsScreen() {
       )}
       
       {/* Info Panel */}
+      <Dialog open={manifestDialogOpen} onOpenChange={setManifestDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manifest: {manifestTypeId}</DialogTitle>
+            <DialogDescription>plugin.yaml</DialogDescription>
+          </DialogHeader>
+          <div className="border rounded-md bg-muted/20 max-h-[60vh] overflow-auto">
+            {manifestLoading ? (
+              <div className="p-4 text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading manifest...
+              </div>
+            ) : (
+              <pre className="p-4 text-xs whitespace-pre-wrap break-all">
+                {manifestText}
+              </pre>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                navigator.clipboard.writeText(manifestText).then(() => toast.success('Copied manifest'));
+              }}
+              disabled={!manifestText}
+            >
+              Copy
+            </Button>
+            <Button onClick={() => setManifestDialogOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">How Integration Types Work</CardTitle>

@@ -276,6 +276,36 @@ async def remove_integration_type(
         raise HTTPException(status_code=500, detail=f"Failed to remove integration type: {str(e)}")
 
 
+@router.get("/types/{type_id}/manifest")
+async def get_integration_manifest(
+    type_id: str,
+    current_user=Depends(current_active_user),
+):
+    """
+    Return the raw plugin.yaml manifest for a given integration type.
+
+    Reads the manifest from the filesystem using the stored IntegrationType.path
+    and returns it as a YAML string so the UI can render it in a dialog.
+    """
+    try:
+        async with get_db_session() as session:
+            result = await session.execute(select(IntegrationType).where(IntegrationType.id == type_id))
+            integration_type = result.scalar_one_or_none()
+            if not integration_type:
+                raise HTTPException(status_code=404, detail="Integration type not found")
+
+            plugin_path = Path(integration_type.path) / "plugin.yaml"
+            if not plugin_path.exists():
+                raise HTTPException(status_code=404, detail="plugin.yaml not found for this integration type")
+
+            content = plugin_path.read_text(encoding="utf-8")
+            return {"type_id": type_id, "path": str(plugin_path), "manifest_yaml": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read manifest: {str(e)}")
+
+
 @router.post("/types/{type_id}/validate")
 async def revalidate_integration_type(
     type_id: str,
