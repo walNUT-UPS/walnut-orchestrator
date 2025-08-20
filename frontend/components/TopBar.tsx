@@ -113,7 +113,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
           <div className="relative">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="lg:hidden">
+                <Button data-testid="mobile-nav-trigger" variant="ghost" size="sm" className="lg:hidden">
                   <Menu className="h-4 w-4" />
                   <span className="ml-2">{currentPage}</span>
                 </Button>
@@ -193,7 +193,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
           {/* User Avatar & Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="p-1">
+              <Button data-testid="avatar-menu-trigger" variant="ghost" size="sm" className="p-1">
                 <Avatar className="w-8 h-8">
                   <AvatarFallback className="bg-gray-500 text-white text-sm">
                     {user?.email?.slice(0, 2).toUpperCase() || 'AD'}

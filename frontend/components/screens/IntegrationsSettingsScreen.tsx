@@ -419,7 +419,7 @@ export function IntegrationsSettingsScreen() {
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
+                            <Button data-testid="type-actions-trigger" variant="ghost" size="sm">
                               <MoreVertical className="w-4 h-4" />
                             </Button>
                           </DropdownMenuTrigger>

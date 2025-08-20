@@ -563,7 +563,7 @@ export function HostsScreen() {
                             
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
+                                <Button data-testid="instance-actions-trigger" variant="ghost" size="sm">
                                   <Settings className="w-3 h-3" />
                                 </Button>
                               </DropdownMenuTrigger>
