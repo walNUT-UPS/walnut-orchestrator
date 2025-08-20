@@ -49,7 +49,11 @@ class TestResponse(BaseModel):
 health_checker = SystemHealthChecker()
 
 
-@router.get("/system/health", response_model=HealthResponse)
+@router.get(
+    "/system/health",
+    response_model=HealthResponse,
+    responses={500: {"description": "Health check failed due to an internal error."}},
+)
 async def get_system_health(
     _user: User = Depends(current_active_user)
 ) -> HealthResponse:
@@ -70,7 +74,11 @@ async def get_system_health(
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
-@router.get("/system/config", response_model=ConfigResponse)
+@router.get(
+    "/system/config",
+    response_model=ConfigResponse,
+    responses={500: {"description": "Configuration check failed due to an internal error."}},
+)
 async def get_system_config(
     _user: User = Depends(current_active_user)
 ) -> ConfigResponse:
@@ -91,7 +99,11 @@ async def get_system_config(
         raise HTTPException(status_code=500, detail=f"Configuration check failed: {str(e)}")
 
 
-@router.post("/system/test/database", response_model=TestResponse)
+@router.post(
+    "/system/test/database",
+    response_model=TestResponse,
+    responses={500: {"description": "Database test failed due to an internal error."}},
+)
 async def test_database_performance(
     _user: User = Depends(current_active_user)
 ) -> TestResponse:
@@ -116,7 +128,11 @@ async def test_database_performance(
         raise HTTPException(status_code=500, detail=f"Database test failed: {str(e)}")
 
 
-@router.post("/system/test/nut", response_model=TestResponse)
+@router.post(
+    "/system/test/nut",
+    response_model=TestResponse,
+    responses={500: {"description": "NUT test failed due to an internal error."}},
+)
 async def test_nut_connection(
     _user: User = Depends(current_active_user)
 ) -> TestResponse:
