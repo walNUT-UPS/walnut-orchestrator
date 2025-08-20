@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
-from walnut.database.connection import get_db_session
+from walnut.database.connection import get_db_session_dependency
 from walnut.database.models import LegacyEvent
 
 
@@ -69,7 +69,7 @@ async def get_events(
     limit: int = Query(50, ge=1, le=1000, description="Number of events to return"),
     severity: Optional[SeverityLevel] = Query(None, description="Filter by severity level"),
     since: Optional[datetime] = Query(None, description="Filter events since this ISO8601 timestamp"),
-    db: AsyncSession = Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session_dependency),
     current_user: User = Depends(current_active_user)
 ):
     """
@@ -102,7 +102,7 @@ async def get_events(
 @router.post("/events", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
 async def create_event(
     event: EventCreate,
-    db: AsyncSession = Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session_dependency),
     current_user: User = Depends(current_active_user)
 ):
     """
@@ -136,7 +136,7 @@ async def create_event(
 @router.get("/events/stats", response_model=EventStats)
 async def get_event_stats(
     days: int = Query(7, ge=1, le=365, description="Number of days to include in statistics"),
-    db: AsyncSession = Depends(get_db_session),
+    db: AsyncSession = Depends(get_db_session_dependency),
     current_user: User = Depends(current_active_user)
 ):
     """

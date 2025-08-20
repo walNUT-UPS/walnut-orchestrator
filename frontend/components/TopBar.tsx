@@ -36,7 +36,6 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
     { name: 'Overview', path: '/overview' },
     { name: 'Events', path: '/events' }, 
     { name: 'Orchestration', path: '/orchestration' },
-    { name: 'Integrations', path: '/integrations' },
     { name: 'Hosts', path: '/hosts' }
   ];
 

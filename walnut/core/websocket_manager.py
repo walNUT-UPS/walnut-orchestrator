@@ -196,6 +196,16 @@ class WebSocketManager:
         
         await self._broadcast_to_authenticated(message)
     
+    async def broadcast_json(self, message: Dict[str, Any]):
+        """
+        Broadcast a JSON message to all authenticated clients.
+        
+        Args:
+            message: The message to broadcast
+        """
+        await self._broadcast_to_authenticated(message)
+        self._add_to_history(message)
+    
     async def handle_client_message(self, client_id: str, message_data: Dict[str, Any]):
         """
         Handle incoming message from client.
@@ -372,3 +382,8 @@ class WebSocketManager:
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()
+
+
+def get_websocket_manager() -> WebSocketManager:
+    """Get the global WebSocket manager instance."""
+    return websocket_manager

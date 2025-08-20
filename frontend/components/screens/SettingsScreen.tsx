@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -19,7 +20,8 @@ import {
   Shield,
   Users,
   Activity,
-  Bug
+  Bug,
+  Puzzle
 } from 'lucide-react';
 import {
   Select,
@@ -58,8 +60,28 @@ const mockHealthChecks = [
   { name: 'Integration Status', status: 'healthy', lastCheck: '2024-01-15T15:40:00Z' }
 ];
 
+// Import the new IntegrationsSettingsScreen
+import { IntegrationsSettingsScreen } from './IntegrationsSettingsScreen';
+
 export function SettingsScreen() {
-  const [activeTab, setActiveTab] = useState('ups');
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Extract the settings subtab from the URL path
+  const getActiveTabFromPath = () => {
+    const pathSegments = location.pathname.split('/');
+    if (pathSegments[1] === 'settings' && pathSegments.length > 2) {
+      return pathSegments[2];
+    }
+    return 'ups';
+  };
+
+  const [activeTab, setActiveTab] = useState(getActiveTabFromPath());
+  
+  // Update active tab when location changes
+  React.useEffect(() => {
+    setActiveTab(getActiveTabFromPath());
+  }, [location.pathname]);
   const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -165,6 +187,13 @@ Last 5 Events:
     alert('Testing all connections - feature not yet implemented');
   };
 
+  // Handle default route redirect
+  React.useEffect(() => {
+    if (location.pathname === '/settings' || location.pathname === '/settings/') {
+      navigate('/settings/ups', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
   return (
     <div className="flex-1">
       <div className="container-grid py-6">
@@ -175,12 +204,19 @@ Last 5 Events:
           </p>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        <Tabs value={activeTab} onValueChange={(value) => {
+          setActiveTab(value);
+          navigate(`/settings/${value}`);
+        }} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             <TabsTrigger value="ups" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Settings2 className="w-4 h-4" />
               <span className="hidden sm:inline">UPS / NUT</span>
               <span className="sm:hidden">UPS</span>
+            </TabsTrigger>
+            <TabsTrigger value="integrations" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
+              <Puzzle className="w-4 h-4" />
+              <span>Integrations</span>
             </TabsTrigger>
             <TabsTrigger value="security" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Shield className="w-4 h-4" />
@@ -194,7 +230,7 @@ Last 5 Events:
               <Activity className="w-4 h-4" />
               <span>System</span>
             </TabsTrigger>
-            <TabsTrigger value="diagnostics" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm col-span-2 sm:col-span-1">
+            <TabsTrigger value="diagnostics" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Bug className="w-4 h-4" />
               <span className="hidden sm:inline">Diagnostics</span>
               <span className="sm:hidden">Debug</span>
@@ -305,6 +341,11 @@ Last 5 Events:
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Integrations Settings */}
+          <TabsContent value="integrations" className="space-y-6">
+            <IntegrationsSettingsScreen />
           </TabsContent>
 
           {/* Security Settings */}

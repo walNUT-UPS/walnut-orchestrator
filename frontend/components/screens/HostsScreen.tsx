@@ -1,18 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SecondaryToolbar } from '../SecondaryToolbar';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { 
   Plus, 
-  Play, 
-  Terminal,
-  Eye,
+  Server,
+  TestTube,
+  Settings,
+  Trash2,
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  Server,
-  HardDrive,
-  Laptop
+  Loader2,
+  RefreshCw,
+  Calendar,
+  Clock,
+  Zap
 } from 'lucide-react';
 import {
   Table,
@@ -47,103 +51,154 @@ import {
 } from '../ui/select';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Switch } from '../ui/switch';
 import { Textarea } from '../ui/textarea';
+import { apiService, IntegrationType, IntegrationInstance } from '../../services/api';
+import { toast } from 'sonner';
 
-interface Host {
-  id: string;
-  name: string;
-  type: 'linux' | 'truenas' | 'proxmox' | 'other';
-  ip: string;
-  port: number;
-  authMethod: 'key' | 'password';
-  lastContact: string;
-  lastActionResult: 'success' | 'failed' | 'pending' | 'never';
-  status: 'online' | 'offline' | 'unknown';
-  osInfo?: string;
-  uptime?: string;
-  description?: string;
+// Schema field component for rendering form fields from JSON Schema
+interface SchemaFieldProps {
+  field: any;
+  value: any;
+  onChange: (value: any) => void;
+  isSecret?: boolean;
 }
 
-const mockHosts: Host[] = [
-  {
-    id: '1',
-    name: 'srv-pbs-01',
-    type: 'linux',
-    ip: '192.168.1.10',
-    port: 22,
-    authMethod: 'key',
-    lastContact: '2024-01-15T15:42:00Z',
-    lastActionResult: 'success',
-    status: 'online',
-    osInfo: 'Ubuntu 22.04.3 LTS',
-    uptime: '15d 3h 42m',
-    description: 'Proxmox Backup Server'
-  },
-  {
-    id: '2',
-    name: 'truenas-main',
-    type: 'truenas',
-    ip: '192.168.1.20',
-    port: 22,
-    authMethod: 'password',
-    lastContact: '2024-01-15T15:41:30Z',
-    lastActionResult: 'success',
-    status: 'online',
-    osInfo: 'TrueNAS Scale 24.04',
-    uptime: '22d 8h 15m',
-    description: 'Main NAS storage'
-  },
-  {
-    id: '3',
-    name: 'pve-node1',
-    type: 'proxmox',
-    ip: '192.168.1.30',
-    port: 22,
-    authMethod: 'key',
-    lastContact: '2024-01-15T15:40:00Z',
-    lastActionResult: 'failed',
-    status: 'online',
-    osInfo: 'Proxmox VE 8.1.4',
-    uptime: '8d 14h 22m',
-    description: 'Proxmox hypervisor node'
-  },
-  {
-    id: '4',
-    name: 'monitoring-pi',
-    type: 'linux',
-    ip: '192.168.1.100',
-    port: 22,
-    authMethod: 'key',
-    lastContact: '2024-01-15T14:30:00Z',
-    lastActionResult: 'never',
-    status: 'offline',
-    osInfo: 'Raspberry Pi OS',
-    description: 'Monitoring and alerts'
+function SchemaField({ field, value, onChange, isSecret = false }: SchemaFieldProps) {
+  const fieldType = field.type || 'string';
+  const isRequired = field.required || false;
+  const title = field.title || field.name || 'Field';
+  const placeholder = field.placeholder || field.default?.toString() || '';
+
+  switch (fieldType) {
+    case 'string':
+      return (
+        <div className="space-y-2">
+          <Label htmlFor={field.name}>
+            {title}
+            {isRequired && <span className="text-destructive ml-1">*</span>}
+          </Label>
+          <Input
+            id={field.name}
+            type={isSecret ? 'password' : 'text'}
+            placeholder={placeholder}
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            required={isRequired}
+          />
+          {field.description && (
+            <p className="text-xs text-muted-foreground">{field.description}</p>
+          )}
+        </div>
+      );
+    
+    case 'integer':
+    case 'number':
+      return (
+        <div className="space-y-2">
+          <Label htmlFor={field.name}>
+            {title}
+            {isRequired && <span className="text-destructive ml-1">*</span>}
+          </Label>
+          <Input
+            id={field.name}
+            type="number"
+            placeholder={placeholder}
+            value={value || ''}
+            onChange={(e) => onChange(fieldType === 'integer' ? parseInt(e.target.value) || 0 : parseFloat(e.target.value) || 0)}
+            required={isRequired}
+          />
+          {field.description && (
+            <p className="text-xs text-muted-foreground">{field.description}</p>
+          )}
+        </div>
+      );
+    
+    case 'boolean':
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id={field.name}
+              checked={value || field.default || false}
+              onCheckedChange={onChange}
+            />
+            <Label htmlFor={field.name}>
+              {title}
+              {isRequired && <span className="text-destructive ml-1">*</span>}
+            </Label>
+          </div>
+          {field.description && (
+            <p className="text-xs text-muted-foreground">{field.description}</p>
+          )}
+        </div>
+      );
+    
+    default:
+      return (
+        <div className="space-y-2">
+          <Label htmlFor={field.name}>
+            {title} (unsupported type: {fieldType})
+            {isRequired && <span className="text-destructive ml-1">*</span>}
+          </Label>
+          <Input
+            id={field.name}
+            placeholder={placeholder}
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            disabled
+          />
+        </div>
+      );
   }
-];
-
-const hostTypeIcons = {
-  linux: <Server className="w-4 h-4" />,
-  truenas: <HardDrive className="w-4 h-4" />,
-  proxmox: <Server className="w-4 h-4" />,
-  other: <Laptop className="w-4 h-4" />
-};
-
-const hostTypeLabels = {
-  linux: 'Linux Server',
-  truenas: 'TrueNAS',
-  proxmox: 'Proxmox',
-  other: 'Other'
-};
+}
 
 export function HostsScreen() {
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [selectedHost, setSelectedHost] = useState<Host | null>(null);
-  const [showAddDialog, setShowAddDialog] = useState(false);
+  
+  // Data state
+  const [integrationTypes, setIntegrationTypes] = useState<IntegrationType[]>([]);
+  const [integrationInstances, setIntegrationInstances] = useState<IntegrationInstance[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // New Host dialog state
+  const [newHostDialogOpen, setNewHostDialogOpen] = useState(false);
+  const [selectedType, setSelectedType] = useState<IntegrationType | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    config: {} as Record<string, any>,
+    secrets: {} as Record<string, string>
+  });
 
-  const availableFilters = ['Online', 'Offline', 'Linux', 'TrueNAS', 'Proxmox', 'Key Auth', 'Password Auth'];
+  const availableFilters = ['Connected', 'Disconnected', 'Error', 'Degraded'];
+
+  // Load data
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const [types, instances] = await Promise.all([
+        apiService.getIntegrationTypes(),
+        apiService.getIntegrationInstances()
+      ]);
+      
+      setIntegrationTypes(types.filter(t => t.status === 'valid')); // Only show valid types for instance creation
+      setIntegrationInstances(instances);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const handleFilterToggle = (filter: string) => {
     setActiveFilters(prev => 
@@ -153,7 +208,153 @@ export function HostsScreen() {
     );
   };
 
-  const formatTimestamp = (timestamp: string) => {
+  // Filter instances based on active filters and search
+  const filteredInstances = integrationInstances.filter(instance => {
+    // Search filter
+    if (searchValue && !instance.name.toLowerCase().includes(searchValue.toLowerCase()) &&
+        !instance.type_id.toLowerCase().includes(searchValue.toLowerCase()) &&
+        !(instance.type_name || '').toLowerCase().includes(searchValue.toLowerCase())) {
+      return false;
+    }
+    
+    // Status filters
+    if (activeFilters.includes('Connected') && instance.state !== 'connected') return false;
+    if (activeFilters.includes('Disconnected') && instance.state !== 'disconnected') return false;
+    if (activeFilters.includes('Error') && instance.state !== 'error') return false;
+    if (activeFilters.includes('Degraded') && instance.state !== 'degraded') return false;
+    
+    return true;
+  });
+
+  const handleCreateHost = async () => {
+    if (!selectedType) return;
+    
+    try {
+      setIsCreating(true);
+      
+      const instanceData = {
+        type_id: selectedType.id,
+        name: formData.name,
+        config: formData.config,
+        secrets: formData.secrets
+      };
+      
+      await apiService.createIntegrationInstance(instanceData);
+      
+      toast.success(`Host "${formData.name}" created successfully`);
+      setNewHostDialogOpen(false);
+      resetForm();
+      await loadData(); // Reload to show new instance
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create host');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const resetForm = () => {
+    setSelectedType(null);
+    setFormData({
+      name: '',
+      config: {},
+      secrets: {}
+    });
+  };
+
+  const handleTypeChange = (typeId: string) => {
+    const type = integrationTypes.find(t => t.id === typeId);
+    setSelectedType(type || null);
+    // Reset config when type changes
+    setFormData(prev => ({
+      ...prev,
+      config: {},
+      secrets: {}
+    }));
+  };
+
+  const handleConfigChange = (fieldName: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        [fieldName]: value
+      }
+    }));
+  };
+
+  const handleSecretChange = (fieldName: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      secrets: {
+        ...prev.secrets,
+        [fieldName]: value
+      }
+    }));
+  };
+
+  const handleTestInstance = async (instanceId: number) => {
+    try {
+      const result = await apiService.testIntegrationInstance(instanceId);
+      if (result.success) {
+        toast.success(`Connection test successful (${result.latency_ms}ms)`);
+      } else {
+        toast.error(`Connection test failed: ${result.message}`);
+      }
+      await loadData(); // Refresh to show updated state
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Test failed');
+    }
+  };
+
+  const handleDeleteInstance = async (instanceId: number, instanceName: string) => {
+    if (!confirm(`Delete host "${instanceName}"? This action cannot be undone.`)) {
+      return;
+    }
+    
+    try {
+      await apiService.deleteIntegrationInstance(instanceId);
+      toast.success(`Host "${instanceName}" deleted`);
+      await loadData(); // Refresh list
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete host');
+    }
+  };
+
+  const getStatusIcon = (state: string) => {
+    switch (state) {
+      case 'connected':
+        return <CheckCircle2 className="w-4 h-4 text-status-ok" />;
+      case 'degraded':
+        return <AlertTriangle className="w-4 h-4 text-status-warn" />;
+      case 'error':
+        return <XCircle className="w-4 h-4 text-status-error" />;
+      default:
+        return <XCircle className="w-4 h-4 text-muted-foreground" />;
+    }
+  };
+
+  const getStatusBadge = (state: string) => {
+    switch (state) {
+      case 'connected':
+        return <Badge className="bg-status-ok/10 text-status-ok border-status-ok">Connected</Badge>;
+      case 'degraded':
+        return <Badge className="bg-status-warn/10 text-status-warn border-status-warn">Degraded</Badge>;
+      case 'error':
+        return <Badge className="bg-status-error/10 text-status-error border-status-error">Error</Badge>;
+      case 'unknown':
+        return <Badge variant="outline">Unknown</Badge>;
+      case 'needs_review':
+        return <Badge className="bg-status-warn/10 text-status-warn border-status-warn">Needs Review</Badge>;
+      case 'type_unavailable':
+        return <Badge variant="outline">Type Unavailable</Badge>;
+      default:
+        return <Badge variant="outline">{state}</Badge>;
+    }
+  };
+
+  const formatTimestamp = (timestamp?: string) => {
+    if (!timestamp) return 'Never';
+    
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -165,28 +366,26 @@ export function HostsScreen() {
     return `${Math.floor(diffMins / 1440)}d ago`;
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'online':
-        return <CheckCircle2 className="w-4 h-4 text-status-ok" />;
-      case 'offline':
-        return <XCircle className="w-4 h-4 text-status-error" />;
-      default:
-        return <AlertTriangle className="w-4 h-4 text-status-warn" />;
-    }
-  };
+  // Render form fields from schema
+  const renderSchemaFields = (schema: any, isSecret: boolean = false) => {
+    if (!schema || !schema.properties) return null;
 
-  const getActionResultBadge = (result: string) => {
-    switch (result) {
-      case 'success':
-        return <Badge variant="secondary" className="bg-status-ok/10 text-status-ok border-0">Success</Badge>;
-      case 'failed':
-        return <Badge variant="secondary" className="bg-status-error/10 text-status-error border-0">Failed</Badge>;
-      case 'pending':
-        return <Badge variant="secondary" className="bg-status-warn/10 text-status-warn border-0">Pending</Badge>;
-      default:
-        return <Badge variant="outline">Never</Badge>;
-    }
+    const fields = Object.entries(schema.properties).map(([name, fieldSchema]: [string, any]) => {
+      const fieldWithName = { ...fieldSchema, name };
+      const currentValue = isSecret ? formData.secrets[name] : formData.config[name];
+      
+      return (
+        <SchemaField
+          key={name}
+          field={fieldWithName}
+          value={currentValue}
+          onChange={(value) => isSecret ? handleSecretChange(name, value) : handleConfigChange(name, value)}
+          isSecret={isSecret}
+        />
+      );
+    });
+
+    return fields;
   };
 
   return (
@@ -205,212 +404,338 @@ export function HostsScreen() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-display">Managed Hosts</h1>
+            <h1 className="text-display">Hosts</h1>
             <p className="text-micro text-muted-foreground mt-1">
-              Servers and devices configured for UPS orchestration
+              Manage host connections using integration types
             </p>
           </div>
-          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-            <DialogTrigger asChild>
-              <Button className="bg-status-info hover:bg-status-info/90">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Host
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={loadData} disabled={isLoading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Dialog open={newHostDialogOpen} onOpenChange={setNewHostDialogOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={() => resetForm()}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Host
+                </Button>
+              </DialogTrigger>
+            </Dialog>
+          </div>
+        </div>
+
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-muted-foreground">Loading hosts...</span>
+          </div>
+        )}
+        
+        {/* Error State */}
+        {error && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <XCircle className="w-12 h-12 text-status-error mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Error Loading Hosts</h3>
+              <p className="text-muted-foreground mb-4">{error}</p>
+              <Button onClick={loadData} variant="outline">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Try Again
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Add New Host</DialogTitle>
-                <DialogDescription>
-                  Configure a new host for UPS orchestration
-                </DialogDescription>
-              </DialogHeader>
-              
-              <div className="space-y-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="host-name">Name</Label>
-                    <Input id="host-name" placeholder="srv-example-01" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="host-type">Type</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="linux">Linux Server</SelectItem>
-                        <SelectItem value="truenas">TrueNAS</SelectItem>
-                        <SelectItem value="proxmox">Proxmox</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2 col-span-2">
-                    <Label htmlFor="host-ip">IP Address</Label>
-                    <Input id="host-ip" placeholder="192.168.1.10" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="host-port">Port</Label>
-                    <Input id="host-port" placeholder="22" defaultValue="22" />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="host-user">Username</Label>
-                  <Input id="host-user" placeholder="root" />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="host-auth">Authentication</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select method" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="key">SSH Key</SelectItem>
-                      <SelectItem value="password">Password</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="host-description">Description (optional)</Label>
-                  <Textarea 
-                    id="host-description" 
-                    placeholder="Brief description of this host"
-                    className="h-16"
-                  />
-                </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Empty State */}
+        {!isLoading && !error && filteredInstances.length === 0 && (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center mx-auto mb-4">
+                <Server className="w-6 h-6 text-muted-foreground" />
               </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-                  Cancel
+              <h3 className="text-lg font-semibold mb-2">No Hosts</h3>
+              <p className="text-muted-foreground mb-4">
+                {integrationInstances.length === 0 
+                  ? 'Get started by creating your first host connection.'
+                  : 'No hosts match your current filters.'}
+              </p>
+              {integrationInstances.length === 0 && integrationTypes.length > 0 && (
+                <Button onClick={() => setNewHostDialogOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Host
                 </Button>
-                <Button>
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Add & Test
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-
+              )}
+              {integrationTypes.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No valid integration types available. Add integration types in Settings → Integrations.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+        
         {/* Hosts Table */}
-        <div className="bg-card rounded-lg border border-border overflow-hidden">
-          <Table>
-            <TableHeader className="bg-muted/30">
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Host</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Auth</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last Contact</TableHead>
-                <TableHead>Last Action</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockHosts.map((host) => (
-                <TableRow key={host.id} className="hover:bg-accent/50">
-                  <TableCell>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        {hostTypeIcons[host.type]}
-                        <span className="font-medium">{host.name}</span>
+        {!isLoading && !error && filteredInstances.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Server className="w-5 h-5" />
+                <span>Hosts</span>
+                <Badge variant="outline">{filteredInstances.length}</Badge>
+              </CardTitle>
+              <CardDescription>
+                Integration instances configured as host connections
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last Test</TableHead>
+                      <TableHead>Latency</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInstances.map((instance) => (
+                      <TableRow key={instance.instance_id} className="hover:bg-muted/50">
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium">{instance.name}</div>
+                            <div className="font-mono text-xs text-muted-foreground">
+                              ID: {instance.instance_id}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium">{instance.type_name || instance.type_id}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {instance.type_category && (
+                                <Badge variant="outline" className="text-xs">
+                                  {instance.type_category}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(instance.state)}
+                            {getStatusBadge(instance.state)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatTimestamp(instance.last_test)}
+                        </TableCell>
+                        <TableCell>
+                          {instance.latency_ms ? (
+                            <div className="flex items-center gap-1">
+                              <Zap className="w-3 h-3" />
+                              <span className="text-sm">{instance.latency_ms}ms</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(instance.created_at).toLocaleDateString()}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleTestInstance(instance.instance_id)}
+                            >
+                              <TestTube className="w-3 h-3" />
+                            </Button>
+                            
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <Settings className="w-3 h-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem>
+                                  <Settings className="w-4 h-4 mr-2" />
+                                  Configure
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem 
+                                  className="text-destructive"
+                                  onClick={() => handleDeleteInstance(instance.instance_id, instance.name)}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* New Host Dialog */}
+        <Dialog open={newHostDialogOpen} onOpenChange={setNewHostDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>New Host</DialogTitle>
+              <DialogDescription>
+                Create a new host connection from an integration type
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-6 py-4">
+              {/* Step 1: Select Integration Type */}
+              <div className="space-y-2">
+                <Label>Integration Type</Label>
+                <Select value={selectedType?.id || ''} onValueChange={handleTypeChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an integration type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {integrationTypes.map((type) => (
+                      <SelectItem key={type.id} value={type.id}>
+                        <div className="flex items-center justify-between w-full">
+                          <span>{type.name}</span>
+                          <Badge variant="outline" className="ml-2 text-xs">
+                            {type.category}
+                          </Badge>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {integrationTypes.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No valid integration types available. Add integration types in Settings → Integrations.
+                  </p>
+                )}
+              </div>
+              
+              {selectedType && (
+                <>
+                  {/* Step 2: Host Name */}
+                  <div className="space-y-2">
+                    <Label htmlFor="host-name">
+                      Host Name
+                      <span className="text-destructive ml-1">*</span>
+                    </Label>
+                    <Input
+                      id="host-name"
+                      value={formData.name}
+                      onChange={(e) => setFormData(prev => ({...prev, name: e.target.value}))}
+                      placeholder="e.g., pve-01, truenas-main"
+                      required
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Unique identifier for this host connection
+                    </p>
+                  </div>
+                  
+                  {/* Step 3: Configuration Fields from Schema */}
+                  {selectedType.schema_connection && selectedType.schema_connection.properties && (
+                    <div className="space-y-4">
+                      <div className="border-t pt-4">
+                        <Label className="text-base">Configuration</Label>
+                        <p className="text-xs text-muted-foreground mb-4">
+                          Configure connection settings for {selectedType.name}
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {renderSchemaFields(selectedType.schema_connection)}
+                        </div>
                       </div>
-                      {host.description && (
-                        <div className="text-micro text-muted-foreground mt-1">
-                          {host.description}
+                      
+                      {/* Secrets section - check for secret fields in schema */}
+                      {Object.entries(selectedType.schema_connection.properties || {}).some(
+                        ([_, field]: [string, any]) => field.secret === true
+                      ) && (
+                        <div className="border-t pt-4">
+                          <Label className="text-base">Secrets</Label>
+                          <p className="text-xs text-muted-foreground mb-4">
+                            Secure credentials and sensitive information
+                          </p>
+                          <div className="grid grid-cols-1 gap-4">
+                            {Object.entries(selectedType.schema_connection.properties || {})
+                              .filter(([_, field]: [string, any]) => field.secret === true)
+                              .map(([name, fieldSchema]: [string, any]) => {
+                                const fieldWithName = { ...fieldSchema, name };
+                                return (
+                                  <SchemaField
+                                    key={name}
+                                    field={fieldWithName}
+                                    value={formData.secrets[name]}
+                                    onChange={(value) => handleSecretChange(name, value)}
+                                    isSecret={true}
+                                  />
+                                );
+                              })
+                            }
+                          </div>
                         </div>
                       )}
-                      {host.osInfo && (
-                        <div className="text-micro text-muted-foreground">
-                          {host.osInfo}
-                        </div>
-                      )}
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {hostTypeLabels[host.type]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-mono text-micro">
-                      <div>{host.ip}:{host.port}</div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={host.authMethod === 'key' ? 'secondary' : 'outline'}>
-                      {host.authMethod === 'key' ? 'SSH Key' : 'Password'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center space-x-2">
-                      {getStatusIcon(host.status)}
-                      <span className="capitalize">{host.status}</span>
-                    </div>
-                    {host.uptime && (
-                      <div className="text-micro text-muted-foreground">
-                        Up: {host.uptime}
+                  )}
+                  
+                  {/* Integration Type Info */}
+                  <div className="bg-muted/20 p-4 rounded-lg">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Integration Type</span>
+                        <Badge variant="outline">v{selectedType.version}</Badge>
                       </div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-micro tabular-nums">
-                    {formatTimestamp(host.lastContact)}
-                  </TableCell>
-                  <TableCell>
-                    {getActionResultBadge(host.lastActionResult)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center space-x-1">
-                      <Button variant="ghost" size="sm">
-                        <CheckCircle2 className="w-3 h-3 mr-1" />
-                        Test
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <Terminal className="w-3 h-3 mr-1" />
-                            Run
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem>
-                            <Play className="w-3 h-3 mr-2" />
-                            Test Connection
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Terminal className="w-3 h-3 mr-2" />
-                            Shell Access
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem>
-                            Graceful Shutdown
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            Restart Services
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            Check System Status
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <Button variant="ghost" size="sm">
-                        <Eye className="w-3 h-3" />
-                      </Button>
+                      <div className="text-xs text-muted-foreground">
+                        <div>Category: {selectedType.category}</div>
+                        <div>Capabilities: {selectedType.capabilities.length} available</div>
+                        <div>Min Core Version: {selectedType.min_core_version}</div>
+                      </div>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setNewHostDialogOpen(false);
+                  resetForm();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleCreateHost} 
+                disabled={!selectedType || !formData.name.trim() || isCreating}
+              >
+                {isCreating ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating...</>
+                ) : (
+                  <>Create Host</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

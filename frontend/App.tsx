@@ -22,7 +22,7 @@ function DashboardApp() {
   const getActiveTabFromPath = (pathname: string) => {
     const path = pathname.slice(1); // Remove leading slash
     const tab = path.charAt(0).toUpperCase() + path.slice(1);
-    return ['Overview', 'Events', 'Orchestration', 'Integrations', 'Hosts', 'Settings'].includes(tab) 
+    return ['Overview', 'Events', 'Orchestration', 'Hosts', 'Settings'].includes(tab) 
       ? tab 
       : 'Overview';
   };
@@ -42,9 +42,8 @@ function DashboardApp() {
           <Route path="/overview" element={<OverviewScreen />} />
           <Route path="/events" element={<EventsScreen />} />
           <Route path="/orchestration" element={<OrchestrationScreen />} />
-          <Route path="/integrations" element={<IntegrationsScreen />} />
           <Route path="/hosts" element={<HostsScreen />} />
-          <Route path="/settings" element={<SettingsScreen />} />
+          <Route path="/settings/*" element={<SettingsScreen />} />
         </Routes>
       </main>
       <Toaster 

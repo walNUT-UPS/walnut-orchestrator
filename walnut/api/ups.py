@@ -8,7 +8,7 @@ import anyio
 
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
-from walnut.database.connection import get_db_session
+from walnut.database.connection import get_db_session_dependency
 from walnut.database.models import UPSSample
 
 router = APIRouter()
@@ -45,7 +45,7 @@ class UPSSamplesResponse(BaseModel):
 @router.get("/ups/status", response_model=UPSStatusResponse, summary="Get current UPS status")
 async def get_ups_status(
     user: User = Depends(current_active_user),
-    session = Depends(get_db_session)
+    session = Depends(get_db_session_dependency)
 ) -> UPSStatusResponse:
     """
     Get the most recent UPS status data.
@@ -88,7 +88,7 @@ async def get_ups_samples(
     offset: int = Query(0, ge=0, description="Number of samples to skip"),
     since: Optional[datetime] = Query(None, description="Return samples since this timestamp (ISO 8601)"),
     user: User = Depends(current_active_user),
-    session = Depends(get_db_session)
+    session = Depends(get_db_session_dependency)
 ) -> UPSSamplesResponse:
     """
     Get historical UPS samples with pagination.
@@ -152,7 +152,7 @@ async def get_ups_samples(
 async def get_ups_health(
     hours: int = Query(24, ge=1, le=168, description="Number of hours to include in health summary"),
     user: User = Depends(current_active_user),
-    session = Depends(get_db_session)
+    session = Depends(get_db_session_dependency)
 ) -> UPSHealthSummary:
     """
     Get UPS health summary for the specified time period.

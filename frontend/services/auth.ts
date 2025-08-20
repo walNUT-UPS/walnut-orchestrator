@@ -77,27 +77,26 @@ class AuthService {
   /**
    * Get current user information
    * This can be used to check if user is authenticated
-   * Since we don't have a /me endpoint yet, we'll try to access a protected endpoint
    */
   async getCurrentUser(): Promise<User | null> {
     try {
-      // Try to access a protected endpoint to check auth status
-      const response = await fetch(`/api/system/health`, {
+      // Use the proper /api/me endpoint to check auth status
+      const response = await fetch(`/api/me`, {
         method: 'GET',
         credentials: 'include', // Include cookies
       });
 
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
         return null; // Not authenticated
       }
 
       if (!response.ok) {
-        return null; // Assume not authenticated if we can't access protected resources
+        return null; // Not authenticated or other error
       }
 
-      // If we can access protected endpoints, assume authentication is valid
-      // Return a basic user object (we'll enhance this when we have a proper /me endpoint)
-      return { email: 'admin@test.com' };
+      // Parse the user data from the response
+      const userData = await response.json();
+      return { email: userData.email || 'user@example.com' };
     } catch (error) {
       console.error('Error checking authentication:', error);
       return null;
