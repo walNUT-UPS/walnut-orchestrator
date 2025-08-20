@@ -100,6 +100,34 @@ export function IntegrationsSettingsScreen() {
   const [manifestText, setManifestText] = useState<string>("");
   const [manifestTypeId, setManifestTypeId] = useState<string>("");
 
+  const handleCopyManifest = async () => {
+    try {
+      await navigator.clipboard.writeText(manifestText);
+      toast.success('Copied manifest');
+    } catch (err) {
+      // Fallback for browsers/environments without clipboard permission
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = manifestText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-1000px';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) {
+          toast.success('Copied manifest');
+        } else {
+          toast.error('Copy failed');
+        }
+      } catch (e) {
+        toast.error('Copy failed');
+      }
+    }
+  };
+
   // Load integration types
   const loadIntegrationTypes = async (rescan = false) => {
     try {
@@ -493,9 +521,7 @@ export function IntegrationsSettingsScreen() {
           <div className="flex justify-end gap-2">
             <Button
               variant="outline"
-              onClick={() => {
-                navigator.clipboard.writeText(manifestText).then(() => toast.success('Copied manifest'));
-              }}
+              onClick={handleCopyManifest}
               disabled={!manifestText}
             >
               Copy

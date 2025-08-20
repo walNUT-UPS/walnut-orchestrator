@@ -357,7 +357,8 @@ async def list_integration_instances(
                 select(IntegrationInstance, IntegrationType)
                 .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
             )
-            result = await session.execute(stmt)
+            # Run sync execute() in a worker thread
+            result = await anyio.to_thread.run_sync(session.execute, stmt)
             rows = result.all()
 
             out: List[IntegrationInstanceOut] = []
