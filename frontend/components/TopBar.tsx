@@ -111,14 +111,20 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
           </nav>
 
           {/* Mobile Navigation Dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="lg:hidden">
-                <Menu className="h-4 w-4" />
-                <span className="ml-2">{currentPage}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
+          <div className="relative">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="lg:hidden">
+                  <Menu className="h-4 w-4" />
+                  <span className="ml-2">{currentPage}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent 
+                align="start" 
+                side="bottom" 
+                sideOffset={4}
+                className="w-48"
+              >
               {navigationItems.map((item) => (
                 <DropdownMenuItem
                   key={item.name}
@@ -130,8 +136,9 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
                   </Link>
                 </DropdownMenuItem>
               ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {/* Right Section - Status & Actions */}
@@ -195,7 +202,12 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent 
+              align="end" 
+              side="bottom"
+              sideOffset={4}
+              className="w-56"
+            >
               <div className="flex items-center space-x-2 p-2">
                 <Avatar className="w-8 h-8">
                   <AvatarFallback className="bg-gray-500 text-white text-sm">

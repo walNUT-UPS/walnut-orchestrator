@@ -155,16 +155,29 @@ export function OverviewScreen() {
             <div className="card-standard p-4">
               <div className="flex items-center space-x-4">
                 <StatusPill 
-                  status={systemHealth?.status === 'healthy' ? 'ok' : systemHealth?.status === 'degraded' ? 'warn' : 'error'} 
+                  status={
+                    isLoading ? 'ok' : 
+                    error ? 'error' : 
+                    !systemHealth ? 'warn' :
+                    systemHealth.status === 'healthy' ? 'ok' : 
+                    systemHealth.status === 'degraded' ? 'warn' : 'error'
+                  } 
                   size="md" 
                 />
                 <div>
                   <div className="text-title">
-                    {isLoading ? 'Loading...' : error ? 'System Error' : systemHealth?.status === 'healthy' ? 'System Online' : 'System Issues Detected'}
+                    {isLoading ? 'Connecting to walNUT' : 
+                     error ? 'Connection Error' : 
+                     !systemHealth ? 'Initializing System' :
+                     systemHealth.status === 'healthy' ? 'System Online' : 
+                     systemHealth.status === 'degraded' ? 'System Degraded' : 'System Issues Detected'}
                   </div>
                   <div className="text-micro text-muted-foreground tabular-nums">
-                    {isLoading ? 'Connecting...' : error ? error : 
-                     wsConnected ? 'Live connection active' : 'Last sync: ' + (systemHealth?.timestamp ? new Date(systemHealth.timestamp).toLocaleString() : 'Unknown')}
+                    {isLoading ? 'Establishing secure connection...' : 
+                     error ? 'Check network connection and try refreshing' : 
+                     wsConnected ? 'Live data stream active' : 
+                     systemHealth?.timestamp ? `Last sync: ${new Date(systemHealth.timestamp).toLocaleString()}` : 
+                     'Waiting for first data sync'}
                   </div>
                 </div>
               </div>
@@ -185,37 +198,45 @@ export function OverviewScreen() {
         {/* Metrics Grid */}
         {viewMode === 'cards' && (
           <>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Top row - 3 equal height cards */}
-              <div className="h-[300px]">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {/* Top row - 3 responsive cards */}
+              <div className="min-h-[280px]">
                 <MetricCard
                   title="UPS Status"
                   status={upsStatus?.status?.includes('OB') ? 'warn' : 'ok'}
                   metrics={upsMetrics}
                   meta={{
-                    uptime: systemHealth ? `${Math.floor(systemHealth.uptime_seconds / 86400)}d ${Math.floor((systemHealth.uptime_seconds % 86400) / 3600)}h` : 'Unknown',
-                    lastUpdate: wsConnected ? 'Live' : upsStatus ? new Date(upsStatus.timestamp).toLocaleString() : 'No data',
-                    driver: upsStatus?.status || 'Unknown'
+                    uptime: systemHealth && systemHealth.uptime_seconds ? 
+                      `${Math.floor(systemHealth.uptime_seconds / 86400)}d ${Math.floor((systemHealth.uptime_seconds % 86400) / 3600)}h` : 
+                      isLoading ? 'Loading...' : '—',
+                    lastUpdate: wsConnected ? 'Live data' : 
+                      upsStatus ? new Date(upsStatus.timestamp).toLocaleString() : 
+                      isLoading ? 'Connecting...' : 'Waiting for data',
+                    driver: upsStatus?.status ? 
+                      upsStatus.status.replace('OL', 'Online').replace('OB', 'On Battery').replace('CHRG', 'Charging') : 
+                      isLoading ? 'Detecting...' : 'Not connected'
                   }}
                 />
               </div>
               
-              <div className="h-[300px]">
+              <div className="min-h-[280px]">
                 <MetricCard
                   title="Event Summary (24h)"
-                  status="warn"
+                  status={convertedEvents.filter(e => e.type === 'OnBattery').length > 0 ? 'warn' : 'ok'}
                   metrics={[
-                    { label: 'OnBattery Events', value: 2, max: 10, unit: '' },
-                    { label: 'Recoveries', value: 2, max: 10, unit: '' },
-                    { label: 'Low Battery', value: 0, max: 5, unit: '' }
+                    { label: 'OnBattery Events', value: convertedEvents.filter(e => e.type === 'OnBattery').length, max: 10, unit: '' },
+                    { label: 'Recoveries', value: convertedEvents.filter(e => e.type === 'Recovered').length, max: 10, unit: '' },
+                    { label: 'Low Battery', value: convertedEvents.filter(e => e.type === 'LowBattery').length, max: 5, unit: '' }
                   ]}
                   meta={{
-                    lastUpdate: '2m ago'
+                    lastUpdate: convertedEvents.length > 0 ? 
+                      `${Math.round((Date.now() - new Date(convertedEvents[0].timestamp).getTime()) / 60000)}m ago` : 
+                      'No events'
                   }}
                 />
               </div>
 
-              <div className="h-[300px]">
+              <div className="min-h-[280px] md:col-span-2 xl:col-span-1">
                 <MetricCard
                   title="Orchestration State"
                   status="ok"
@@ -225,15 +246,15 @@ export function OverviewScreen() {
                     { label: 'Success Rate', value: 98, max: 100, unit: '%', inverse: true }
                   ]}
                   meta={{
-                    lastUpdate: '1m ago'
+                    lastUpdate: wsConnected ? 'Live' : '1m ago'
                   }}
                 />
               </div>
             </div>
             
             {/* Bottom row - Integration status */}
-            <div className="mt-6">
-              <div className="h-[200px]">
+            <div className="mt-8">
+              <div className="min-h-[180px]">
                 <MetricCard
                   title="Integration Status"
                   status="ok"
@@ -255,7 +276,7 @@ export function OverviewScreen() {
             <div className="flex items-center justify-between">
               <h2 className="text-display">Recent Events</h2>
               <div className="text-micro text-muted-foreground tabular-nums">
-                Showing {filteredEvents.length} of {mockEvents.length} events
+                Showing {filteredEvents.length} of {convertedEvents.length} events
               </div>
             </div>
             
