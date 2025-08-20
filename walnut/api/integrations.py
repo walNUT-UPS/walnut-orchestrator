@@ -294,9 +294,14 @@ async def get_integration_manifest(
             if not integration_type:
                 raise HTTPException(status_code=404, detail="Integration type not found")
 
+            # Prefer saved absolute path; fall back to ./integrations/<id>/plugin.yaml
             plugin_path = Path(integration_type.path) / "plugin.yaml"
             if not plugin_path.exists():
-                raise HTTPException(status_code=404, detail="plugin.yaml not found for this integration type")
+                fallback = Path("./integrations") / type_id / "plugin.yaml"
+                if fallback.exists():
+                    plugin_path = fallback
+                else:
+                    raise HTTPException(status_code=404, detail="plugin.yaml not found for this integration type")
 
             content = plugin_path.read_text(encoding="utf-8")
             return {"type_id": type_id, "path": str(plugin_path), "manifest_yaml": content}
