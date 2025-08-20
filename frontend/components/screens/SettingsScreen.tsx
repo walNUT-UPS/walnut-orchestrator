@@ -196,8 +196,8 @@ Last 5 Events:
 
   return (
     <div className="flex-1">
-      <div className="container-grid py-6">
-        <div className="mb-6 mt-6">
+      <div className="container-grid py-8">
+        <div className="mb-6 mt-2">
           <h1 className="text-display">Settings</h1>
           <p className="text-micro text-muted-foreground mt-1">
             Configure system settings and integrations
@@ -208,7 +208,7 @@ Last 5 Events:
           setActiveTab(value);
           navigate(`/settings/${value}`);
         }} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 p-2 rounded-md bg-muted/20">
             <TabsTrigger value="ups" className="flex items-center space-x-1 lg:space-x-2 text-xs lg:text-sm">
               <Settings2 className="w-4 h-4" />
               <span className="hidden sm:inline">UPS / NUT</span>

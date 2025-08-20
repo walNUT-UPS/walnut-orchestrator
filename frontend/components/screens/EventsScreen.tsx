@@ -75,8 +75,10 @@ const mockEvents: Event[] = [
 
 export function EventsScreen() {
   const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
+  // Events is always table view
+  const [viewMode] = useState<'cards' | 'table'>('table');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
@@ -162,14 +164,18 @@ export function EventsScreen() {
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={() => {}}
         activeFilters={activeFilters}
         onFilterToggle={handleFilterToggle}
         availableFilters={availableFilters}
+        showFilters={showFilters}
+        onToggleFilters={() => setShowFilters((s) => !s)}
+        showViewToggle={false}
       />
 
       <div className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Advanced Filters */}
+        {/* Advanced Filters (revealed by Filters toggle) */}
+        {showFilters && (
         <div className="bg-card rounded-lg border border-border p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
             <h3 className="text-title">Filters</h3>
@@ -301,6 +307,7 @@ export function EventsScreen() {
             </div>
           )}
         </div>
+        )}
 
         {/* Events Table */}
         <div className="space-y-4">

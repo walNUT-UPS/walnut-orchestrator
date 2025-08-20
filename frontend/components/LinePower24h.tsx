@@ -140,7 +140,7 @@ export function LinePower24h({
   };
 
   return (
-    <div className={cn('space-y-3', className)}>
+    <div className={cn('space-y-4', className)}>
       {/* Header with title and zoom controls */}
       <div className="flex items-center justify-between">
         <h3 className="text-title">Line Power Status — Last {duration.replace('h', ' hours')}</h3>
@@ -165,8 +165,20 @@ export function LinePower24h({
         )}
       </div>
 
+      {/* Legend (moved above timeline to avoid overlap) */}
+      {showLegend && legendStatuses.length > 0 && (
+        <div className="flex items-center flex-wrap gap-4 text-micro mt-2">
+          {legendStatuses.map((status) => (
+            <div key={status} className="flex items-center space-x-2">
+              <div className={cn('w-3 h-3 rounded-sm', statusConfig[status].bgColor)} />
+              <span className="text-muted-foreground">{statusConfig[status].label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Timeline */}
-      <div className="relative">
+      <div className="relative pb-2">
         {/* Timeline container */}
         <div className="relative h-4 bg-muted rounded-lg border border-border overflow-hidden">
           {visualSegments.map((segment, index) => (
@@ -196,7 +208,7 @@ export function LinePower24h({
         </div>
 
         {/* Time ticks */}
-        <div className="relative mt-2">
+        <div className="relative mt-3 mb-3">
           {timeTicks.map((tick, index) => (
             <div
               key={index}
@@ -212,17 +224,6 @@ export function LinePower24h({
         </div>
       </div>
 
-      {/* Legend */}
-      {showLegend && legendStatuses.length > 0 && (
-        <div className="flex items-center space-x-4 text-micro">
-          {legendStatuses.map((status) => (
-            <div key={status} className="flex items-center space-x-2">
-              <div className={cn('w-3 h-3 rounded-sm', statusConfig[status].bgColor)} />
-              <span className="text-muted-foreground">{statusConfig[status].label}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Tooltip */}
       {hoveredSegment && (

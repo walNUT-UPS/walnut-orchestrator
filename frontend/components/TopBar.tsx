@@ -15,6 +15,7 @@ import {
 import { Toggle } from './ui/toggle';
 import { Separator } from './ui/separator';
 import { useAuth } from '../contexts/AuthContext';
+import { apiService } from '../services/api';
 import { toast } from 'sonner';
 
 interface TopBarProps {
@@ -30,7 +31,8 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
     return document.documentElement.classList.contains('dark');
   });
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
-  const [activeFilters, setActiveFilters] = useState<string[]>(['Connected']);
+  const [activeFilters] = useState<string[]>([]);
+  const [lastHealthAt, setLastHealthAt] = useState<Date | null>(null);
 
   const navigationItems = [
     { name: 'Overview', path: '/overview' },
@@ -39,14 +41,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
     { name: 'Hosts', path: '/hosts' }
   ];
 
-  const filterOptions = [
-    { label: 'Connected', variant: 'default' as const },
-    { label: 'Disconnected', variant: 'secondary' as const },
-    { label: 'Error', variant: 'destructive' as const },
-    { label: 'Proxmox', variant: 'outline' as const },
-    { label: 'TrueNAS', variant: 'outline' as const },
-    { label: 'Tapo', variant: 'outline' as const },
-  ];
+  // Filters are now handled only on the Events screen
 
   const handleLogout = async () => {
     try {
@@ -57,13 +52,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
     }
   };
 
-  const toggleFilter = (filter: string) => {
-    setActiveFilters(prev => 
-      prev.includes(filter) 
-        ? prev.filter(f => f !== filter)
-        : [...prev, filter]
-    );
-  };
+  const toggleFilter = (_filter: string) => {};
 
   const toggleTheme = () => {
     setIsDark(!isDark);
@@ -77,6 +66,30 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
   };
 
   const currentPage = getCurrentPage();
+
+  // Poll system health to determine connection freshness
+  React.useEffect(() => {
+    let mounted = true;
+    async function fetchHealth() {
+      try {
+        const health = await apiService.getSystemHealth();
+        if (mounted && health?.timestamp) {
+          setLastHealthAt(new Date(health.timestamp));
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+    fetchHealth();
+    const id = setInterval(fetchHealth, 30000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
+
+  const isFresh = React.useMemo(() => {
+    if (!lastHealthAt) return false;
+    const diff = Date.now() - lastHealthAt.getTime();
+    return diff <= 60_000; // 1 minute
+  }, [lastHealthAt]);
   
   return (
     <div className="w-full bg-background border-b border-border">
@@ -142,17 +155,11 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
 
         {/* Right Section - Status & Actions */}
         <div className="flex items-center gap-3">
-          {/* System Status */}
+          {/* System Status (connected if backend health < 1m old) */}
           <div className="hidden sm:flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
-              systemStatus === 'ok' ? 'bg-green-500' : 
-              systemStatus === 'warn' ? 'bg-yellow-500' : 
-              'bg-red-500'
-            }`}></div>
-            <span className="text-sm text-muted-foreground">
-              {systemStatus === 'ok' ? 'Connected' : 
-               systemStatus === 'warn' ? 'Warning' : 
-               'Error'}
+            <div className={`w-2.5 h-2.5 rounded-full ${isFresh ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className={`text-sm ${isFresh ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+              {isFresh ? 'Connected' : 'Disconnected'}
             </span>
           </div>
 
@@ -171,6 +178,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
             variant="ghost" 
             size="sm" 
             className="p-2 relative"
+            onClick={() => alert('Notifications panel not yet implemented')}
           >
             <Bell className="h-4 w-4" />
             {alertCount > 0 && (
@@ -219,7 +227,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => alert('Profile not yet implemented')}>
                 <User className="w-4 h-4 mr-2" />
                 Profile
               </DropdownMenuItem>
@@ -239,76 +247,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
         </div>
       </div>
 
-      {/* Search & Controls Bar */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center gap-3 px-4 py-3 border-t border-border bg-muted/20">
-        {/* Search */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search name, ID, node (u)"
-            className="pl-10 bg-background"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* View Toggle */}
-          <div className="flex items-center bg-background border border-border rounded-md">
-            <Toggle
-              pressed={viewMode === 'cards'}
-              onPressedChange={() => setViewMode('cards')}
-              size="sm"
-              className="rounded-r-none border-r border-border data-[state=on]:bg-accent"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Toggle>
-            <Toggle
-              pressed={viewMode === 'table'}
-              onPressedChange={() => setViewMode('table')}
-              size="sm"
-              className="rounded-l-none data-[state=on]:bg-accent"
-            >
-              <List className="h-4 w-4" />
-            </Toggle>
-          </div>
-
-          <Separator orientation="vertical" className="h-6 hidden lg:block" />
-
-          {/* Filters Label */}
-          <div className="hidden lg:flex items-center gap-1">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Filters:</span>
-          </div>
-
-          {/* Filter Buttons */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {filterOptions.map((option) => (
-              <Badge
-                key={option.label}
-                variant={activeFilters.includes(option.label) ? option.variant : "outline"}
-                className="cursor-pointer hover:bg-accent transition-colors"
-                onClick={() => toggleFilter(option.label)}
-              >
-                {option.label}
-              </Badge>
-            ))}
-          </div>
-
-          <Separator orientation="vertical" className="h-6 hidden lg:block" />
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <Gauge className="h-4 w-4" />
-              <span className="hidden sm:inline">Thresholds</span>
-            </Button>
-            
-            <Button variant="ghost" size="sm" className="gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="hidden sm:inline">Alerts</span>
-            </Button>
-          </div>
-        </div>
-      </div>
+      {/* TopBar secondary controls removed — pages own their own toolbars */}
     </div>
   );
 }
