@@ -9,6 +9,7 @@ This implements the new integrations architecture with:
 """
 
 import asyncio
+import anyio
 import os
 import sys
 import tempfile
@@ -289,7 +290,10 @@ async def get_integration_manifest(
     """
     try:
         async with get_db_session() as session:
-            result = await session.execute(select(IntegrationType).where(IntegrationType.id == type_id))
+            # Session is synchronous; run execute in a worker thread
+            result = await anyio.to_thread.run_sync(
+                session.execute, select(IntegrationType).where(IntegrationType.id == type_id)
+            )
             integration_type = result.scalar_one_or_none()
             if not integration_type:
                 raise HTTPException(status_code=404, detail="Integration type not found")
