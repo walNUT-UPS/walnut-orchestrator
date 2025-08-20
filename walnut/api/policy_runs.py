@@ -1,10 +1,23 @@
-from fastapi import APIRouter, HTTPException
-from typing import List, Optional
+"""
+API endpoints for viewing the results of policy executions.
+
+This module provides endpoints to list and retrieve the details
+of policy runs, including their status and timeline of actions.
+
+NOTE: This implementation uses an in-memory dictionary as a placeholder
+for a real database.
+"""
+from fastapi import APIRouter, HTTPException, Depends, Query
+from typing import List, Optional, Dict, Any
+
+from walnut.auth.deps import current_active_user
+from walnut.auth.models import User
+
 
 router = APIRouter()
 
 # Placeholder for in-memory storage
-policy_runs_db = {
+policy_runs_db: Dict[int, Dict[str, Any]] = {
     1: {
         "id": 1,
         "policy_id": 1,
@@ -20,15 +33,38 @@ policy_runs_db = {
 }
 
 @router.get("/policy-runs", summary="List policy runs")
-async def list_policy_runs(policy_id: Optional[int] = None, limit: int = 20):
+async def list_policy_runs(
+    policy_id: Optional[int] = Query(None, description="Filter runs by a specific policy ID."),
+    limit: int = Query(20, ge=1, le=100, description="The maximum number of runs to return."),
+    user: User = Depends(current_active_user),
+):
+    """
+    Retrieve a list of policy runs.
+
+    Can be filtered by policy ID to see the history for a specific policy.
+    """
     # In a real implementation, this would query the database.
     # For now, return a placeholder list.
     if policy_id:
-        return [run for run in policy_runs_db.values() if run["policy_id"] == policy_id]
-    return list(policy_runs_db.values())
+        runs = [run for run in policy_runs_db.values() if run["policy_id"] == policy_id]
+    else:
+        runs = list(policy_runs_db.values())
+    return runs[:limit]
 
-@router.get("/policy-runs/{run_id}", summary="Get a single policy run")
-async def get_policy_run(run_id: int):
+@router.get(
+    "/policy-runs/{run_id}",
+    summary="Get a single policy run",
+    responses={404: {"description": "Policy run not found."}},
+)
+async def get_policy_run(
+    run_id: int,
+    user: User = Depends(current_active_user),
+):
+    """
+    Retrieve the details of a single policy run by its ID.
+
+    This includes the full timeline of actions taken during the run.
+    """
     if run_id not in policy_runs_db:
         raise HTTPException(status_code=404, detail="Policy run not found")
     return policy_runs_db[run_id]

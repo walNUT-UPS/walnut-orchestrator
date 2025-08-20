@@ -99,7 +99,12 @@ async def get_events(
     return [EventResponse.model_validate(event) for event in events]
 
 
-@router.post("/events", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/events",
+    response_model=EventResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={500: {"description": "Failed to create the event due to an internal error."}},
+)
 async def create_event(
     event: EventCreate,
     db: AsyncSession = Depends(get_db_session_dependency),
@@ -133,7 +138,11 @@ async def create_event(
         )
 
 
-@router.get("/events/stats", response_model=EventStats)
+@router.get(
+    "/events/stats",
+    response_model=EventStats,
+    responses={500: {"description": "Failed to retrieve event statistics due to an internal error."}},
+)
 async def get_event_stats(
     days: int = Query(7, ge=1, le=365, description="Number of days to include in statistics"),
     db: AsyncSession = Depends(get_db_session_dependency),

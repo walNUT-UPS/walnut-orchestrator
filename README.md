@@ -57,6 +57,10 @@ The NUT integration is configured via the following environment variables:
 ### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/walNUT-UPS/walnut-orchestrator.git
+cd walnut
+
 # Install dependencies
 pip install -e .
 

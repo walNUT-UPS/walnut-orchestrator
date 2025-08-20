@@ -42,7 +42,15 @@ class UPSSamplesResponse(BaseModel):
     has_more: bool
 
 
-@router.get("/ups/status", response_model=UPSStatusResponse, summary="Get current UPS status")
+@router.get(
+    "/ups/status",
+    response_model=UPSStatusResponse,
+    summary="Get current UPS status",
+    responses={
+        404: {"description": "No UPS data is available in the database."},
+        500: {"description": "An internal error occurred while retrieving the status."},
+    },
+)
 async def get_ups_status(
     user: User = Depends(current_active_user),
     session = Depends(get_db_session_dependency)
@@ -82,7 +90,12 @@ async def get_ups_status(
         )
 
 
-@router.get("/ups/samples", response_model=UPSSamplesResponse, summary="Get historical UPS samples")
+@router.get(
+    "/ups/samples",
+    response_model=UPSSamplesResponse,
+    summary="Get historical UPS samples",
+    responses={500: {"description": "An internal error occurred while retrieving samples."}},
+)
 async def get_ups_samples(
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of samples to return"),
     offset: int = Query(0, ge=0, description="Number of samples to skip"),
@@ -148,7 +161,15 @@ async def get_ups_samples(
         )
 
 
-@router.get("/ups/health", response_model=UPSHealthSummary, summary="Get 24-hour UPS health summary")
+@router.get(
+    "/ups/health",
+    response_model=UPSHealthSummary,
+    summary="Get 24-hour UPS health summary",
+    responses={
+        404: {"description": "No UPS data is available for the requested time period."},
+        500: {"description": "An internal error occurred while calculating the health summary."},
+    },
+)
 async def get_ups_health(
     hours: int = Query(24, ge=1, le=168, description="Number of hours to include in health summary"),
     user: User = Depends(current_active_user),
