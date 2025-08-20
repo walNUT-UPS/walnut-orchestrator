@@ -432,10 +432,6 @@ export function IntegrationsSettingsScreen() {
                               <Eye className="w-4 h-4 mr-2" />
                               View Manifest
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Folder className="w-4 h-4 mr-2" />
-                              Reveal in Filesystem
-                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
                               onClick={() => handleRemoveType(type.id)}
