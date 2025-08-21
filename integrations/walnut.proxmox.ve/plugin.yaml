@@ -16,6 +16,7 @@ schema:
     properties:
       host: { type: string, title: Host }
       port: { type: integer, default: 8006 }
+      token_name: { type: string, title: Token Name }
       node: { type: string, title: Node }
       verify_ssl: { type: boolean, default: true }
       api_token: { type: string, secret: true, title: API Token }

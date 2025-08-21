@@ -741,6 +741,67 @@ async def create_integration_instance(
         raise HTTPException(status_code=500, detail=f"Failed to create integration instance: {str(e)}")
 
 
+@router.patch("/instances/{instance_id}", response_model=IntegrationInstanceOut)
+async def update_integration_instance(
+    instance_id: int,
+    update: IntegrationInstanceUpdate,
+    current_user=Depends(require_current_user),
+):
+    """
+    Update an integration instance's non-secret JSON config (and optional name).
+
+    Secrets are not modified by this endpoint.
+    """
+    try:
+        async with get_db_session() as session:
+            # Load instance and type info
+            stmt = (
+                select(IntegrationInstance, IntegrationType)
+                .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
+                .where(IntegrationInstance.instance_id == instance_id)
+            )
+            result = await anyio.to_thread.run_sync(session.execute, stmt)
+            row = result.first()
+            if not row:
+                raise HTTPException(status_code=404, detail="Integration instance not found")
+
+            instance, type_info = row
+
+            # Apply updates
+            changed = False
+            if update.name and update.name != instance.name:
+                instance.name = update.name
+                changed = True
+            if update.config is not None:
+                instance.config = update.config
+                # Mark for review since config changed
+                instance.state = "needs_review"
+                changed = True
+
+            if changed:
+                await anyio.to_thread.run_sync(session.commit)
+
+            return IntegrationInstanceOut(
+                instance_id=instance.instance_id,
+                type_id=instance.type_id,
+                name=instance.name,
+                config=instance.config,
+                state=instance.state,
+                last_test=instance.last_test.isoformat() if instance.last_test else None,
+                latency_ms=instance.latency_ms,
+                flags=instance.flags,
+                created_at=instance.created_at.isoformat(),
+                updated_at=instance.updated_at.isoformat(),
+                type_name=type_info.name,
+                type_category=type_info.category,
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update integration instance: {str(e)}")
+
+
 @router.post("/instances/{instance_id}/test", response_model=InstanceTestResult)
 async def test_integration_instance(
     instance_id: int,
@@ -841,6 +902,11 @@ async def test_instance_connection(
         # Load driver dynamically
         type_path = Path(integration_type.path)
         driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
+
+class IntegrationInstanceUpdate(BaseModel):
+    """Integration instance update request."""
+    config: Optional[Dict[str, Any]] = Field(default=None, description="Updated non-secret configuration values")
+    name: Optional[str] = Field(default=None, description="Optional rename of instance")
 
         # Build module path (module like "driver" -> driver.py next to manifest)
         module_path = type_path / f"{driver_module}.py"

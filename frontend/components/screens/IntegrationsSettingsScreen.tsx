@@ -632,7 +632,7 @@ export function IntegrationsSettingsScreen() {
                           )}
                           {getStatusBadge(type.status)}
                         </div>
-                        {type.errors && (
+                        {type.status === 'invalid' && type.errors && (
                           <div className="text-xs text-status-error mt-1" title={getErrorTooltip(type.errors)}>
                             {getErrorTooltip(type.errors)}
                           </div>

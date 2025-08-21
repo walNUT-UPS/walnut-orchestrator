@@ -259,6 +259,13 @@ class ApiService {
     });
   }
 
+  async updateIntegrationInstance(instanceId: number, data: Partial<{ name: string; config: Record<string, any> }>): Promise<IntegrationInstance> {
+    return this.request<IntegrationInstance>(`/integrations/instances/${instanceId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  }
+
   async deleteIntegrationInstance(instanceId: number): Promise<{success: boolean; message: string}> {
     return this.request<{success: boolean; message: string}>(`/integrations/instances/${instanceId}`, {
       method: 'DELETE'

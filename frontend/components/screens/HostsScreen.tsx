@@ -166,6 +166,9 @@ export function HostsScreen() {
   const [testingId, setTestingId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInstance, setSettingsInstance] = useState<IntegrationInstance | null>(null);
+  const [isEditingConfig, setIsEditingConfig] = useState(false);
+  const [editConfigText, setEditConfigText] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
   
   // New Host dialog state
   const [newHostDialogOpen, setNewHostDialogOpen] = useState(false);
@@ -236,10 +239,22 @@ export function HostsScreen() {
     try {
       setIsCreating(true);
       
+      // Merge defaults for any non-secret fields not explicitly set
+      let mergedConfig: Record<string, any> = { ...formData.config };
+      const props = (selectedType as any)?.schema_connection?.properties as Record<string, any> | undefined;
+      if (props) {
+        Object.entries(props).forEach(([name, schema]: [string, any]) => {
+          if (schema.secret === true) return;
+          if (mergedConfig[name] === undefined && schema.default !== undefined) {
+            mergedConfig[name] = schema.default;
+          }
+        });
+      }
+
       const instanceData = {
         type_id: selectedType.id,
         name: formData.name,
-        config: formData.config,
+        config: mergedConfig,
         secrets: formData.secrets
       };
       
@@ -266,14 +281,19 @@ export function HostsScreen() {
   };
 
   const handleTypeChange = (typeId: string) => {
-    const type = integrationTypes.find(t => t.id === typeId);
-    setSelectedType(type || null);
-    // Reset config when type changes
-    setFormData(prev => ({
-      ...prev,
-      config: {},
-      secrets: {}
-    }));
+    const type = integrationTypes.find(t => t.id === typeId) || null;
+    setSelectedType(type);
+    let seededConfig: Record<string, any> = {};
+    const props = (type as any)?.schema_connection?.properties as Record<string, any> | undefined;
+    if (props) {
+      Object.entries(props).forEach(([name, schema]: [string, any]) => {
+        if (schema.secret === true) return;
+        if (schema.default !== undefined) {
+          seededConfig[name] = schema.default;
+        }
+      });
+    }
+    setFormData(prev => ({ ...prev, config: seededConfig, secrets: {} }));
   };
 
   const handleConfigChange = (fieldName: string, value: any) => {
@@ -327,6 +347,39 @@ export function HostsScreen() {
     }
   };
 
+  const openEditConfig = (instance: IntegrationInstance) => {
+    setIsEditingConfig(true);
+    setEditError(null);
+    setEditConfigText(JSON.stringify(instance.config ?? {}, null, 2));
+  };
+
+  const cancelEditConfig = () => {
+    setIsEditingConfig(false);
+    setEditError(null);
+    setEditConfigText('');
+  };
+
+  const saveEditedConfig = async () => {
+    if (!settingsInstance) return;
+    try {
+      setEditError(null);
+      // Validate JSON
+      const parsed = JSON.parse(editConfigText);
+      const updated = await apiService.updateIntegrationInstance(settingsInstance.instance_id, { config: parsed });
+      toast.success('Configuration updated');
+      // Update local dialog state and list
+      setSettingsInstance(updated);
+      setIsEditingConfig(false);
+      await loadData();
+    } catch (err: any) {
+      if (err instanceof SyntaxError) {
+        setEditError('Invalid JSON: ' + err.message);
+      } else {
+        setEditError(err?.message || 'Failed to update configuration');
+      }
+    }
+  };
+
   const getStatusIcon = (state: string) => {
     switch (state) {
       case 'connected':
@@ -377,10 +430,14 @@ export function HostsScreen() {
   const renderSchemaFields = (schema: any, isSecret: boolean = false) => {
     if (!schema || !schema.properties) return null;
 
-    const fields = Object.entries(schema.properties).map(([name, fieldSchema]: [string, any]) => {
+    const entries = Object.entries(schema.properties).filter(([_, fieldSchema]: [string, any]) => {
+      const isFieldSecret = fieldSchema && fieldSchema.secret === true;
+      return isSecret ? isFieldSecret : !isFieldSecret;
+    });
+
+    return entries.map(([name, fieldSchema]: [string, any]) => {
       const fieldWithName = { ...fieldSchema, name };
       const currentValue = isSecret ? formData.secrets[name] : formData.config[name];
-      
       return (
         <SchemaField
           key={name}
@@ -391,8 +448,6 @@ export function HostsScreen() {
         />
       );
     });
-
-    return fields;
   };
 
   return (
@@ -673,35 +728,19 @@ export function HostsScreen() {
                           Configure connection settings for {selectedType.name}
                         </p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {renderSchemaFields(selectedType.schema_connection)}
+                          {renderSchemaFields(selectedType.schema_connection, false)}
                         </div>
                       </div>
                       
                       {/* Secrets section - check for secret fields in schema */}
-                      {Object.entries(selectedType.schema_connection.properties || {}).some(
-                        ([_, field]: [string, any]) => field.secret === true
-                      ) && (
+                      {Object.entries(selectedType.schema_connection.properties || {}).some(([_n, field]: [string, any]) => field.secret === true) && (
                         <div className="border-t pt-4">
                           <Label className="text-base">Secrets</Label>
                           <p className="text-xs text-muted-foreground mb-4">
                             Secure credentials and sensitive information
                           </p>
                           <div className="grid grid-cols-1 gap-4">
-                            {Object.entries(selectedType.schema_connection.properties || {})
-                              .filter(([_, field]: [string, any]) => field.secret === true)
-                              .map(([name, fieldSchema]: [string, any]) => {
-                                const fieldWithName = { ...fieldSchema, name };
-                                return (
-                                  <SchemaField
-                                    key={name}
-                                    field={fieldWithName}
-                                    value={formData.secrets[name]}
-                                    onChange={(value) => handleSecretChange(name, value)}
-                                    isSecret={true}
-                                  />
-                                );
-                              })
-                            }
+                            {renderSchemaFields(selectedType.schema_connection, true)}
                           </div>
                         </div>
                       )}
@@ -755,7 +794,7 @@ export function HostsScreen() {
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Host Settings</DialogTitle>
-              <DialogDescription>View details and re-test connection</DialogDescription>
+              <DialogDescription>View and edit configuration; re-test connection</DialogDescription>
             </DialogHeader>
             {settingsInstance ? (
               <div className="space-y-4">
@@ -777,12 +816,35 @@ export function HostsScreen() {
                     <div className="font-mono">{formatTimestamp(settingsInstance.last_test)}</div>
                   </div>
                 </div>
-                <div className="border-t pt-3">
-                  <Label className="text-micro text-muted-foreground">Configuration</Label>
-                  <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-48">
+                <div className="border-t pt-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-micro text-muted-foreground">Configuration (JSON)</Label>
+                    {!isEditingConfig ? (
+                      <Button variant="outline" size="sm" onClick={() => openEditConfig(settingsInstance)}>
+                        Edit JSON
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={cancelEditConfig}>Cancel</Button>
+                        <Button size="sm" onClick={saveEditedConfig}>Save</Button>
+                      </div>
+                    )}
+                  </div>
+                  {!isEditingConfig ? (
+                    <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-64">
 {JSON.stringify(settingsInstance.config, null, 2)}
-                  </pre>
-                  <p className="text-xs text-muted-foreground mt-2">Secrets are not displayed for security.</p>
+                    </pre>
+                  ) : (
+                    <div className="space-y-2">
+                      <Textarea
+                        className="font-mono text-xs min-h-[220px]"
+                        value={editConfigText}
+                        onChange={(e) => setEditConfigText(e.target.value)}
+                      />
+                      {editError && <div className="text-xs text-destructive">{editError}</div>}
+                      <p className="text-xs text-muted-foreground">Secrets are not displayed or editable here.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

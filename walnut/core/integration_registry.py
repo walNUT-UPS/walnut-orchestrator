@@ -339,8 +339,8 @@ class IntegrationTypeRegistry:
                     }
                     logger.warning(f"{type_id}: Requires core {required}, current {core_version}")
             except Exception as e:
-                # Don't fail validation entirely: just record inability to compare
-                validation_result.setdefault("errors", {})["core_version_check"] = str(e)
+                # Don't fail validation or record UI-visible errors; log for debugging only
+                logger.debug(f"{type_id}: Core version check skipped due to error: {e}")
             
         except Exception as e:
             import traceback as _tb
