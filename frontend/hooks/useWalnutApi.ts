@@ -53,9 +53,20 @@ export function useWalnutApi() {
   useEffect(() => {
     let websocket: WebSocket | null = null;
     let reconnectTimeout: NodeJS.Timeout | null = null;
+    let authCheckInterval: NodeJS.Timeout | null = null;
 
     const connectWebSocket = () => {
       try {
+        // Only attempt WS if auth cookie likely present
+        const hasCookie = document.cookie.includes('fastapiusersauth');
+        if (!hasCookie) {
+          // Recheck auth periodically without spamming WS attempts
+          if (!authCheckInterval) {
+            authCheckInterval = setInterval(connectWebSocket, 5000);
+          }
+          return;
+        }
+
         websocket = apiService.createWebSocket();
         
         websocket.onopen = () => {
@@ -127,6 +138,9 @@ export function useWalnutApi() {
       }
       if (reconnectTimeout) {
         clearTimeout(reconnectTimeout);
+      }
+      if (authCheckInterval) {
+        clearInterval(authCheckInterval);
       }
     };
   }, [fetchData]);

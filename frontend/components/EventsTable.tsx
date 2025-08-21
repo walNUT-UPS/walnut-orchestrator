@@ -10,7 +10,6 @@ import {
 import { Button } from './ui/button';
 import { Tag } from './Tag';
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible';
 import { cn } from './ui/utils';
 
 export interface Event {
@@ -101,12 +100,14 @@ export function EventsTable({ events, onRowClick }: EventsTableProps) {
             const severityVariant = severityConfig[event.severity];
             
             return (
-              <Collapsible key={event.id} open={isExpanded} onOpenChange={() => toggleRow(event.id)}>
-                <CollapsibleTrigger asChild>
-                  <TableRow className={cn(
+              <React.Fragment key={event.id}>
+                <TableRow
+                  className={cn(
                     "cursor-pointer hover:bg-accent/30 transition-colors",
-                    "h-12" // 48px row height as specified
-                  )}>
+                    "h-12"
+                  )}
+                  onClick={() => toggleRow(event.id)}
+                >
                     <TableCell className="text-center">
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 focus-ring">
                         {isExpanded ? (
@@ -154,23 +155,19 @@ export function EventsTable({ events, onRowClick }: EventsTableProps) {
                       )}
                     </TableCell>
                   </TableRow>
-                </CollapsibleTrigger>
-                
-                {event.payload && (
-                  <CollapsibleContent asChild>
-                    <TableRow>
-                      <TableCell colSpan={7} className="bg-muted/10 border-t border-border">
-                        <div className="p-4 space-y-2">
-                          <div className="text-micro text-muted-foreground mb-2">Event Payload:</div>
-                          <pre className="bg-background p-3 rounded-md text-xs overflow-x-auto border border-border font-mono">
-                            {JSON.stringify(event.payload, null, 2)}
-                          </pre>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </CollapsibleContent>
+                {event.payload && isExpanded && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="bg-muted/10 border-t border-border">
+                      <div className="p-4 space-y-2">
+                        <div className="text-micro text-muted-foreground mb-2">Event Payload:</div>
+                        <pre className="bg-background p-3 rounded-md text-xs overflow-x-auto border border-border font-mono">
+                          {JSON.stringify(event.payload, null, 2)}
+                        </pre>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 )}
-              </Collapsible>
+              </React.Fragment>
             );
           })}
         </TableBody>
