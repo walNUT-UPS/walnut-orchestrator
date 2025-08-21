@@ -868,24 +868,31 @@ async def test_instance_connection(
             field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
             secrets[field] = value.decode("utf-8")
 
-        # Create driver instance and test connection
-        driver = driver_class(instance, secrets)
+        # Create transport manager and driver instance
+        from walnut.transports.manager import TransportManager
+        transports = TransportManager(instance.config)
+        try:
+            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
 
-        test_result = await driver.test_connection()
-        status = test_result.get("status", "unknown")
-        return InstanceTestResult(
-            success=(status == "connected"),
-            status=status,
-            latency_ms=test_result.get("latency_ms"),
-            message=test_result.get("message"),
-            details=test_result,
-        )
+            test_result = await driver.test_connection()
+            status = test_result.get("status", "unknown")
+            return InstanceTestResult(
+                success=(status == "connected"),
+                status=status,
+                latency_ms=test_result.get("latency_ms"),
+                message=test_result.get("message"),
+                details=test_result,
+            )
+        finally:
+            await transports.close_all()
 
     except Exception as e:
+        import traceback
         return InstanceTestResult(
             success=False,
             status="error",
-            message=f"Connection test failed: {str(e)}",
+            message=f"Connection test failed: {e}",
+            details={"traceback": traceback.format_exc()}
         )
     finally:
         # Clean up imported module

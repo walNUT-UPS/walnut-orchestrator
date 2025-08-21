@@ -66,6 +66,13 @@ dependencies = [
     
     # SSH connections
     "asyncssh>=2.14.0",
+    "paramiko>=3.4.0",
+
+    # MQTT
+    "paho-mqtt>=2.1.0",
+
+    # WebSockets
+    "websockets>=12.0",
     
     # Date/time handling
     "python-dateutil>=2.8.2",

@@ -14,12 +14,29 @@ from fastapi import WebSocket, Query
 from typing import Optional
 from walnut.api.websocket import authenticate_websocket_token
 from walnut.core.websocket_manager import websocket_manager
+from walnut.transports.registry import init_transports
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Handles application startup and shutdown events.
+    """
+    # On startup
+    print("INFO:     Initializing walNUT services...")
+    init_transports()
+    print("INFO:     Transport adapters initialized.")
+    # TODO: Add other startup logic here (e.g., DB connection pool, discovery)
+    yield
+    # On shutdown
+    print("INFO:     Shutting down walNUT services...")
 
 
 app = FastAPI(
     title="walNUT API",
     description="walNUT - UPS Management Platform with Network UPS Tools (NUT) integration",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware

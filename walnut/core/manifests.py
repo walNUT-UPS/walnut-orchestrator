@@ -2,7 +2,7 @@
 Handles loading, validation, and parsing of integration YAML manifests.
 """
 from typing import List, Optional, Any, Dict, Literal
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 import yaml
 from pathlib import Path
 import semver
@@ -13,10 +13,12 @@ class CapabilitySpec(BaseModel):
     verbs: List[str] = Field(..., description="List of supported actions, e.g., ['shutdown', 'reboot']")
     targets: List[str] = Field(..., description="Types of targets this capability applies to, e.g., ['vm', 'host']")
     dry_run: Literal["required", "optional", "none"] = Field("optional", description="Specifies dry-run support level.")
+    transport: Optional[str] = Field(None, description="Preferred transport for this capability.")
 
 class SchemaSpec(BaseModel):
     """Defines the JSON-schema for connection properties."""
     connection: Dict[str, Any]
+    transports: Optional[Dict[str, Any]] = None
 
 class HttpDefaults(BaseModel):
     timeout_s: int = 5
@@ -24,15 +26,46 @@ class HttpDefaults(BaseModel):
     backoff_ms_start: int = 250
     verify_tls: bool = True
 
+class SshDefaults(BaseModel):
+    timeout_s: int = 15
+    command_delay_ms: int = 50
+
+class MqttDefaults(BaseModel):
+    timeout_s: int = 10
+    qos: int = 0
+
+class WebsocketDefaults(BaseModel):
+    timeout_s: int = 10
+
+class TransportsSpec(BaseModel):
+    ssh: SshDefaults = Field(default_factory=SshDefaults)
+    mqtt: MqttDefaults = Field(default_factory=MqttDefaults)
+    websocket: WebsocketDefaults = Field(default_factory=WebsocketDefaults)
+
 class DefaultsSpec(BaseModel):
     """Defines default operational parameters."""
     http: HttpDefaults = Field(default_factory=HttpDefaults)
+    transports: TransportsSpec = Field(default_factory=TransportsSpec)
     heartbeat_interval_s: int = 120
 
 class TestSpec(BaseModel):
     """Defines how to test the integration's connectivity."""
-    method: Literal["http"]
-    http: Dict[str, Any]
+    method: Literal["http", "ssh", "mqtt", "websocket"]
+    http: Optional[Dict[str, Any]] = None
+    ssh: Optional[Dict[str, Any]] = None
+    mqtt: Optional[Dict[str, Any]] = None
+    websocket: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def check_test_config_exists(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            method = data.get("method")
+            if method and data.get(method) is None:
+                raise ValueError(
+                    f"Test block must contain a configuration for the chosen method '{method}'"
+                )
+        return data
 
 class DriverSpec(BaseModel):
     entrypoint: str
