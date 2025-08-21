@@ -32,7 +32,8 @@ class HttpAdapter:
 
         base_url = http_config.get("base_url", "")
         headers = http_config.get("headers", {})
-        verify = http_config.get("verify_tls", True)
+        # Support both verify_tls and verify_ssl as aliases (verify_ssl is common in some manifests)
+        verify = http_config.get("verify_tls", http_config.get("verify_ssl", True))
         self._timeout_s = float(http_config.get("timeout_s", 10.0))
 
         logger.info(
