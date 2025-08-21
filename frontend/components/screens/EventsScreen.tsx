@@ -4,6 +4,8 @@ import { EventsTable, Event } from '../EventsTable';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Calendar, Download, CheckCheck } from 'lucide-react';
+import { useConfirm } from '../ui/confirm';
+import { toast } from 'sonner';
 import {
   Select,
   SelectContent,
@@ -74,6 +76,7 @@ const mockEvents: Event[] = [
 ];
 
 export function EventsScreen() {
+  const confirmDialog = useConfirm();
   const [searchValue, setSearchValue] = useState('');
   // Events is always table view
   const [viewMode] = useState<'cards' | 'table'>('table');
@@ -112,18 +115,20 @@ export function EventsScreen() {
     URL.revokeObjectURL(url);
   };
 
-  const handleAcknowledgeAll = () => {
+  const handleAcknowledgeAll = async () => {
     const criticalEvents = filteredEvents.filter(event => event.severity === 'Critical').length;
     const warningEvents = filteredEvents.filter(event => event.severity === 'Warning').length;
-    
     if (criticalEvents === 0 && warningEvents === 0) {
-      alert('No events to acknowledge');
+      toast.info('No events to acknowledge');
       return;
     }
-    
-    const message = `Acknowledge ${criticalEvents} critical and ${warningEvents} warning events?`;
-    if (confirm(message)) {
-      alert('Event acknowledgment feature not yet implemented');
+    const ok = await confirmDialog({
+      title: 'Acknowledge events?',
+      description: `Acknowledge ${criticalEvents} critical and ${warningEvents} warning events?`,
+      confirmText: 'Acknowledge',
+    });
+    if (ok) {
+      toast.info('Event acknowledgment is not implemented yet');
     }
   };
 

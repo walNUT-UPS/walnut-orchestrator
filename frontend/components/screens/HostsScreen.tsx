@@ -55,6 +55,7 @@ import { Switch } from '../ui/switch';
 import { Textarea } from '../ui/textarea';
 import { apiService, IntegrationType, IntegrationInstance } from '../../services/api';
 import { toast } from 'sonner';
+import { useConfirm } from '../ui/confirm';
 
 // Schema field component for rendering form fields from JSON Schema
 interface SchemaFieldProps {
@@ -334,9 +335,13 @@ export function HostsScreen() {
   };
 
   const handleDeleteInstance = async (instanceId: number, instanceName: string) => {
-    if (!confirm(`Delete host "${instanceName}"? This action cannot be undone.`)) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: 'Delete host?',
+      description: `Delete host "${instanceName}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     
     try {
       await apiService.deleteIntegrationInstance(instanceId);
@@ -863,6 +868,7 @@ export function HostsScreen() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+  const confirmDialog = useConfirm();
       </div>
     </div>
   );

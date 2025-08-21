@@ -32,6 +32,7 @@ from walnut.core.integration_registry import get_integration_registry
 from walnut.core.websocket_manager import get_websocket_manager  # noqa: F401  (kept for future WS broadcasts)
 from walnut.core.websocket_manager import websocket_manager
 import uuid
+import copy
 
 
 # --- Pydantic Schemas ---
@@ -85,6 +86,12 @@ class InstanceTestResult(BaseModel):
     latency_ms: Optional[int] = None
     message: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
+
+
+class IntegrationInstanceUpdate(BaseModel):
+    """Integration instance update request."""
+    config: Optional[Dict[str, Any]] = Field(default=None, description="Updated non-secret configuration values")
+    name: Optional[str] = Field(default=None, description="Optional rename of instance")
 
 
 class DiscoveryResult(BaseModel):
@@ -773,6 +780,47 @@ async def update_integration_instance(
                 instance.name = update.name
                 changed = True
             if update.config is not None:
+                # Validate config against the type's connection schema (excluding secret fields)
+                schema = copy.deepcopy(type_info.schema_connection or {})
+                try:
+                    # Prune secret fields from schema properties and required
+                    props = schema.get("properties") or {}
+                    non_secret_props = {k: v for k, v in props.items() if not (isinstance(v, dict) and v.get("secret") is True)}
+                    schema["properties"] = non_secret_props
+                    if "required" in schema and isinstance(schema["required"], list):
+                        schema["required"] = [r for r in schema["required"] if r in non_secret_props]
+
+                    # Validate using jsonschema if available
+                    errors: Optional[list] = None
+                    try:
+                        from jsonschema import Draft202012Validator
+
+                        validator = Draft202012Validator(schema if schema else {"type": "object"})
+                        errs = list(validator.iter_errors(update.config))
+                        if errs:
+                            errors = [
+                                {
+                                    "path": ".".join(str(p) for p in e.absolute_path),
+                                    "message": e.message,
+                                }
+                                for e in errs
+                            ]
+                    except Exception as _e:
+                        # If jsonschema isn't available or schema invalid, fall back to type check
+                        if not isinstance(update.config, dict):
+                            errors = [{"path": "", "message": "config must be an object"}]
+
+                    if errors:
+                        raise HTTPException(status_code=400, detail={
+                            "error": "Config validation failed",
+                            "errors": errors,
+                        })
+
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Config validation error: {e}")
+
                 instance.config = update.config
                 # Mark for review since config changed
                 instance.state = "needs_review"
@@ -902,11 +950,6 @@ async def test_instance_connection(
         # Load driver dynamically
         type_path = Path(integration_type.path)
         driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
-
-class IntegrationInstanceUpdate(BaseModel):
-    """Integration instance update request."""
-    config: Optional[Dict[str, Any]] = Field(default=None, description="Updated non-secret configuration values")
-    name: Optional[str] = Field(default=None, description="Optional rename of instance")
 
         # Build module path (module like "driver" -> driver.py next to manifest)
         module_path = type_path / f"{driver_module}.py"

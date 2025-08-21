@@ -42,6 +42,7 @@ import {
   TableRow,
 } from '../ui/table';
 import { Textarea } from '../ui/textarea';
+import { toast } from 'sonner';
 
 const mockUsers = [
   { id: '1', email: 'admin@walnut.local', role: 'Administrator', status: 'Active', lastLogin: '2024-01-15T15:42:00Z' },
@@ -147,9 +148,9 @@ export function SettingsScreen() {
       const [health, config] = await Promise.all([healthRes.json(), configRes.json()]);
       const diagnostics = `walNUT Diagnostics\nGenerated: ${new Date().toISOString()}\n\nHealth:\n${JSON.stringify(health, null, 2)}\n\nConfig:\n${JSON.stringify(config, null, 2)}\n`;
       await navigator.clipboard.writeText(diagnostics);
-      alert('Diagnostics copied to clipboard');
+      toast.success('Diagnostics copied to clipboard');
     } catch (e) {
-      alert((e as Error).message || 'Failed to copy diagnostics');
+      toast.error((e as Error).message || 'Failed to copy diagnostics');
     }
   };
 
@@ -169,8 +170,9 @@ export function SettingsScreen() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      toast.success('Diagnostics bundle downloaded');
     } catch (e) {
-      alert((e as Error).message || 'Failed to download diagnostics');
+      toast.error((e as Error).message || 'Failed to download diagnostics');
     }
   };
 
@@ -179,15 +181,15 @@ export function SettingsScreen() {
   };
 
   const handleInviteUser = () => {
-    alert('User invitation is currently disabled');
+    toast.info('User invitation is currently disabled');
   };
 
   const handleEditUser = (userId: string) => {
-    alert(`Edit user ${userId} - not yet implemented`);
+    toast.info(`Edit user ${userId} - not yet implemented`);
   };
 
   const testAllConnections = async () => {
-    alert('Testing all connections - feature not yet implemented');
+    toast.info('Testing all connections is not implemented yet');
   };
 
   // Handle default route redirect

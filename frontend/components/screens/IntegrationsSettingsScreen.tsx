@@ -39,6 +39,7 @@ import {
   TableRow,
 } from '../ui/table';
 import { apiService } from '../../services/api';
+import { useConfirm } from '../ui/confirm';
 import { toast } from 'sonner';
 import { cn } from '../ui/utils';
 
@@ -106,6 +107,9 @@ export function IntegrationsSettingsScreen() {
   const [manifestLoading, setManifestLoading] = useState(false);
   const [manifestText, setManifestText] = useState<string>("");
   const [manifestTypeId, setManifestTypeId] = useState<string>("");
+  const [errorsDialogOpen, setErrorsDialogOpen] = useState(false);
+  const [errorsTypeId, setErrorsTypeId] = useState<string>("");
+  const [errorsPayload, setErrorsPayload] = useState<any>(null);
 
   const handleCopyManifest = async () => {
     try {
@@ -278,9 +282,13 @@ export function IntegrationsSettingsScreen() {
   };
 
   const handleRemoveType = async (typeId: string) => {
-    if (!confirm(`Remove integration type "${typeId}"? This will delete the folder and mark instances as unavailable.`)) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: 'Remove integration type?',
+      description: `Remove integration type "${typeId}"? This will delete the folder and mark instances as unavailable.`,
+      confirmText: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
     
     try {
       await apiService.removeIntegrationType(typeId);
@@ -325,8 +333,20 @@ export function IntegrationsSettingsScreen() {
     if (errors.driver_missing) errorList.push('Driver file missing');
     if (errors.import_error) errorList.push('Driver import failed');
     if (errors.capability_mismatch) errorList.push('Capability method mismatch');
+    if (errors.core_version_incompatible) {
+      const req = errors.core_version_incompatible.required;
+      const cur = errors.core_version_incompatible.current;
+      errorList.push(`Core version incompatible (requires ${req}, current ${cur})`);
+    }
+    if (errors.validation_exception) errorList.push('Validation exception');
     
     return errorList.join(', ') || 'Unknown error';
+  };
+
+  const handleViewErrors = (typeId: string, errors: any) => {
+    setErrorsTypeId(typeId);
+    setErrorsPayload(errors);
+    setErrorsDialogOpen(true);
   };
 
   // Auto-scroll console when new logs arrive
@@ -675,6 +695,12 @@ export function IntegrationsSettingsScreen() {
                             <Eye className="w-4 h-4 mr-2" />
                             View Manifest
                           </DropdownMenuItem>
+                            {type.status === 'invalid' && type.errors && (
+                              <DropdownMenuItem onClick={() => handleViewErrors(type.id, type.errors)}>
+                                <AlertTriangle className="w-4 h-4 mr-2" />
+                                View Errors
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
                               onClick={() => handleRemoveType(type.id)}
@@ -722,6 +748,50 @@ export function IntegrationsSettingsScreen() {
               Copy
             </Button>
             <Button onClick={() => setManifestDialogOpen(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Errors Panel */}
+      <Dialog open={errorsDialogOpen} onOpenChange={setErrorsDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Validation Errors: {errorsTypeId}</DialogTitle>
+            <DialogDescription>Details from the validator and driver import</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {errorsPayload ? (
+              <>
+                {/* Summary line derived from tooltip */}
+                <div className="text-sm text-status-error">{getErrorTooltip(errorsPayload)}</div>
+                {/* Known traces */}
+                {errorsPayload.trace && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Trace</div>
+                    <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-72 whitespace-pre-wrap">{errorsPayload.trace}</pre>
+                  </div>
+                )}
+                {errorsPayload.import_error_trace && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Import Error Trace</div>
+                    <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-72 whitespace-pre-wrap">{errorsPayload.import_error_trace}</pre>
+                  </div>
+                )}
+                {errorsPayload.validation_error_trace && (
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Validation Error Trace</div>
+                    <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-72 whitespace-pre-wrap">{errorsPayload.validation_error_trace}</pre>
+                  </div>
+                )}
+                {/* Raw errors JSON as last resort */}
+                <div>
+                  <div className="text-xs text-muted-foreground mb-1">Raw Errors</div>
+                  <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-72 whitespace-pre-wrap">{JSON.stringify(errorsPayload, null, 2)}</pre>
+                </div>
+              </>
+            ) : (
+              <div className="text-muted-foreground text-sm">No error details.</div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

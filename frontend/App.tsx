@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider } from './components/ThemeProvider';
+import { ConfirmProvider } from './components/ui/confirm';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { TopBar } from './components/TopBar';
@@ -63,11 +64,13 @@ function App() {
   return (
     <ThemeProvider defaultTheme="dark" storageKey="walnut-theme">
       <AuthProvider>
-        <Router>
-          <ProtectedRoute>
-            <DashboardApp />
-          </ProtectedRoute>
-        </Router>
+        <ConfirmProvider>
+          <Router>
+            <ProtectedRoute>
+              <DashboardApp />
+            </ProtectedRoute>
+          </Router>
+        </ConfirmProvider>
       </AuthProvider>
     </ThemeProvider>
   );
