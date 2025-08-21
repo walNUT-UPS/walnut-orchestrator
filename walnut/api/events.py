@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
 from walnut.database.connection import get_db_session_dependency
+import anyio
 from walnut.database.models import LegacyEvent
 
 
@@ -93,8 +94,8 @@ async def get_events(
     # Sort by timestamp descending and limit
     query = query.order_by(desc(LegacyEvent.timestamp)).limit(limit)
     
-    result = await db.execute(query)
-    events = result.scalars().all()
+    result = await anyio.to_thread.run_sync(db.execute, query)
+    events = await anyio.to_thread.run_sync(result.scalars().all)
     
     return [EventResponse.model_validate(event) for event in events]
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -40,6 +40,7 @@ import {
 } from '../ui/table';
 import { apiService } from '../../services/api';
 import { toast } from 'sonner';
+import { cn } from '../ui/utils';
 
 interface IntegrationType {
   id: string;
@@ -96,6 +97,11 @@ export function IntegrationsSettingsScreen() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadLogs, setUploadLogs] = useState<Array<{ ts: string; level: string; message: string; step?: string }>>([]);
+  const [streamJobId, setStreamJobId] = useState<string | null>(null);
+  const wsRef = React.useRef<WebSocket | null>(null);
+  const [streamStatus, setStreamStatus] = useState<"idle" | "connecting" | "streaming" | "fallback" | "done" | "error">("idle");
+  const [uploadResult, setUploadResult] = useState<{ success: boolean; typeId?: string; installedPath?: string; errors?: any } | null>(null);
+  const consoleRef = useRef<HTMLDivElement | null>(null);
   const [manifestDialogOpen, setManifestDialogOpen] = useState(false);
   const [manifestLoading, setManifestLoading] = useState(false);
   const [manifestText, setManifestText] = useState<string>("");
@@ -144,7 +150,9 @@ export function IntegrationsSettingsScreen() {
       
       // Call the new API endpoint
       const types = await apiService.getIntegrationTypes(rescan);
-      setIntegrationTypes(types);
+      // Filter out unavailable integrations (deleted types that should not be shown)
+      const availableTypes = types.filter(type => type.status !== 'unavailable');
+      setIntegrationTypes(availableTypes);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load integration types');
     } finally {
@@ -177,23 +185,94 @@ export function IntegrationsSettingsScreen() {
     try {
       setIsUploading(true);
       setUploadLogs([]);
-      const result = await apiService.uploadIntegrationPackage(selectedFile);
+      setStreamStatus("connecting");
       
-      if (result.success) {
-        toast.success(`Integration package uploaded: ${result.type_id}`);
-        if (result.logs) setUploadLogs(result.logs);
-        setUploadDialogOpen(false);
-        setSelectedFile(null);
-        // Reload types
-        await loadIntegrationTypes();
-      } else {
-        if (result.logs) setUploadLogs(result.logs);
-        throw new Error(result.message || 'Upload failed');
+      // Start job first to get job_id
+      let job_id: string | null = null;
+      try {
+        const started = await apiService.uploadIntegrationPackageStream(selectedFile);
+        job_id = started.job_id;
+        setStreamJobId(job_id);
+      } catch (e) {
+        console.error('Failed to start upload job:', e);
+        return;
       }
+      // Connect directly to job-scoped WebSocket
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      const cookieStr = document.cookie || '';
+      const token = (cookieStr.split('; ').find((c) => c.startsWith('walnut_access='))?.split('=')[1])
+        || (cookieStr.split('; ').find((c) => c.startsWith('fastapiusersauth='))?.split('=')[1]);
+      const wsUrl = `${protocol}://${location.host}/ws/integrations/jobs/${job_id}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      // Fallback to direct upload if stream cannot start
+      const fallbackDirect = async () => {
+        if (!isUploading) return;
+        try {
+          setStreamStatus("fallback");
+          const result = await apiService.uploadIntegrationPackage(selectedFile);
+          if (result.logs) setUploadLogs(result.logs);
+          if (result.success) {
+            toast.success(`Integration package uploaded: ${result.type_id}`);
+            setUploadDialogOpen(false);
+            setSelectedFile(null);
+            await loadIntegrationTypes();
+            setStreamStatus("done");
+          } else {
+            setStreamStatus("error");
+            toast.error(result.message || 'Upload failed');
+          }
+        } catch (err: any) {
+          setStreamStatus("error");
+          if (err?.logs) setUploadLogs(err.logs);
+          toast.error(err instanceof Error ? err.message : 'Upload failed');
+        } finally {
+          setIsUploading(false);
+          if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
+        }
+      };
+      
+      ws.onopen = () => {
+        setStreamStatus('streaming');
+      };
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (!msg || !msg.type || !msg.data) return;
+          if (msg.type === 'integration_job.event' && msg.data.job_id === job_id) {
+            setUploadLogs((prev) => [...prev, { ts: msg.data.ts, level: msg.data.level, message: msg.data.message, step: msg.data.phase }]);
+          }
+          if (msg.type === 'integration_job.done' && msg.data.job_id === job_id) {
+            ws.close();
+            wsRef.current = null;
+            if (msg.data.success) {
+              toast.success(`Integration uploaded: ${msg.data.type_id}`);
+              setStreamStatus("done");
+              setUploadResult({ success: true, typeId: msg.data.type_id, installedPath: msg.data.installed_path });
+              loadIntegrationTypes();
+            } else {
+              setStreamStatus("error");
+              // stash server trace globally for the ServerTraceBlock to pick up
+              (window as any).__walnut_last_upload_trace = msg.data.trace || null;
+              setUploadResult({ success: false, typeId: msg.data.type_id, errors: msg.data.error || msg.data.errors });
+              toast.error(`Upload failed: ${msg.data.error || 'Unknown error'}`);
+            }
+            setIsUploading(false);
+          }
+        } catch (e) {
+          console.error('WebSocket message parsing error:', e);
+        }
+      };
+      ws.onerror = () => { if (isUploading) fallbackDirect(); };
+      // Safety timeout if WS doesn't open
+      setTimeout(() => {
+        if (isUploading && wsRef.current && wsRef.current.readyState !== WebSocket.OPEN) {
+          try { wsRef.current.close(); } catch {}
+          fallbackDirect();
+        }
+      }, 3000);
     } catch (err: any) {
-      if (err?.logs) setUploadLogs(err.logs);
       toast.error(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
       setIsUploading(false);
     }
   };
@@ -249,6 +328,16 @@ export function IntegrationsSettingsScreen() {
     
     return errorList.join(', ') || 'Unknown error';
   };
+
+  // Auto-scroll console when new logs arrive
+  useEffect(() => {
+    if (!consoleRef.current) return;
+    const el = consoleRef.current;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (nearBottom) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [uploadLogs.length]);
 
   return (
     <div className="space-y-6">
@@ -317,15 +406,51 @@ export function IntegrationsSettingsScreen() {
                     <li>• Installs to ./integrations/&lt;id&gt;/</li>
                     <li>• Runs full validation pipeline</li>
                   </ul>
+                  {isUploading && (
+                    <div className="text-xs mt-2 text-muted-foreground">
+                      {streamStatus === 'connecting' && 'Connecting to stream...'}
+                      {streamStatus === 'streaming' && 'Streaming logs...'}
+                      {streamStatus === 'fallback' && 'Stream unavailable; using direct upload...'}
+                      {streamStatus === 'done' && 'Completed'}
+                      {streamStatus === 'error' && 'Error occurred; see logs below'}
+                      {streamJobId && <span className="ml-2 font-mono">job_id: {streamJobId}</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* Stepper */}
+                <div className="flex items-center gap-2 text-xs">
+                  {['upload','unpack','manifest','driver','install','registry','final'].map((p) => (
+                    <div key={p} className="flex items-center gap-1">
+                      <div className={`w-2.5 h-2.5 rounded-full ${uploadLogs.some(l => (l.step||'').includes(p) ) ? 'bg-emerald-500' : 'bg-border'}`}></div>
+                      <span className="text-muted-foreground capitalize">{p}</span>
+                      <span className="text-border">/</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Console controls */}
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const text = uploadLogs.map(l => `${new Date(l.ts).toISOString()} [${l.level.toUpperCase()}] ${l.step?`[${l.step}]`:''} ${l.message}`).join('\n');
+                    navigator.clipboard.writeText(text);
+                  }}>Copy All</Button>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    const blob = new Blob([JSON.stringify(uploadLogs, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `upload-logs-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+                  }}>Download Logs</Button>
+                  <Button variant="outline" size="sm" onClick={() => setUploadLogs([])}>Clear</Button>
                 </div>
 
                 {uploadLogs.length > 0 && (
-                  <div className="max-h-56 overflow-auto rounded-md border border-border bg-muted/10">
-                    <table className="w-full text-xs">
+                  <div className="max-h-56 overflow-auto rounded-md border border-border bg-background font-mono text-xs" id="upload-console" ref={consoleRef}>
+                    <table className="w-full">
                       <tbody>
                         {uploadLogs.map((l, idx) => (
                           <tr key={idx} className="border-b border-border/50">
-                            <td className="px-2 py-1 whitespace-nowrap text-muted-foreground font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
+                            <td className="px-2 py-1 whitespace-nowrap text-muted-foreground">{new Date(l.ts).toLocaleTimeString()}</td>
                             <td className="px-2 py-1 whitespace-nowrap uppercase">
                               <span className={
                                 l.level === 'error' ? 'text-red-600 dark:text-red-400' :
@@ -341,6 +466,45 @@ export function IntegrationsSettingsScreen() {
                     </table>
                   </div>
                 )}
+
+                {/* Server trace toggle (when available) */}
+                {uploadLogs.length > 0 && (
+                  <ServerTraceBlock logs={uploadLogs} streamJobId={streamJobId} />
+                )}
+
+                {/* Summary banner on completion */}
+                {uploadResult && (
+                  <div className={`rounded-md border p-3 ${uploadResult.success ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-red-500/40 bg-red-500/5'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">
+                          {uploadResult.success ? 'Integration uploaded and registered' : 'Integration upload completed with errors'}
+                        </div>
+                        {uploadResult.typeId && (
+                          <div className="text-xs text-muted-foreground">Type ID: <span className="font-mono">{uploadResult.typeId}</span></div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => {
+                          setUploadDialogOpen(false);
+                          setSelectedFile(null);
+                        }}>Open in Settings</Button>
+                        {uploadResult.typeId && (
+                          <Button size="sm" variant="destructive" onClick={async () => {
+                            try {
+                              await apiService.removeIntegrationType(uploadResult.typeId!);
+                              toast.success('Integration removed');
+                              await loadIntegrationTypes();
+                              setUploadDialogOpen(false);
+                            } catch (e:any) {
+                              toast.error(e?.message || 'Failed to remove integration');
+                            }
+                          }}>Remove</Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               
               <div className="flex justify-end gap-2">
@@ -350,6 +514,8 @@ export function IntegrationsSettingsScreen() {
                     setUploadDialogOpen(false);
                     setSelectedFile(null);
                     setUploadLogs([]);
+                    setStreamJobId(null);
+                    if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
                   }}
                 >
                   Cancel
@@ -577,6 +743,38 @@ export function IntegrationsSettingsScreen() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ServerTraceBlock({ logs, streamJobId }: { logs: Array<{ ts: string; level: string; message: string; step?: string }>; streamJobId: string | null }) {
+  // We attach server traces via error done messages; log rows won't contain trace, so we show a collapsible area fed by latest error toast if present
+  const [open, setOpen] = React.useState(false);
+  const [trace, setTrace] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    // The frontend sets error toast but not trace here; to carry trace, we stash it on window during WS done or direct error
+    const anyWin = window as any;
+    if (anyWin.__walnut_last_upload_trace) {
+      setTrace(anyWin.__walnut_last_upload_trace as string);
+    }
+  }, [logs, streamJobId]);
+
+  if (!trace) return null;
+
+  return (
+    <div className="rounded-md border border-border bg-muted/10 p-2">
+      <button
+        className={cn('text-xs underline text-muted-foreground hover:text-foreground')}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? 'Hide server trace' : 'View server trace'}
+      </button>
+      {open && (
+        <pre className="mt-2 text-xs bg-background border border-border rounded-md p-3 overflow-auto max-h-56">
+          {trace}
+        </pre>
+      )}
     </div>
   );
 }

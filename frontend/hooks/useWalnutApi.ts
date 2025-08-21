@@ -58,7 +58,8 @@ export function useWalnutApi() {
     const connectWebSocket = () => {
       try {
         // Only attempt WS if auth cookie likely present
-        const hasCookie = document.cookie.includes('fastapiusersauth');
+        const cookies = document.cookie;
+        const hasCookie = cookies.includes('walnut_access=') || cookies.includes('fastapiusersauth=');
         if (!hasCookie) {
           // Recheck auth periodically without spamming WS attempts
           if (!authCheckInterval) {

@@ -30,6 +30,8 @@ from walnut.database.connection import get_db_session, get_db_session_dependency
 from walnut.database.models import IntegrationType, IntegrationInstance, IntegrationSecret
 from walnut.core.integration_registry import get_integration_registry
 from walnut.core.websocket_manager import get_websocket_manager  # noqa: F401  (kept for future WS broadcasts)
+from walnut.core.websocket_manager import websocket_manager
+import uuid
 
 
 # --- Pydantic Schemas ---
@@ -248,7 +250,10 @@ async def upload_integration_package(
                 shutil.move(str(integration_folder), str(target_path))
                 add_log(f"Installed integration files to {target_path}", step="install")
 
-                # Trigger validation
+                # Ensure type record exists for this new upload (no global rescan)
+                await get_integration_registry().ensure_type_record(type_id, target_path, manifest_data)
+
+                # Trigger validation for the new type only
                 add_log("Starting validation pipeline", step="validate")
                 validation_result = await registry.validate_single_type(type_id)
                 add_log("Validation pipeline finished", step="validate")
@@ -291,6 +296,229 @@ async def upload_integration_package(
                 "step": "error"
             }]
         }
+
+
+# Accept trailing slash as well to avoid 405 from clients that append '/'
+@router.post("/types/upload/")
+async def upload_integration_package_slash(
+    file: UploadFile = File(..., description="Integration package (.int file)"),
+    current_user=Depends(current_active_user),
+    db: AsyncSession = Depends(get_db_session_dependency)
+):
+    return await upload_integration_package(file=file, current_user=current_user, db=db)
+
+
+import logging
+
+upload_logger = logging.getLogger("walnut.upload")
+upload_logger.setLevel(logging.INFO)
+
+# Add console handler for debugging
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+upload_logger.addHandler(console_handler)
+
+async def _broadcast_upload_log(job_id: str, level: str, message: str, step: Optional[str] = None):
+    try:
+        if websocket_manager:
+            upload_logger.info(f"[UPLOAD DEBUG] Broadcasting: {level} - {message} (step: {step}) for job {job_id}")
+            upload_logger.info(f"[UPLOAD DEBUG] Authenticated clients: {websocket_manager.get_authenticated_count()}")
+            await websocket_manager.broadcast_json({
+                "type": "integration_upload.log",
+                "data": {
+                    "job_id": job_id,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "level": level,
+                    "message": message,
+                    "step": step,
+                },
+            })
+            upload_logger.info(f"[UPLOAD DEBUG] Broadcast completed")
+        else:
+            upload_logger.error(f"[UPLOAD DEBUG] No websocket_manager available")
+    except Exception as e:
+        upload_logger.error(f"[UPLOAD DEBUG] Broadcast error: {e}")
+        pass
+
+
+@router.post("/types/upload/stream")
+async def upload_integration_package_stream(
+    file: UploadFile = File(..., description="Integration package (.int file)"),
+    current_user=Depends(current_active_user),
+):
+    """
+    Starts an asynchronous upload + validation job and streams logs via WebSocket.
+
+    Returns a job_id immediately. Clients should listen on the WS for
+    messages of type 'integration_upload.*' with matching job_id.
+    """
+    job_id = str(uuid.uuid4())
+
+    # IMPORTANT: Read the uploaded file before starting the background task.
+    # FastAPI closes the UploadFile as soon as the request returns, so any
+    # background task must not reference `file` directly.
+    orig_filename = file.filename or f"upload_{job_id}.int"
+    if not orig_filename.endswith(".int"):
+        # Validate extension up front since we won't touch `file` later
+        raise HTTPException(status_code=400, detail="File must have .int extension")
+
+    max_size = 10 * 1024 * 1024  # 10MB
+    try:
+        content = await file.read()
+    except Exception as _e:
+        # If the file-like object was closed prematurely, surface a clear error
+        raise HTTPException(status_code=400, detail=f"Failed to read upload: {_e}")
+
+    if len(content) > max_size:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+
+    async def _job_event(phase: str, level: str, message: str, meta: Optional[Dict[str, Any]] = None):
+        try:
+            await websocket_manager.send_job_event(job_id, {
+                "type": "integration_job.event",
+                "data": {
+                    "job_id": job_id,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                    "phase": phase,
+                    "level": level,
+                    "message": message,
+                    "meta": meta or {},
+                }
+            })
+        except Exception:
+            pass
+
+    async def run_job():
+        upload_logger.info(f"[UPLOAD DEBUG] run_job STARTED for job {job_id}")
+        # Allow a brief window for the client to connect to the job stream
+        try:
+            await asyncio.sleep(0.4)
+        except Exception:
+            pass
+        try:
+            await _job_event("upload", "info", "Starting upload request")
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+                staging_path = temp_path / "staging"
+                upload_path = temp_path / orig_filename
+                upload_path.write_bytes(content)
+                await _job_event("upload", "info", f"Received {orig_filename}", {"bytes": len(content)})
+
+                if not zipfile.is_zipfile(upload_path):
+                    await _job_event("unpack", "error", "Invalid ZIP file")
+                    raise HTTPException(status_code=400, detail="Invalid ZIP file")
+
+                with zipfile.ZipFile(upload_path, "r") as zip_ref:
+                    for member in zip_ref.namelist():
+                        normalized = os.path.normpath(member)
+                        if normalized.startswith("..") or os.path.isabs(member):
+                            await _job_event("unpack", "error", f"Unsafe path in archive: {member}")
+                            raise HTTPException(status_code=400, detail="Unsafe file path in archive")
+                    zip_ref.extractall(staging_path)
+                await _job_event("unpack", "info", "Extracted archive to staging")
+
+                plugin_yaml_candidates = list(staging_path.rglob("plugin.yaml"))
+                if not plugin_yaml_candidates:
+                    await _job_event("manifest", "error", "No plugin.yaml found in package")
+                    raise HTTPException(status_code=400, detail="No plugin.yaml found in package")
+
+                plugin_yaml_path = plugin_yaml_candidates[0]
+                integration_folder = plugin_yaml_path.parent
+
+                with open(plugin_yaml_path, "r", encoding="utf-8") as f:
+                    manifest_data = yaml.safe_load(f)
+                if not manifest_data or not isinstance(manifest_data, dict):
+                    await _job_event("manifest", "error", "Invalid plugin.yaml content")
+                    raise HTTPException(status_code=400, detail="Invalid plugin.yaml content")
+
+                type_id = manifest_data.get("id")
+                if not type_id:
+                    await _job_event("manifest", "error", "Missing 'id' in plugin.yaml")
+                    raise HTTPException(status_code=400, detail="Missing 'id' field in plugin.yaml")
+                await _job_event("manifest", "info", f"Found manifest id '{type_id}'", {"type_id": type_id})
+
+                # Ensure no conflict
+                async with get_db_session() as session:
+                    def _check_exists():
+                        from sqlalchemy import select as _select
+                        return session.execute(_select(IntegrationType).where(IntegrationType.id == type_id)).scalar_one_or_none()
+                    existing = await anyio.to_thread.run_sync(_check_exists)
+                    if existing:
+                        await _job_event("registry", "error", f"Integration type '{type_id}' already exists")
+                        raise HTTPException(status_code=409, detail=f"Integration type '{type_id}' already exists")
+
+                # Move into ./integrations/<type_id>
+                target_path = Path("./integrations").resolve() / type_id
+                if target_path.exists():
+                    shutil.rmtree(target_path)
+                shutil.move(str(integration_folder), str(target_path))
+                await _job_event("install", "info", f"Installed files to {target_path}", {"path": str(target_path)})
+
+                # Register type record without rescanning others
+                try:
+                    await get_integration_registry().ensure_type_record(type_id, target_path, manifest_data)
+                except Exception as _e:
+                    await _job_event("registry", "error", f"Failed to register type: {_e}")
+                    raise
+
+                # Validate only this type
+                await _job_event("registry", "info", "Starting validation and registry update")
+                registry = get_integration_registry()
+                validation_result = await registry.validate_single_type(type_id)
+                # Try to extract status if shaped
+                status_val = None
+                try:
+                    status_val = validation_result.get("result", {}).get("status") if isinstance(validation_result, dict) else None
+                except Exception:
+                    status_val = None
+                await _job_event("registry", "info", "Validation pipeline finished", {"status": status_val})
+
+                # Done (job-scoped)
+                await websocket_manager.send_job_event(job_id, {
+                    "type": "integration_job.done",
+                    "data": {
+                        "job_id": job_id,
+                        "success": True,
+                        "type_id": type_id,
+                        "installed_path": str(target_path),
+                        "result": validation_result,
+                    },
+                })
+
+        except HTTPException as he:
+            await _job_event("final", "error", f"HTTP error: {he.detail}")
+            await websocket_manager.send_job_event(job_id, {
+                "type": "integration_job.done",
+                "data": {
+                    "job_id": job_id,
+                    "success": False,
+                    "error": str(he.detail),
+                    "errors": he.detail,
+                },
+            })
+        except Exception as e:
+            import traceback as _tb
+            tb_str = _tb.format_exc()
+            await _job_event("final", "error", f"Unexpected error: {e}", {"exception": str(e)})
+            await websocket_manager.send_job_event(job_id, {
+                "type": "integration_job.done",
+                "data": {
+                    "job_id": job_id,
+                    "success": False,
+                    "error": str(e),
+                    "errors": str(e),
+                    "trace": tb_str,
+                },
+            })
+
+    # Spawn background job
+    upload_logger.info(f"[UPLOAD DEBUG] Starting background job for {job_id}")
+    task = asyncio.create_task(run_job())
+    upload_logger.info(f"[UPLOAD DEBUG] Background job started for {job_id}, task: {task}")
+    return {"job_id": job_id}
 
 
 @router.delete("/types/{type_id}")

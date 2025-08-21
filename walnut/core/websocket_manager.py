@@ -55,6 +55,9 @@ class WebSocketManager:
         
         # Background task for ping/pong
         self._ping_task: Optional[asyncio.Task] = None
+
+        # Job-specific subscribers: job_id -> set(client_id)
+        self._job_subscribers: Dict[str, Set[str]] = {}
         
     async def connect(self, websocket: WebSocket, client_id: Optional[str] = None) -> str:
         """
@@ -110,6 +113,13 @@ class WebSocketManager:
         
         if client_id in self._authenticated_clients:
             del self._authenticated_clients[client_id]
+
+        # Remove from any job subscriptions
+        for job_id, subs in list(self._job_subscribers.items()):
+            if client_id in subs:
+                subs.remove(client_id)
+                if not subs:
+                    del self._job_subscribers[job_id]
         
         logger.info(f"WebSocket client {client_id} disconnected")
         
@@ -230,9 +240,29 @@ class WebSocketManager:
         elif message_type == "get_history":
             # Send recent message history
             await self._send_history_to_client(client_id)
-        
+
         else:
             logger.warning(f"Unknown message type '{message_type}' from client {client_id}")
+
+    # --- Job streaming helpers ---
+    def subscribe_job(self, job_id: str, client_id: str):
+        subs = self._job_subscribers.setdefault(job_id, set())
+        subs.add(client_id)
+
+    def unsubscribe_job(self, job_id: str, client_id: str):
+        if job_id in self._job_subscribers:
+            subs = self._job_subscribers[job_id]
+            subs.discard(client_id)
+            if not subs:
+                del self._job_subscribers[job_id]
+
+    async def send_job_event(self, job_id: str, message: Dict[str, Any]):
+        subs = self._job_subscribers.get(job_id)
+        if not subs:
+            return
+        tasks = [self._send_to_client(cid, message) for cid in list(subs)]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
     
     def get_connection_info(self) -> List[ConnectionInfo]:
         """

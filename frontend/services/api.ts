@@ -202,13 +202,29 @@ class ApiService {
       // ignore
     }
     if (!response.ok) {
-      // Bubble up server-provided logs if available
+      // Bubble up server-provided logs/trace if available
       const msg = data?.error || data?.detail || `${response.status} ${response.statusText}`;
-      const err: any = new Error(`Upload failed: ${msg}`);
-      if (data?.logs) (err as any).logs = data.logs;
+      const err: any = new Error(`Upload failed: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+      if (data?.logs) err.logs = data.logs;
+      if (data?.trace) err.trace = data.trace;
       throw err;
     }
     return data;
+  }
+
+  async uploadIntegrationPackageStream(file: File): Promise<{ job_id: string }>{
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${this.baseUrl}/integrations/types/upload/stream`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Stream upload failed: ${response.status} ${response.statusText} ${text}`);
+    }
+    return response.json();
   }
 
   async removeIntegrationType(typeId: string): Promise<{success: boolean; message: string}> {

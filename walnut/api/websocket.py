@@ -98,8 +98,8 @@ async def websocket_endpoint(
         try:
             # Starlette exposes parsed cookies
             cookies = websocket.cookies or {}
-            # Common cookie names for fastapi-users cookie transport
-            for name in ("fastapiusersauth", "fastapi_users_auth", "auth", "session"):
+            # Check for walnut-specific cookie names first, then fallback to common names
+            for name in ("walnut_access", "fastapiusersauth", "fastapi_users_auth", "auth", "session"):
                 if name in cookies:
                     cookie_token = cookies.get(name)
                     if cookie_token:

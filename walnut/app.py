@@ -10,6 +10,10 @@ from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
 from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations
 from walnut.api.websocket import websocket_endpoint, get_websocket_info
+from fastapi import WebSocket, Query
+from typing import Optional
+from walnut.api.websocket import authenticate_websocket_token
+from walnut.core.websocket_manager import websocket_manager
 
 
 app = FastAPI(
@@ -47,6 +51,51 @@ async def websocket_main_endpoint(websocket: WebSocket, token: Optional[str] = Q
 async def websocket_updates_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
     await websocket_endpoint(websocket, token)
 
+
+@app.websocket("/ws/integrations/jobs/{job_id}")
+async def websocket_job_endpoint(websocket: WebSocket, job_id: str, token: Optional[str] = Query(None)):
+    client_id = None
+    try:
+        # Cookie fallback for token
+        cookie_token = None
+        try:
+            cookies = websocket.cookies or {}
+            for name in ("walnut_access", "fastapiusersauth", "fastapi_users_auth", "auth", "session"):
+                if name in cookies:
+                    cookie_token = cookies.get(name)
+                    if cookie_token:
+                        break
+        except Exception:
+            cookie_token = None
+
+        if not token:
+            token = cookie_token
+
+        if not token:
+            await websocket.close(code=4001, reason="Authentication token required")
+            return
+
+        user = await authenticate_websocket_token(token)
+        if not user:
+            await websocket.close(code=4001, reason="Invalid authentication token")
+            return
+
+        client_id = await websocket_manager.connect(websocket)
+        websocket_manager.authenticate_client(client_id, str(user.id))
+        websocket_manager.subscribe_job(job_id, client_id)
+
+        await websocket.send_json({"type": "job_stream.open", "data": {"job_id": job_id, "client_id": client_id}})
+
+        while True:
+            await websocket.receive_text()
+
+    except Exception:
+        pass
+    finally:
+        if client_id:
+            websocket_manager.unsubscribe_job(job_id, client_id)
+            await websocket_manager.disconnect(client_id)
+
 # Public health check for testing
 @app.get("/health")
 async def public_health_check():
@@ -78,4 +127,3 @@ async def websocket_info():
 @app.get("/")
 async def root():
     return {"message": "Welcome to walNUT!"}
-

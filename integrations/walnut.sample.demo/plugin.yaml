@@ -1,0 +1,31 @@
+id: walnut.sample.demo
+name: Sample Demo Integration
+version: 1.0.0
+min_core_version: 0.1.0
+category: monitoring
+driver:
+  entrypoint: driver:SampleDriver
+  language: python
+  runtime: embedded
+schema:
+  connection:
+    type: object
+    required: [host, api_token]
+    properties:
+      host:
+        type: string
+        title: Host
+      api_token:
+        type: string
+        title: API Token
+capabilities:
+  - id: inventory.list
+    verbs: [list]
+    targets: [demo]
+    dry_run: optional
+defaults:
+  http:
+    timeout_s: 5
+    retries: 1
+test:
+  method: driver

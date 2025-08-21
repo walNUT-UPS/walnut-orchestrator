@@ -52,6 +52,56 @@ class IntegrationTypeRegistry:
         self.integrations_path = Path(integrations_path).resolve()
         self.websocket_manager = websocket_manager
         self._validation_lock = asyncio.Lock()
+
+    async def ensure_type_record(self, type_id: str, type_path: Path, manifest_data: Dict[str, Any]) -> None:
+        """
+        Ensure an IntegrationType DB record exists for the given folder/manifest.
+
+        Creates or updates the record with status='checking' without rescanning
+        other integrations. Intended for use immediately after an upload installs
+        a new integration into the filesystem.
+        """
+        async with get_db_session() as session:
+            def _upsert_sync():
+                it = session.query(IntegrationType).filter(IntegrationType.id == type_id).first()
+                if it is None:
+                    it = IntegrationType(
+                        id=type_id,
+                        name=manifest_data.get("name", type_id),
+                        version=manifest_data.get("version", "0.0.0"),
+                        min_core_version=manifest_data.get("min_core_version", "0.1.0"),
+                        category=manifest_data.get("category", "unknown"),
+                        path=str(type_path),
+                        status="checking",
+                        capabilities=manifest_data.get("capabilities", []),
+                        schema_connection=manifest_data.get("schema", {}).get("connection", {}),
+                        driver_entrypoint=manifest_data.get("driver", {}).get("entrypoint", ""),
+                    )
+                    session.add(it)
+                else:
+                    it.name = manifest_data.get("name", it.name)
+                    it.version = manifest_data.get("version", it.version)
+                    it.min_core_version = manifest_data.get("min_core_version", it.min_core_version)
+                    it.category = manifest_data.get("category", it.category)
+                    it.path = str(type_path)
+                    it.status = "checking"
+                    it.capabilities = manifest_data.get("capabilities", it.capabilities or [])
+                    it.schema_connection = manifest_data.get("schema", {}).get("connection", it.schema_connection or {})
+                    it.driver_entrypoint = manifest_data.get("driver", {}).get("entrypoint", it.driver_entrypoint or "")
+                session.commit()
+                return it
+
+            it = await anyio.to_thread.run_sync(_upsert_sync)
+            # Notify subscribers that a new/updated type is now checking
+            if self.websocket_manager and it:
+                await self.websocket_manager.broadcast_json({
+                    "type": "integration_type.updated",
+                    "data": {
+                        "id": type_id,
+                        "status": "checking",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                })
     
     async def discover_and_validate_all(self, force_rescan: bool = False) -> Dict[str, Any]:
         """
@@ -269,8 +319,10 @@ class IntegrationTypeRegistry:
                         logger.warning(f"{type_id}: Missing test_connection method")
                 
                 except Exception as e:
+                    import traceback as _tb
                     validation_result["status"] = "invalid"
                     validation_result["errors"]["import_error"] = str(e)
+                    validation_result["errors"]["import_error_trace"] = _tb.format_exc()
                     logger.error(f"{type_id}: Driver import failed: {e}")
             
             # Step 4: Check core version compatibility
@@ -279,8 +331,10 @@ class IntegrationTypeRegistry:
             # For now, assume compatibility
             
         except Exception as e:
+            import traceback as _tb
             validation_result["status"] = "invalid"
             validation_result["errors"]["validation_error"] = str(e)
+            validation_result["errors"]["validation_error_trace"] = _tb.format_exc()
             logger.error(f"{type_id}: Validation failed with exception: {e}")
         
         # Stage C: Update database and notify
@@ -363,8 +417,8 @@ class IntegrationTypeRegistry:
                 integration_type.last_validated_at = datetime.now(timezone.utc)
                 
                 # Update from manifest data if validation was successful
-                if validation_result["status"] == "valid":
-                    integration_type.name = manifest_data.get("name", integration_type.name)
+            if validation_result["status"] == "valid":
+                integration_type.name = manifest_data.get("name", integration_type.name)
                     integration_type.version = manifest_data.get("version", integration_type.version)
                     integration_type.min_core_version = manifest_data.get("min_core_version", integration_type.min_core_version)
                     integration_type.category = manifest_data.get("category", integration_type.category)
