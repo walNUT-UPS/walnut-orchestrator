@@ -185,7 +185,7 @@ class ApiService {
     return this.request<IntegrationType[]>(`/integrations/types${params}`);
   }
 
-  async uploadIntegrationPackage(file: File): Promise<{success: boolean; type_id: string; message: string; validation: any}> {
+  async uploadIntegrationPackage(file: File): Promise<{success: boolean; type_id?: string; message?: string; validation?: any; logs?: Array<{ts: string; level: string; message: string; step?: string}>; error?: string}> {
     const formData = new FormData();
     formData.append('file', file);
     
@@ -195,11 +195,20 @@ class ApiService {
       body: formData,
     });
 
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+    let data: any = null;
+    try {
+      data = await response.json();
+    } catch (_) {
+      // ignore
     }
-
-    return response.json();
+    if (!response.ok) {
+      // Bubble up server-provided logs if available
+      const msg = data?.error || data?.detail || `${response.status} ${response.statusText}`;
+      const err: any = new Error(`Upload failed: ${msg}`);
+      if (data?.logs) (err as any).logs = data.logs;
+      throw err;
+    }
+    return data;
   }
 
   async removeIntegrationType(typeId: string): Promise<{success: boolean; message: string}> {

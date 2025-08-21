@@ -95,6 +95,7 @@ export function IntegrationsSettingsScreen() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadLogs, setUploadLogs] = useState<Array<{ ts: string; level: string; message: string; step?: string }>>([]);
   const [manifestDialogOpen, setManifestDialogOpen] = useState(false);
   const [manifestLoading, setManifestLoading] = useState(false);
   const [manifestText, setManifestText] = useState<string>("");
@@ -175,18 +176,22 @@ export function IntegrationsSettingsScreen() {
     
     try {
       setIsUploading(true);
+      setUploadLogs([]);
       const result = await apiService.uploadIntegrationPackage(selectedFile);
       
       if (result.success) {
         toast.success(`Integration package uploaded: ${result.type_id}`);
+        if (result.logs) setUploadLogs(result.logs);
         setUploadDialogOpen(false);
         setSelectedFile(null);
         // Reload types
         await loadIntegrationTypes();
       } else {
-        throw new Error('Upload failed');
+        if (result.logs) setUploadLogs(result.logs);
+        throw new Error(result.message || 'Upload failed');
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.logs) setUploadLogs(err.logs);
       toast.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setIsUploading(false);
@@ -313,6 +318,29 @@ export function IntegrationsSettingsScreen() {
                     <li>• Runs full validation pipeline</li>
                   </ul>
                 </div>
+
+                {uploadLogs.length > 0 && (
+                  <div className="max-h-56 overflow-auto rounded-md border border-border bg-muted/10">
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {uploadLogs.map((l, idx) => (
+                          <tr key={idx} className="border-b border-border/50">
+                            <td className="px-2 py-1 whitespace-nowrap text-muted-foreground font-mono">{new Date(l.ts).toLocaleTimeString()}</td>
+                            <td className="px-2 py-1 whitespace-nowrap uppercase">
+                              <span className={
+                                l.level === 'error' ? 'text-red-600 dark:text-red-400' :
+                                l.level === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+                              }>{l.level}</span>
+                            </td>
+                            <td className="px-2 py-1">
+                              <span className="text-muted-foreground">{l.step ? `[${l.step}] ` : ''}</span>{l.message}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
               
               <div className="flex justify-end gap-2">
@@ -321,6 +349,7 @@ export function IntegrationsSettingsScreen() {
                   onClick={() => {
                     setUploadDialogOpen(false);
                     setSelectedFile(null);
+                    setUploadLogs([]);
                   }}
                 >
                   Cancel

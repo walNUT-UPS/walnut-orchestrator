@@ -151,8 +151,19 @@ async def upload_integration_package(
     5. Run validation pipeline and update database
     """
     try:
+        logs: List[Dict[str, Any]] = []
+        def add_log(message: str, level: str = "info", step: Optional[str] = None):
+            logs.append({
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "level": level,
+                "message": message,
+                "step": step,
+            })
+
+        add_log("Starting upload request", step="start")
         if not file.filename or not file.filename.endswith(".int"):
-            raise HTTPException(status_code=400, detail="File must have .int extension")
+            add_log("Invalid file extension; expected .int", level="error", step="validate")
+            raise HTTPException(status_code=400, detail={"error": "File must have .int extension", "logs": logs})
 
         # File size limit (10MB) — compute after reading
         max_size = 10 * 1024 * 1024  # 10MB
@@ -168,13 +179,16 @@ async def upload_integration_package(
             upload_path = temp_path / file.filename
             content = await file.read()
             if len(content) > max_size:
-                raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+                add_log("File too large (>10MB)", level="error", step="read")
+                raise HTTPException(status_code=413, detail={"error": "File too large (max 10MB)", "logs": logs})
 
             upload_path.write_bytes(content)
+            add_log(f"Received file: {file.filename} ({len(content)} bytes)", step="read")
 
             # Validate ZIP
             if not zipfile.is_zipfile(upload_path):
-                raise HTTPException(status_code=400, detail="Invalid ZIP file")
+                add_log("Uploaded file is not a valid ZIP", level="error", step="zip-validate")
+                raise HTTPException(status_code=400, detail={"error": "Invalid ZIP file", "logs": logs})
 
             try:
                 with zipfile.ZipFile(upload_path, "r") as zip_ref:
@@ -182,15 +196,18 @@ async def upload_integration_package(
                     for member in zip_ref.namelist():
                         normalized = os.path.normpath(member)
                         if normalized.startswith("..") or os.path.isabs(member):
-                            raise HTTPException(status_code=400, detail="Unsafe file path in archive")
+                            add_log(f"Unsafe path in archive: {member}", level="error", step="zip-validate")
+                            raise HTTPException(status_code=400, detail={"error": "Unsafe file path in archive", "logs": logs})
 
                     # Extract to staging
                     zip_ref.extractall(staging_path)
+                    add_log("Extracted archive to staging", step="extract")
 
                 # Find plugin.yaml in extracted contents
                 plugin_yaml_candidates = list(staging_path.rglob("plugin.yaml"))
                 if not plugin_yaml_candidates:
-                    raise HTTPException(status_code=400, detail="No plugin.yaml found in package")
+                    add_log("No plugin.yaml found in package", level="error", step="manifest")
+                    raise HTTPException(status_code=400, detail={"error": "No plugin.yaml found in package", "logs": logs})
 
                 plugin_yaml_path = plugin_yaml_candidates[0]
                 integration_folder = plugin_yaml_path.parent
@@ -200,19 +217,27 @@ async def upload_integration_package(
                     manifest_data = yaml.safe_load(f)
 
                 if not manifest_data or not isinstance(manifest_data, dict):
-                    raise HTTPException(status_code=400, detail="Invalid plugin.yaml content")
+                    add_log("Invalid plugin.yaml content", level="error", step="manifest-validate")
+                    raise HTTPException(status_code=400, detail={"error": "Invalid plugin.yaml content", "logs": logs})
 
                 type_id = manifest_data.get("id")
                 if not type_id:
-                    raise HTTPException(status_code=400, detail="Missing 'id' field in plugin.yaml")
+                    add_log("Missing 'id' field in plugin.yaml", level="error", step="manifest-validate")
+                    raise HTTPException(status_code=400, detail={"error": "Missing 'id' field in plugin.yaml", "logs": logs})
+
+                add_log(f"Found manifest with id '{type_id}'", step="manifest-validate")
 
                 # Check if type already exists
                 result = await db.execute(select(IntegrationType).where(IntegrationType.id == type_id))
                 existing_type = result.scalar_one_or_none()
                 if existing_type:
+                    add_log(f"Integration type '{type_id}' already exists", level="error", step="pre-install")
                     raise HTTPException(
                         status_code=409,
-                        detail=f"Integration type '{type_id}' already exists. Remove it first to upload a new version."
+                        detail={
+                            "error": f"Integration type '{type_id}' already exists. Remove it first to upload a new version.",
+                            "logs": logs,
+                        }
                     )
 
                 # Atomic move to integrations folder
@@ -221,9 +246,12 @@ async def upload_integration_package(
                     shutil.rmtree(target_path)
 
                 shutil.move(str(integration_folder), str(target_path))
+                add_log(f"Installed integration files to {target_path}", step="install")
 
                 # Trigger validation
+                add_log("Starting validation pipeline", step="validate")
                 validation_result = await registry.validate_single_type(type_id)
+                add_log("Validation pipeline finished", step="validate")
 
                 return {
                     "success": True,
@@ -234,6 +262,7 @@ async def upload_integration_package(
                         else "Integration package uploaded but registered with errors"
                     ),
                     "validation": validation_result,
+                    "logs": logs,
                 }
 
             except HTTPException:
@@ -241,14 +270,27 @@ async def upload_integration_package(
             except Exception as e:
                 import traceback
                 traceback_str = traceback.format_exc()
-                raise HTTPException(status_code=500, detail=f"Upload failed: {e}\n{traceback_str}")
+                add_log(f"Unexpected error during upload: {e}", level="error", step="error")
+                raise HTTPException(status_code=500, detail={"error": f"Upload failed: {e}", "trace": traceback_str, "logs": logs})
 
     except HTTPException:
         raise
     except Exception as e:
         import traceback
         traceback_str = traceback.format_exc()
-        raise HTTPException(status_code=500, detail=f"Upload failed: {e}\n{traceback_str}")
+        # Outer catch-all
+        return {
+            "success": False,
+            "message": f"Upload failed: {e}",
+            "error": str(e),
+            "trace": traceback_str,
+            "logs": [{
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "level": "error",
+                "message": f"Upload failed: {e}",
+                "step": "error"
+            }]
+        }
 
 
 @router.delete("/types/{type_id}")
