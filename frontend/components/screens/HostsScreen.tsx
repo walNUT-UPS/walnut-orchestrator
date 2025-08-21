@@ -628,17 +628,6 @@ export function HostsScreen() {
                                 <TestTube className="w-3 h-3" />
                               )}
                             </Button>
-                            {/* Direct Configure button for easier access */}
-                            <Button
-                              data-testid="instance-configure"
-                              variant="ghost"
-                              size="sm"
-                              title="Configure"
-                              onClick={() => { setSettingsInstance(instance); setSettingsOpen(true); }}
-                            >
-                              <Settings className="w-3 h-3" />
-                            </Button>
-                            
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button data-testid="instance-actions-trigger" variant="ghost" size="sm">
