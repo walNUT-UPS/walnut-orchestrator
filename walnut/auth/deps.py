@@ -9,6 +9,11 @@ from walnut.auth.auth import auth_backend
 from walnut.auth.models import Role, User
 from walnut.config import settings
 from walnut.database.connection import get_db_session
+from jose import jwt, JWTError
+from fastapi import Request
+import anyio
+from sqlalchemy import select
+from walnut.database.engine import SessionLocal
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -55,3 +60,47 @@ def current_admin(user: User = Depends(current_active_user)):
             detail="Operation not permitted",
         )
     return user
+
+
+# Lightweight, sync-safe auth dependency for endpoints sensitive to async/sync DB mixups
+async def require_current_user(request: Request) -> User:
+    """
+    Validates the JWT from cookie or Authorization header and returns the active user.
+
+    Bypasses fastapi-users' dependency stack to avoid async/sync DB mismatches
+    when using a sync SQLAlchemy session.
+    """
+    token = None
+    # Prefer cookie from our configured cookie name
+    try:
+        token = request.cookies.get(settings.COOKIE_NAME_ACCESS)
+    except Exception:
+        token = None
+    # Fallback to Bearer token
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth.split(" ", 1)[1]
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET,
+            algorithms=["HS256"],
+            audience="fastapi-users:auth",
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    # Load user using sync session wrapped with anyio
+    async with get_db_session() as session:
+        result = await anyio.to_thread.run_sync(session.execute, select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
+        return user

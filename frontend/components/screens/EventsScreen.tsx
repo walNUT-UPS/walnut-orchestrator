@@ -83,10 +83,8 @@ export function EventsScreen() {
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [dateRange, setDateRange] = useState<string>('24h');
-
-  const handleDateRangeClick = () => {
-    alert('Date range picker not yet implemented');
-  };
+  const [customStart, setCustomStart] = useState<string>('');
+  const [customEnd, setCustomEnd] = useState<string>('');
 
   const handleExportCSV = () => {
     // Create CSV content from filtered events
@@ -155,6 +153,21 @@ export function EventsScreen() {
     // Active filters
     if (activeFilters.length > 0 && !activeFilters.includes(event.type)) return false;
 
+    // Date range
+    const ts = new Date(event.timestamp).getTime();
+    const now = Date.now();
+    let within = true;
+    if (dateRange === '1h') within = ts >= now - 3600_000;
+    else if (dateRange === '24h') within = ts >= now - 24 * 3600_000;
+    else if (dateRange === '7d') within = ts >= now - 7 * 24 * 3600_000;
+    else if (dateRange === '30d') within = ts >= now - 30 * 24 * 3600_000;
+    else if (dateRange === 'custom') {
+      const start = customStart ? new Date(customStart).getTime() : -Infinity;
+      const end = customEnd ? new Date(customEnd).getTime() : Infinity;
+      within = ts >= start && ts <= end;
+    }
+    if (!within) return false;
+
     return true;
   });
 
@@ -180,15 +193,7 @@ export function EventsScreen() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-4">
             <h3 className="text-title">Filters</h3>
             <div className="flex flex-wrap items-center gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="shrink-0"
-                onClick={handleDateRangeClick}
-              >
-                <Calendar className="w-4 h-4 mr-2" />
-                Date Range
-              </Button>
+              {/* Date range selection moved below */}
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -273,6 +278,28 @@ export function EventsScreen() {
                   <SelectItem value="custom">Custom Range</SelectItem>
                 </SelectContent>
               </Select>
+              {dateRange === 'custom' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                  <div className="space-y-1">
+                    <label className="text-micro text-muted-foreground">Start</label>
+                    <input
+                      type="datetime-local"
+                      className="border rounded-md px-2 py-1 bg-input-background border-input text-sm"
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-micro text-muted-foreground">End</label>
+                    <input
+                      type="datetime-local"
+                      className="border rounded-md px-2 py-1 bg-input-background border-input text-sm"
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

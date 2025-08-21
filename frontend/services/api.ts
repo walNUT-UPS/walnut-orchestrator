@@ -311,6 +311,26 @@ class ApiService {
     // Cookies are automatically included for same-origin WS handshake via Vite proxy
     return new WebSocket(wsUrl);
   }
+
+  // Users API (fastapi-users)
+  async listUsers(): Promise<Array<{ id: string; email: string; is_active: boolean; is_verified: boolean; is_superuser: boolean }>> {
+    return this.request('/users');
+  }
+
+  async updateUser(id: string, data: Partial<{ email: string; password: string; is_active: boolean; is_superuser: boolean }>): Promise<any> {
+    return this.request(`/users/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getSystemConfig(): Promise<any> {
+    return this.request('/system/config');
+  }
+
+  async getSystemHealth(): Promise<any> {
+    return this.request('/system/health');
+  }
 }
 
 export const apiService = new ApiService();

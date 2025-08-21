@@ -15,7 +15,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from sqlalchemy import select, delete
-from sqlalchemy.ext.asyncio import AsyncSession
+import anyio
 
 from walnut.config import get_master_key
 from walnut.database.models import IntegrationSecret
@@ -60,7 +60,7 @@ except ValueError as e:
 
 
 async def create_or_update_secret(
-    db: AsyncSession,
+    db,
     instance_id: int,
     field_name: str,
     secret_type: str,
@@ -78,7 +78,8 @@ async def create_or_update_secret(
         IntegrationSecret.instance_id == instance_id,
         IntegrationSecret.field_name == field_name
     )
-    secret = (await db.execute(stmt)).scalars().first()
+    result = await anyio.to_thread.run_sync(db.execute, stmt)
+    secret = result.scalars().first()
 
     if secret:
         secret.encrypted_value = encrypted_value
@@ -92,18 +93,19 @@ async def create_or_update_secret(
         )
         db.add(secret)
 
-    await db.commit()
-    await db.refresh(secret)
+    await anyio.to_thread.run_sync(db.commit)
+    await anyio.to_thread.run_sync(db.refresh, secret)
     return secret
 
 
-async def get_all_secrets_for_instance(db: AsyncSession, instance_id: int) -> Dict[str, str]:
+async def get_all_secrets_for_instance(db, instance_id: int) -> Dict[str, str]:
     """Retrieves and decrypts all secrets for a given instance."""
     if not encryptor:
         raise RuntimeError("SecretEncryptor is not initialized.")
 
     stmt = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-    secrets = (await db.execute(stmt)).scalars().all()
+    result = await anyio.to_thread.run_sync(db.execute, stmt)
+    secrets = result.scalars().all()
 
     decrypted_secrets = {}
     for secret in secrets:
@@ -112,12 +114,12 @@ async def get_all_secrets_for_instance(db: AsyncSession, instance_id: int) -> Di
     return decrypted_secrets
 
 
-async def delete_secret(db: AsyncSession, instance_id: int, field_name: str) -> bool:
+async def delete_secret(db, instance_id: int, field_name: str) -> bool:
     """Deletes a secret from the database."""
     stmt = delete(IntegrationSecret).where(
         IntegrationSecret.instance_id == instance_id,
         IntegrationSecret.field_name == field_name
     )
-    result = await db.execute(stmt)
-    await db.commit()
+    result = await anyio.to_thread.run_sync(db.execute, stmt)
+    await anyio.to_thread.run_sync(db.commit)
     return result.rowcount > 0

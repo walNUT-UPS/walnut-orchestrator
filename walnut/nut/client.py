@@ -7,11 +7,14 @@ blocking I/O operations in a separate thread.
 """
 
 import asyncio
+import logging
 from typing import Any, Dict
 
 from pynut2.nut2 import PyNUTClient
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class NUTError(Exception):
@@ -55,6 +58,7 @@ class NUTClient:
             login=self.username,
             password=self.password
         )
+        logger.info("Initialized NUT client host=%s port=%s user=%s", self.host, self.port, bool(self.username))
 
     async def list_ups(self) -> Dict[str, str]:
         """
@@ -68,7 +72,10 @@ class NUTClient:
             NUTConnectionError: If there is an error communicating with the server.
         """
         try:
-            return await asyncio.to_thread(self._client.list_ups)
+            logger.debug("Listing UPS devices from %s:%s", self.host, self.port)
+            data = await asyncio.to_thread(self._client.list_ups)
+            logger.info("NUT list_ups ok: %d devices", len(data) if data else 0)
+            return data
         except Exception as e:
             raise NUTConnectionError(f"Failed to list UPS devices from {self.host}:{self.port}") from e
 
@@ -86,7 +93,10 @@ class NUTClient:
             NUTConnectionError: If there is an error communicating with the server.
         """
         try:
-            return await asyncio.to_thread(self._client.get_vars, ups_name)
+            logger.debug("Fetching vars for UPS '%s'", ups_name)
+            vars_ = await asyncio.to_thread(self._client.get_vars, ups_name)
+            logger.info("NUT get_vars ok for '%s' (%d vars)", ups_name, len(vars_) if vars_ else 0)
+            return vars_
         except Exception as e:
             raise NUTConnectionError(f"Failed to get variables for UPS '{ups_name}'") from e
 
@@ -105,6 +115,9 @@ class NUTClient:
             NUTConnectionError: If there is an error communicating with the server.
         """
         try:
-            return await asyncio.to_thread(self._client.get_var, ups_name, var)
+            logger.debug("Fetching var '%s' for UPS '%s'", var, ups_name)
+            value = await asyncio.to_thread(self._client.get_var, ups_name, var)
+            logger.info("NUT get_var ok '%s' for '%s'", var, ups_name)
+            return value
         except Exception as e:
             raise NUTConnectionError(f"Failed to get variable '{var}' for UPS '{ups_name}'") from e

@@ -174,22 +174,32 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
           </Button>
 
           {/* Notifications */}
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="p-2 relative"
-            onClick={() => alert('Notifications panel not yet implemented')}
-          >
-            <Bell className="h-4 w-4" />
-            {alertCount > 0 && (
-              <Badge 
-                variant="destructive" 
-                className="absolute -top-1 -right-1 h-4 w-4 p-0 text-xs"
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="p-2 relative"
               >
-                {alertCount}
-              </Badge>
-            )}
-          </Button>
+                <Bell className="h-4 w-4" />
+                {alertCount > 0 && (
+                  <Badge 
+                    variant="destructive" 
+                    className="absolute -top-1 -right-1 h-4 w-4 p-0 text-xs"
+                  >
+                    {alertCount}
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6} className="w-72">
+              <div className="px-2 py-1.5 text-sm font-medium">Notifications</div>
+              <DropdownMenuSeparator />
+              <div className="max-h-64 overflow-auto px-2 py-2 text-sm text-muted-foreground">
+                <div>No new notifications</div>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* Settings */}
           <Link to="/settings">
@@ -227,7 +237,7 @@ export function TopBar({ activeTab, systemStatus, alertCount = 0 }: TopBarProps)
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => alert('Profile not yet implemented')}>
+              <DropdownMenuItem onClick={() => toast.info('Profile coming soon') }>
                 <User className="w-4 h-4 mr-2" />
                 Profile
               </DropdownMenuItem>

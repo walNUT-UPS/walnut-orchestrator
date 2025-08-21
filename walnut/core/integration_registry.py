@@ -326,9 +326,21 @@ class IntegrationTypeRegistry:
                     logger.error(f"{type_id}: Driver import failed: {e}")
             
             # Step 4: Check core version compatibility
-            min_core_version = manifest_data.get("min_core_version", "0.1.0")
-            # TODO: Implement actual version comparison with current core version
-            # For now, assume compatibility
+            try:
+                from walnut import __version__ as core_version
+                import semver
+                required = manifest_data.get("min_core_version", "0.1.0")
+                # If core < required, mark invalid
+                if semver.compare(semver.VersionInfo.parse(core_version), semver.VersionInfo.parse(required)) < 0:
+                    validation_result["status"] = "invalid"
+                    validation_result["errors"]["core_version_incompatible"] = {
+                        "required": required,
+                        "current": core_version,
+                    }
+                    logger.warning(f"{type_id}: Requires core {required}, current {core_version}")
+            except Exception as e:
+                # Don't fail validation entirely: just record inability to compare
+                validation_result.setdefault("errors", {})["core_version_check"] = str(e)
             
         except Exception as e:
             import traceback as _tb
@@ -417,8 +429,8 @@ class IntegrationTypeRegistry:
                 integration_type.last_validated_at = datetime.now(timezone.utc)
                 
                 # Update from manifest data if validation was successful
-            if validation_result["status"] == "valid":
-                integration_type.name = manifest_data.get("name", integration_type.name)
+                if validation_result["status"] == "valid":
+                    integration_type.name = manifest_data.get("name", integration_type.name)
                     integration_type.version = manifest_data.get("version", integration_type.version)
                     integration_type.min_core_version = manifest_data.get("min_core_version", integration_type.min_core_version)
                     integration_type.category = manifest_data.get("category", integration_type.category)
@@ -534,41 +546,66 @@ class IntegrationTypeRegistry:
         """
         async with get_db_session() as session:
             def _get_type_sync():
-                integration_type = session.query(IntegrationType).filter(IntegrationType.id == type_id).first()
-                return integration_type
-            
+                return session.query(IntegrationType).filter(IntegrationType.id == type_id).first()
+
             # Get integration type
             integration_type = await anyio.to_thread.run_sync(_get_type_sync)
-            
+
             if integration_type is None:
                 return {"success": False, "error": "Integration type not found"}
-            
+
             type_path = Path(integration_type.path)
             if not type_path.exists():
                 # Mark as unavailable
                 def _mark_unavailable():
                     integration_type.status = "unavailable"
                     session.commit()
-                
+
                 await anyio.to_thread.run_sync(_mark_unavailable)
                 return {"success": False, "error": "Integration folder not found"}
-            
-            # Read manifest
-            plugin_yaml_path = type_path / "plugin.yaml"
-            if not plugin_yaml_path.exists():
-                return {"success": False, "error": "plugin.yaml not found"}
-            
-            with open(plugin_yaml_path, 'r') as f:
-                manifest_data = yaml.safe_load(f)
-            
-            # Run validation
-            validation_result = await self._validate_integration_type({
-                "id": type_id,
-                "path": str(type_path),
-                "manifest_data": manifest_data
-            })
-            
-            return {"success": True, "result": validation_result}
+
+            try:
+                # Read manifest
+                plugin_yaml_path = type_path / "plugin.yaml"
+                if not plugin_yaml_path.exists():
+                    # Update DB as invalid so UI doesn't remain in 'checking'
+                    invalid = {
+                        "id": type_id,
+                        "status": "invalid",
+                        "errors": {"plugin_missing": "plugin.yaml not found"},
+                    }
+                    await self._update_integration_type_status(type_id, invalid, {"id": type_id})
+                    return {"success": False, "error": "plugin.yaml not found", "result": invalid}
+
+                with open(plugin_yaml_path, 'r') as f:
+                    manifest_data = yaml.safe_load(f)
+
+                # Run validation
+                validation_result = await self._validate_integration_type({
+                    "id": type_id,
+                    "path": str(type_path),
+                    "manifest_data": manifest_data,
+                })
+
+                return {"success": True, "result": validation_result}
+
+            except Exception as e:
+                # Ensure we never leave a type stuck in 'checking'
+                import traceback as _tb
+                invalid = {
+                    "id": type_id,
+                    "status": "invalid",
+                    "errors": {
+                        "validation_exception": str(e),
+                        "trace": _tb.format_exc(),
+                    },
+                }
+                # Attempt best-effort DB update; swallow secondary errors
+                try:
+                    await self._update_integration_type_status(type_id, invalid, {"id": type_id})
+                except Exception:
+                    pass
+                return {"success": False, "error": str(e), "result": invalid}
 
 
 # Global registry instance

@@ -1,0 +1,49 @@
+id: walnut.proxmox.ve
+name: Proxmox VE
+version: 1.0.0
+category: host-orchestrator
+min_core_version: "0.1.0"
+
+driver:
+  entrypoint: driver:ProxmoxVeDriver
+  language: python
+  runtime: embedded
+
+schema:
+  connection:
+    type: object
+    required: [host, port, node, api_token]
+    properties:
+      host: { type: string, title: Host }
+      port: { type: integer, default: 8006 }
+      node: { type: string, title: Node }
+      verify_ssl: { type: boolean, default: true }
+      api_token: { type: string, secret: true, title: API Token }
+
+defaults:
+  http:
+    timeout_s: 5
+    retries: 2
+    backoff_ms_start: 250
+    verify_tls: true
+  heartbeat_interval_s: 120
+
+test:
+  method: http
+  http:
+    request:
+      method: GET
+      path: /version
+    success_when: "status == 200"
+
+capabilities:
+  - id: vm.lifecycle
+    verbs: [shutdown, start, stop, suspend]
+    targets: [vm]
+    dry_run: required
+  - id: power.control
+    verbs: [shutdown, cycle]   # reboot = shutdown+start
+    targets: [host]
+  - id: inventory.list
+    verbs: [list]
+    targets: [vm, host]

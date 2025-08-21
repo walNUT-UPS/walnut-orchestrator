@@ -6,6 +6,12 @@ configuration information, and testing individual components.
 """
 
 from typing import Dict, Any
+import logging
+import io
+import json
+import zipfile
+from pathlib import Path
+from fastapi.responses import StreamingResponse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,6 +22,7 @@ from walnut.core.health import SystemHealthChecker
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class HealthResponse(BaseModel):
@@ -68,9 +75,11 @@ async def get_system_health(
     Requires authentication.
     """
     try:
+        logger.info("GET /system/health requested")
         health_data = await health_checker.check_overall_health()
         return HealthResponse(**health_data)
     except Exception as e:
+        logger.exception("/system/health failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Health check failed: {str(e)}")
 
 
@@ -93,9 +102,11 @@ async def get_system_config(
     Requires authentication.
     """
     try:
+        logger.info("GET /system/config requested")
         config_data = await health_checker.get_configuration_status()
         return ConfigResponse(**config_data)
     except Exception as e:
+        logger.exception("/system/config failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Configuration check failed: {str(e)}")
 
 
@@ -119,12 +130,14 @@ async def test_database_performance(
     Requires authentication.
     """
     try:
+        logger.info("POST /system/test/database requested")
         test_results = await health_checker.test_database_performance()
         return TestResponse(
             status=test_results.get("status", "unknown"),
             details=test_results
         )
     except Exception as e:
+        logger.exception("/system/test/database failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Database test failed: {str(e)}")
 
 
@@ -149,12 +162,14 @@ async def test_nut_connection(
     Requires authentication.
     """
     try:
+        logger.info("POST /system/test/nut requested")
         test_results = await health_checker.test_nut_connection()
         return TestResponse(
             status=test_results.get("status", "unknown"),
             details=test_results
         )
     except Exception as e:
+        logger.exception("/system/test/nut failed: %s", e)
         raise HTTPException(status_code=500, detail=f"NUT test failed: {str(e)}")
 
 
@@ -173,18 +188,61 @@ async def get_basic_status(
     try:
         # Quick health check - just database connectivity
         db_health = await health_checker.check_database_health()
-        
+        logger.info("GET /system/status requested -> %s", db_health.status)
         return {
             "status": "ok" if db_health.status == "healthy" else "degraded",
             "timestamp": health_checker._get_current_timestamp(),
             "service": "walNUT"
         }
     except Exception:
+        logger.exception("/system/status failed")
         return {
             "status": "error",
             "timestamp": health_checker._get_current_timestamp(),
             "service": "walNUT"
         }
+
+
+@router.get("/system/diagnostics/bundle")
+async def download_diagnostics_bundle(_user: User = Depends(current_active_user)):
+    """
+    Provide a lightweight diagnostics bundle as a ZIP file.
+
+    Includes:
+    - backend log (.tmp/walnut-uvicorn.log) if present
+    - frontend log (.tmp/vite.log) if present
+    - system health JSON
+    - system config JSON
+    """
+    # Collect health and config
+    health_data = await health_checker.check_overall_health()
+    config_data = await health_checker.get_configuration_status()
+
+    # Prepare in-memory ZIP
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("diagnostics/health.json", json.dumps(health_data, indent=2))
+        zf.writestr("diagnostics/config.json", json.dumps(config_data, indent=2))
+
+        # Add logs if available
+        backend_log = Path(".tmp/walnut-uvicorn.log")
+        frontend_log = Path(".tmp/vite.log")
+        if backend_log.exists():
+            try:
+                zf.write(backend_log, arcname="logs/backend-uvicorn.log")
+            except Exception:
+                pass
+        if frontend_log.exists():
+            try:
+                zf.write(frontend_log, arcname="logs/frontend-vite.log")
+            except Exception:
+                pass
+
+    buf.seek(0)
+    headers = {
+        "Content-Disposition": f"attachment; filename=walnut-diagnostics-{health_checker._get_current_timestamp().replace(':','-')}.zip"
+    }
+    return StreamingResponse(buf, media_type="application/zip", headers=headers)
 
 
 # Add a helper method to the health checker for consistent timestamps

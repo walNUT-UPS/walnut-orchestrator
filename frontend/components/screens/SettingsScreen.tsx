@@ -21,7 +21,10 @@ import {
   Users,
   Activity,
   Bug,
-  Puzzle
+  Puzzle,
+  Pause,
+  Play,
+  Trash2
 } from 'lucide-react';
 import {
   Select,
@@ -46,11 +49,20 @@ const mockUsers = [
   { id: '3', email: 'monitor@company.com', role: 'Read-Only', status: 'Inactive', lastLogin: '2024-01-10T14:15:00Z' }
 ];
 
-const mockSystemInfo = {
-  version: '2.4.1',
-  schemaVersion: '1.2.0',
-  uptime: '15d 3h 42m',
-  lastBackup: '2024-01-15T02:00:00Z'
+const useSystemConfig = () => {
+  const [config, setConfig] = React.useState<any | null>(null);
+  const [health, setHealth] = React.useState<any | null>(null);
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const api = (await import('../../services/api')).apiService;
+        const [cfg, h] = await Promise.all([api.getSystemConfig(), api.getSystemHealth()]);
+        setConfig(cfg);
+        setHealth(h);
+      } catch (_) {}
+    })();
+  }, []);
+  return { config, health };
 };
 
 const mockHealthChecks = [
@@ -125,54 +137,45 @@ export function SettingsScreen() {
     setIsSaving(false);
   };
 
-  const copyDiagnostics = () => {
-    const diagnostics = `walNUT System Diagnostics
-Generated: ${new Date().toISOString()}
-Version: ${mockSystemInfo.version}
-Schema: ${mockSystemInfo.schemaVersion}
-Uptime: ${mockSystemInfo.uptime}
-
-Health Checks:
-${mockHealthChecks.map(check => `- ${check.name}: ${check.status}`).join('\n')}
-
-Last 5 Events:
-- 2024-01-15T15:42:00Z: UPS status check completed
-- 2024-01-15T15:41:30Z: Integration sync successful  
-- 2024-01-15T15:41:00Z: Host connectivity check (1 warning)
-- 2024-01-15T15:40:30Z: Policy evaluation completed
-- 2024-01-15T15:40:00Z: Database backup completed`;
-
-    navigator.clipboard.writeText(diagnostics);
-    alert('Diagnostics copied to clipboard');
+  const copyDiagnostics = async () => {
+    try {
+      const [healthRes, configRes] = await Promise.all([
+        fetch('/api/system/health', { credentials: 'include' }),
+        fetch('/api/system/config', { credentials: 'include' }),
+      ]);
+      if (!healthRes.ok || !configRes.ok) throw new Error('Failed to fetch diagnostics');
+      const [health, config] = await Promise.all([healthRes.json(), configRes.json()]);
+      const diagnostics = `walNUT Diagnostics\nGenerated: ${new Date().toISOString()}\n\nHealth:\n${JSON.stringify(health, null, 2)}\n\nConfig:\n${JSON.stringify(config, null, 2)}\n`;
+      await navigator.clipboard.writeText(diagnostics);
+      alert('Diagnostics copied to clipboard');
+    } catch (e) {
+      alert((e as Error).message || 'Failed to copy diagnostics');
+    }
   };
 
-  const downloadLogs = () => {
-    const logContent = `[2024-01-15 15:30:00] WARN: Host monitoring-pi connection timeout
-[2024-01-15 14:45:00] INFO: UPS battery test completed successfully
-[2024-01-15 14:30:00] WARN: UPS switched to battery power
-[2024-01-15 14:32:15] INFO: Utility power restored
-[2024-01-15 13:15:00] INFO: Scheduled policy evaluation completed
-[2024-01-15 12:00:00] INFO: Database backup completed
-[2024-01-15 11:30:00] DEBUG: Integration sync: Proxmox API call succeeded
-[2024-01-15 10:15:00] INFO: System started successfully
-[2024-01-14 23:59:00] INFO: Daily maintenance tasks completed
-[2024-01-14 22:30:00] WARN: Tapo device temporarily unreachable`;
-
-    const blob = new Blob([logContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `walnut-logs-${new Date().toISOString().split('T')[0]}.log`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const downloadLogs = async () => {
+    try {
+      const res = await fetch('/api/system/diagnostics/bundle', {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `walnut-diagnostics-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert((e as Error).message || 'Failed to download diagnostics');
+    }
   };
 
   const handleKeyRotation = () => {
-    if (confirm('This will rotate the database encryption key and require all hosts to be reconfigured. Continue?')) {
-      alert('Key rotation feature not yet implemented');
-    }
+    // Placeholder: disabled in UI
   };
 
   const handleInviteUser = () => {
@@ -377,9 +380,9 @@ Last 5 Events:
                   <p className="text-micro text-muted-foreground">
                     Rotate the database encryption key. This will require all hosts to be reconfigured with new credentials.
                   </p>
-                  <Button variant="outline" className="mt-2" onClick={handleKeyRotation}>
+                  <Button variant="outline" className="mt-2" disabled>
                     <RotateCcw className="w-4 h-4 mr-2" />
-                    Initiate Key Rotation
+                    Key Rotation (coming soon)
                   </Button>
                 </div>
 
@@ -468,6 +471,7 @@ Last 5 Events:
 
           {/* System Information */}
           <TabsContent value="system" className="space-y-6">
+            {(() => { const { config, health } = useSystemConfig(); return (
             <Card>
               <CardHeader>
                 <CardTitle>System Information</CardTitle>
@@ -480,23 +484,21 @@ Last 5 Events:
                   <div className="space-y-3">
                     <div>
                       <Label className="text-micro text-muted-foreground">Version</Label>
-                      <div className="font-mono">{mockSystemInfo.version}</div>
+                      <div className="font-mono">{config?.version ?? '-'}</div>
                     </div>
                     <div>
-                      <Label className="text-micro text-muted-foreground">Schema Version</Label>
-                      <div className="font-mono">{mockSystemInfo.schemaVersion}</div>
+                      <Label className="text-micro text-muted-foreground">Uptime</Label>
+                      <div className="font-mono">{health ? `${Math.floor((health.uptime_seconds||0)/3600)}h ${Math.floor(((health.uptime_seconds||0)%3600)/60)}m` : '-'}</div>
                     </div>
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <Label className="text-micro text-muted-foreground">Uptime</Label>
-                      <div className="font-mono">{mockSystemInfo.uptime}</div>
+                      <Label className="text-micro text-muted-foreground">Database</Label>
+                      <div className="font-mono">{config?.database_type ?? '-'}</div>
                     </div>
                     <div>
-                      <Label className="text-micro text-muted-foreground">Last Backup</Label>
-                      <div className="font-mono">
-                        {new Date(mockSystemInfo.lastBackup).toLocaleString()}
-                      </div>
+                      <Label className="text-micro text-muted-foreground">CORS / Origins</Label>
+                      <div className="font-mono">{config ? `${config.cors_enabled ? 'enabled' : 'disabled'} (${config.allowed_origins_count})` : '-'}</div>
                     </div>
                   </div>
                 </div>
@@ -504,22 +506,21 @@ Last 5 Events:
                 <Separator />
                 
                 <div className="space-y-2">
-                  <Label htmlFor="log-level">Log Level</Label>
-                  <Select defaultValue="info">
-                    <SelectTrigger className="w-48">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="debug">Debug</SelectItem>
-                      <SelectItem value="info">Info</SelectItem>
-                      <SelectItem value="warn">Warning</SelectItem>
-                      <SelectItem value="error">Error</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-micro text-muted-foreground">Secure Cookies</Label>
+                      <div className="font-mono">{config ? (config.secure_cookies ? 'true' : 'false') : '-'}</div>
+                    </div>
+                    <div>
+                      <Label className="text-micro text-muted-foreground">Signup Enabled</Label>
+                      <div className="font-mono">{config ? (config.signup_enabled ? 'true' : 'false') : '-'}</div>
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-
+            )})()}
+            
             <Card>
               <CardHeader>
                 <CardTitle>Health Checks</CardTitle>
@@ -529,7 +530,14 @@ Last 5 Events:
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {mockHealthChecks.map((check, index) => (
+                  {(() => {
+                    const { config, health } = useSystemConfig();
+                    const checks = health ? [
+                      { name: 'Database Connection', status: health.components?.database?.status || 'unknown', message: `latency ${health.components?.database?.latency_ms ?? '?'} ms`, lastCheck: health.timestamp },
+                      { name: 'NUT Connection', status: health.components?.nut_connection?.status || 'unknown', message: health.components?.nut_connection?.message, lastCheck: health.timestamp },
+                      { name: 'UPS Polling', status: health.components?.ups_polling?.status || 'unknown', message: health.components?.ups_polling?.message, lastCheck: health.timestamp },
+                    ] : [];
+                    return checks.map((check, index) => (
                     <div key={index} className="flex items-center justify-between p-3 bg-muted/20 rounded-lg">
                       <div className="flex items-center space-x-3">
                         {check.status === 'healthy' ? (
@@ -545,10 +553,11 @@ Last 5 Events:
                         </div>
                       </div>
                       <div className="text-micro text-muted-foreground tabular-nums">
-                        {new Date(check.lastCheck).toLocaleTimeString()}
+                        {check.lastCheck ? new Date(check.lastCheck).toLocaleTimeString() : ''}
                       </div>
                     </div>
-                  ))}
+                    ));
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -560,7 +569,7 @@ Last 5 Events:
               <CardHeader>
                 <CardTitle>System Diagnostics</CardTitle>
                 <CardDescription>
-                  Export diagnostic information and view recent errors
+                  Live logs and quick export for troubleshooting
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -574,25 +583,13 @@ Last 5 Events:
                     Download Logs
                   </Button>
                 </div>
-                
+
                 <Separator />
-                
-                <div className="space-y-2">
-                  <Label>Recent Errors (Last 20)</Label>
-                  <Textarea 
-                    className="h-48 font-mono text-micro"
-                    readOnly
-                    value={`[2024-01-15 15:30:00] WARN: Host monitoring-pi connection timeout
-[2024-01-15 14:45:00] INFO: UPS battery test completed successfully
-[2024-01-15 14:30:00] WARN: UPS switched to battery power
-[2024-01-15 14:32:15] INFO: Utility power restored
-[2024-01-15 13:15:00] INFO: Scheduled policy evaluation completed
-[2024-01-15 12:00:00] INFO: Database backup completed
-[2024-01-15 11:30:00] DEBUG: Integration sync: Proxmox API call succeeded
-[2024-01-15 10:15:00] INFO: System started successfully
-[2024-01-14 23:59:00] INFO: Daily maintenance tasks completed
-[2024-01-14 22:30:00] WARN: Tapo device temporarily unreachable`}
-                  />
+
+                {/* Frontend/Backend logs as tabs */}
+                <div className="space-y-3">
+                  <Label>Live Logs</Label>
+                  <DiagnosticsLogsTabs />
                 </div>
               </CardContent>
             </Card>
@@ -633,6 +630,103 @@ Last 5 Events:
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Diagnostics Logs Tabs ---
+function DiagnosticsLogsTabs() {
+  const [active, setActive] = React.useState<'backend' | 'frontend'>('backend');
+  return (
+    <div>
+      <div className="flex gap-2 mb-2">
+        <button
+          className={`px-3 py-1.5 rounded-md text-sm border ${active==='backend' ? 'bg-accent' : 'bg-background'} border-border`}
+          onClick={() => setActive('backend')}
+        >
+          Backend
+        </button>
+        <button
+          className={`px-3 py-1.5 rounded-md text-sm border ${active==='frontend' ? 'bg-accent' : 'bg-background'} border-border`}
+          onClick={() => setActive('frontend')}
+        >
+          Frontend
+        </button>
+      </div>
+      <LogsViewer source={active} />
+    </div>
+  );
+}
+
+function LogsViewer({ source }: { source: 'backend' | 'frontend' }) {
+  const [lines, setLines] = React.useState<string[]>([]);
+  const [paused, setPaused] = React.useState(false);
+  const [status, setStatus] = React.useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
+  const viewportRef = React.useRef<HTMLDivElement | null>(null);
+  const wsRef = React.useRef<WebSocket | null>(null);
+
+  // Auto-scroll when new lines arrive
+  React.useEffect(() => {
+    if (paused) return;
+    const el = viewportRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [lines, paused]);
+
+  React.useEffect(() => {
+    setLines([]);
+    setStatus('connecting');
+    if (wsRef.current) {
+      try { wsRef.current.close(); } catch (_) {}
+      wsRef.current = null;
+    }
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${protocol}://${location.host}/ws/logs/${source}`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+    ws.onopen = () => setStatus('open');
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'log.line') {
+          if (!paused) setLines(prev => (prev.length > 1000 ? prev.slice(-800) : prev).concat(msg.data.line));
+        } else if (msg.type === 'log.open') {
+          if (!paused) setLines(prev => prev.concat(`[open] ${msg.data.path}`));
+        } else if (msg.type === 'log.info') {
+          if (!paused) setLines(prev => prev.concat(`[info] ${msg.data.message}`));
+        } else if (msg.type === 'log.error') {
+          setLines(prev => prev.concat(`[error] ${msg.data.message}`));
+        }
+      } catch (_) {
+        if (!paused) setLines(prev => prev.concat(String(ev.data)));
+      }
+    };
+    ws.onerror = () => setStatus('error');
+    ws.onclose = () => setStatus('closed');
+    return () => { try { ws.close(); } catch (_) {} };
+  }, [source, paused]);
+
+  return (
+    <div className="border rounded-md">
+      <div className="flex items-center justify-between p-2 border-b border-border">
+        <div className="text-micro text-muted-foreground">{source} · {status}</div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPaused(p => !p)}>
+            {paused ? (<><Play className="w-3.5 h-3.5 mr-1"/> Resume</>) : (<><Pause className="w-3.5 h-3.5 mr-1"/> Pause</>)}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setLines([])}>
+            <Trash2 className="w-3.5 h-3.5 mr-1"/> Clear
+          </Button>
+        </div>
+      </div>
+      <div ref={viewportRef} className="h-64 overflow-auto bg-card font-mono text-[12px] leading-[18px] p-3 whitespace-pre-wrap">
+        {lines.length === 0 ? (
+          <div className="text-muted-foreground">No logs yet…</div>
+        ) : (
+          lines.map((ln, i) => <div key={i} className="break-words">{ln}</div>)
+        )}
       </div>
     </div>
   );

@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, join
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from walnut.auth.deps import current_active_user
+from walnut.auth.deps import current_active_user, require_current_user
 from walnut.database.connection import get_db_session, get_db_session_dependency
 from walnut.database.models import IntegrationType, IntegrationInstance, IntegrationSecret
 from walnut.core.integration_registry import get_integration_registry
@@ -109,7 +109,7 @@ router = APIRouter(
 @router.get("/types", response_model=List[IntegrationTypeOut])
 async def list_integration_types(
     rescan: bool = Query(False, description="Force rescan of integration types"),
-    current_user=Depends(current_active_user)
+    current_user=Depends(require_current_user)
 ):
     """
     List all integration types. Optionally trigger discovery and validation.
@@ -139,7 +139,7 @@ async def list_integration_types(
 @router.post("/types/upload")
 async def upload_integration_package(
     file: UploadFile = File(..., description="Integration package (.int file)"),
-    current_user=Depends(current_active_user),
+    current_user=Depends(require_current_user),
     db: AsyncSession = Depends(get_db_session_dependency)
 ):
     """
@@ -230,7 +230,7 @@ async def upload_integration_package(
                 add_log(f"Found manifest with id '{type_id}'", step="manifest-validate")
 
                 # Check if type already exists
-                result = await db.execute(select(IntegrationType).where(IntegrationType.id == type_id))
+                result = db.execute(select(IntegrationType).where(IntegrationType.id == type_id))
                 existing_type = result.scalar_one_or_none()
                 if existing_type:
                     add_log(f"Integration type '{type_id}' already exists", level="error", step="pre-install")
@@ -302,7 +302,7 @@ async def upload_integration_package(
 @router.post("/types/upload/")
 async def upload_integration_package_slash(
     file: UploadFile = File(..., description="Integration package (.int file)"),
-    current_user=Depends(current_active_user),
+    current_user=Depends(require_current_user),
     db: AsyncSession = Depends(get_db_session_dependency)
 ):
     return await upload_integration_package(file=file, current_user=current_user, db=db)
@@ -346,7 +346,7 @@ async def _broadcast_upload_log(job_id: str, level: str, message: str, step: Opt
 @router.post("/types/upload/stream")
 async def upload_integration_package_stream(
     file: UploadFile = File(..., description="Integration package (.int file)"),
-    current_user=Depends(current_active_user),
+    current_user=Depends(require_current_user),
 ):
     """
     Starts an asynchronous upload + validation job and streams logs via WebSocket.
@@ -550,7 +550,7 @@ async def remove_integration_type(
 @router.get("/types/{type_id}/manifest")
 async def get_integration_manifest(
     type_id: str,
-    current_user=Depends(current_active_user),
+    current_user=Depends(require_current_user),
 ):
     """
     Return the raw plugin.yaml manifest for a given integration type.
@@ -588,7 +588,7 @@ async def get_integration_manifest(
 @router.post("/types/{type_id}/validate")
 async def revalidate_integration_type(
     type_id: str,
-    current_user=Depends(current_active_user)
+    current_user=Depends(require_current_user)
 ):
     """
     Re-run validation for a specific integration type.
@@ -616,7 +616,7 @@ async def revalidate_integration_type(
 
 @router.get("/instances", response_model=List[IntegrationInstanceOut])
 async def list_integration_instances(
-    current_user=Depends(current_active_user)
+    current_user=Depends(require_current_user)
 ):
     """
     List all integration instances with their current state and type information.
@@ -658,7 +658,8 @@ async def list_integration_instances(
 @router.post("/instances", response_model=IntegrationInstanceOut, status_code=201)
 async def create_integration_instance(
     instance_data: IntegrationInstanceIn,
-    current_user=Depends(current_active_user)
+    current_user=Depends(require_current_user),
+    session=Depends(get_db_session_dependency)
 ):
     """
     Create a new integration instance from a validated integration type.
@@ -668,68 +669,71 @@ async def create_integration_instance(
     type's schema.connection JSON Schema.
     """
     try:
-        async with get_db_session() as session:
-            # Verify type exists and is valid
-            res_type = await session.execute(
-                select(IntegrationType).where(IntegrationType.id == instance_data.type_id)
+        # Verify type exists and is valid
+        res_type = await anyio.to_thread.run_sync(
+            session.execute,
+            select(IntegrationType).where(IntegrationType.id == instance_data.type_id),
+        )
+        integration_type = await anyio.to_thread.run_sync(res_type.scalar_one_or_none)
+        if not integration_type:
+            raise HTTPException(status_code=404, detail="Integration type not found")
+
+        if integration_type.status not in ["valid", "checking"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot create instance: integration type status is '{integration_type.status}'",
             )
-            integration_type = res_type.scalar_one_or_none()
-            if not integration_type:
-                raise HTTPException(status_code=404, detail="Integration type not found")
 
-            if integration_type.status != "valid":
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Cannot create instance: integration type status is '{integration_type.status}'",
-                )
+        # Check unique instance name
+        res_existing = await anyio.to_thread.run_sync(
+            session.execute,
+            select(IntegrationInstance).where(IntegrationInstance.name == instance_data.name),
+        )
+        existing_instance = await anyio.to_thread.run_sync(res_existing.scalar_one_or_none)
+        if existing_instance is not None:
+            raise HTTPException(status_code=409, detail="Instance name already exists")
 
-            # Check unique instance name
-            res_existing = await session.execute(
-                select(IntegrationInstance).where(IntegrationInstance.name == instance_data.name)
-            )
-            if res_existing.scalar_one_or_none() is not None:
-                raise HTTPException(status_code=409, detail="Instance name already exists")
+        # Create instance
+        instance = IntegrationInstance(
+            type_id=instance_data.type_id,
+            name=instance_data.name,
+            config=instance_data.config,
+            state="unknown",
+        )
+        session.add(instance)
+        await anyio.to_thread.run_sync(session.flush)  # get instance_id
 
-            # Create instance
-            instance = IntegrationInstance(
-                type_id=instance_data.type_id,
-                name=instance_data.name,
-                config=instance_data.config,
-                state="unknown",
-            )
-            session.add(instance)
-            await session.flush()  # get instance_id
-
-            # Store secrets (NOTE: placeholder "encryption")
-            for field_name, secret_value in instance_data.secrets.items():
-                secret = IntegrationSecret(
-                    instance_id=instance.instance_id,
-                    field_name=field_name,
-                    secret_type="string",
-                    encrypted_value=secret_value.encode("utf-8"),
-                )
-                session.add(secret)
-
-            # Set basic state (no active connection test here)
-            instance.state = "configured"
-            instance.last_test = datetime.now(timezone.utc)
-
-            await session.commit()
-
-            return IntegrationInstanceOut(
+        # Store secrets (NOTE: placeholder "encryption")
+        for field_name, secret_value in instance_data.secrets.items():
+            secret = IntegrationSecret(
                 instance_id=instance.instance_id,
-                type_id=instance.type_id,
-                name=instance.name,
-                config=instance.config,
-                state=instance.state,
-                last_test=instance.last_test.isoformat() if instance.last_test else None,
-                latency_ms=instance.latency_ms,
-                flags=instance.flags,
-                created_at=instance.created_at.isoformat(),
-                updated_at=instance.updated_at.isoformat(),
-                type_name=integration_type.name,
-                type_category=integration_type.category,
+                field_name=field_name,
+                secret_type="string",
+                encrypted_value=secret_value.encode("utf-8"),
             )
+            session.add(secret)
+
+        # Set basic state (no active connection test here)
+        instance.state = "configured"
+        instance.last_test = datetime.now(timezone.utc)
+
+        # Ensure changes are flushed so created_at/updated_at reflect values when returned
+        await anyio.to_thread.run_sync(session.flush)
+
+        return IntegrationInstanceOut(
+            instance_id=instance.instance_id,
+            type_id=instance.type_id,
+            name=instance.name,
+            config=instance.config,
+            state=instance.state,
+            last_test=instance.last_test.isoformat() if instance.last_test else None,
+            latency_ms=instance.latency_ms,
+            flags=instance.flags,
+            created_at=instance.created_at.isoformat(),
+            updated_at=instance.updated_at.isoformat(),
+            type_name=integration_type.name,
+            type_category=integration_type.category,
+        )
 
     except HTTPException:
         raise
@@ -751,14 +755,14 @@ async def test_integration_instance(
 
             # Update instance state and test timestamp
             query = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
-            db_result = await session.execute(query)
+            db_result = session.execute(query)
             instance = db_result.scalar_one_or_none()
 
             if instance:
                 instance.state = result.status
                 instance.latency_ms = result.latency_ms
                 instance.last_test = datetime.now(timezone.utc)
-                await session.commit()
+                await anyio.to_thread.run_sync(session.commit)
 
             return result
 
@@ -778,16 +782,17 @@ async def delete_integration_instance(
     """
     try:
         async with get_db_session() as session:
-            result = await session.execute(
-                select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+            result = await anyio.to_thread.run_sync(
+                session.execute,
+                select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id),
             )
             instance = result.scalar_one_or_none()
 
             if not instance:
                 raise HTTPException(status_code=404, detail="Integration instance not found")
 
-            await session.delete(instance)
-            await session.commit()
+            await anyio.to_thread.run_sync(session.delete, instance)
+            await anyio.to_thread.run_sync(session.commit)
 
             return {"success": True, "message": f"Integration instance '{instance.name}' deleted"}
 
@@ -816,7 +821,7 @@ async def test_instance_connection(
         .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
         .where(IntegrationInstance.instance_id == instance_id)
     )
-    result = await session.execute(stmt)
+    result = session.execute(stmt)
     row = result.first()
 
     if not row:
@@ -824,11 +829,11 @@ async def test_instance_connection(
 
     instance, integration_type = row
 
-    if integration_type.status != "valid":
+    if integration_type.status not in ("valid", "checking"):
         return InstanceTestResult(
             success=False,
             status="error",
-            message=f"Integration type is not valid (status: {integration_type.status})",
+            message=f"Integration type is not ready (status: {integration_type.status})",
         )
 
     module_name = f"driver_{instance_id}"
@@ -858,7 +863,7 @@ async def test_instance_connection(
 
         # Get secrets
         secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-        secrets_result = await session.execute(secrets_query)
+        secrets_result = session.execute(secrets_query)
         secrets_rows = secrets_result.fetchall()
 
         secrets: Dict[str, str] = {}

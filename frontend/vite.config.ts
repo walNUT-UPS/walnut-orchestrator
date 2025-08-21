@@ -28,6 +28,12 @@ export default defineConfig({
         target: 'ws://localhost:8000',
         ws: true,
         changeOrigin: true,
+      },
+      // Explicitly proxy nested WS paths (some setups require exact matches)
+      '/ws/': {
+        target: 'ws://localhost:8000',
+        ws: true,
+        changeOrigin: true,
       }
     }
   }

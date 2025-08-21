@@ -126,13 +126,13 @@ async def create_event(
         )
         
         db.add(db_event)
-        await db.commit()
-        await db.refresh(db_event)
+        await anyio.to_thread.run_sync(db.commit)
+        await anyio.to_thread.run_sync(db.refresh, db_event)
         
         return EventResponse.model_validate(db_event)
         
     except Exception as e:
-        await db.rollback()
+        await anyio.to_thread.run_sync(db.rollback)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create event: {str(e)}"
@@ -161,8 +161,8 @@ async def get_event_stats(
         total_query = select(func.count(LegacyEvent.id)).where(
             LegacyEvent.timestamp >= since_date
         )
-        total_result = await db.execute(total_query)
-        total_count = total_result.scalar() or 0
+        total_result = await anyio.to_thread.run_sync(db.execute, total_query)
+        total_count = await anyio.to_thread.run_sync(total_result.scalar) or 0
         
         # Get counts by severity
         severity_counts = {}
@@ -173,8 +173,8 @@ async def get_event_stats(
                     LegacyEvent.severity == severity
                 )
             )
-            count_result = await db.execute(count_query)
-            severity_counts[severity.lower() + "_count"] = count_result.scalar() or 0
+            count_result = await anyio.to_thread.run_sync(db.execute, count_query)
+            severity_counts[severity.lower() + "_count"] = await anyio.to_thread.run_sync(count_result.scalar) or 0
         
         # Get recent activity (last 24 hours, grouped by hour)
         recent_query = select(
@@ -185,7 +185,7 @@ async def get_event_stats(
             LegacyEvent.timestamp >= datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
         ).group_by('hour', LegacyEvent.severity).order_by('hour')
         
-        recent_results = await db.execute(recent_query)
+        recent_results = await anyio.to_thread.run_sync(db.execute, recent_query)
         recent_activity = []
         for row in recent_results:
             recent_activity.append({

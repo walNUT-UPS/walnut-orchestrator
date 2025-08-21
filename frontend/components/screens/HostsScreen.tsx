@@ -120,8 +120,8 @@ function SchemaField({ field, value, onChange, isSecret = false }: SchemaFieldPr
           <div className="flex items-center space-x-2">
             <Switch
               id={field.name}
-              checked={value || field.default || false}
-              onCheckedChange={onChange}
+              checked={typeof value === 'boolean' ? value : (field.default ?? false)}
+              onCheckedChange={(checked) => onChange(checked)}
             />
             <Label htmlFor={field.name}>
               {title}
@@ -163,6 +163,9 @@ export function HostsScreen() {
   const [integrationInstances, setIntegrationInstances] = useState<IntegrationInstance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInstance, setSettingsInstance] = useState<IntegrationInstance | null>(null);
   
   // New Host dialog state
   const [newHostDialogOpen, setNewHostDialogOpen] = useState(false);
@@ -187,7 +190,8 @@ export function HostsScreen() {
         apiService.getIntegrationInstances()
       ]);
       
-      setIntegrationTypes(types.filter(t => t.status === 'valid')); // Only show valid types for instance creation
+      // Allow creating instances for types that are available (valid or checking)
+      setIntegrationTypes(types.filter(t => t.status !== 'unavailable'));
       setIntegrationInstances(instances);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -294,6 +298,7 @@ export function HostsScreen() {
 
   const handleTestInstance = async (instanceId: number) => {
     try {
+      setTestingId(instanceId);
       const result = await apiService.testIntegrationInstance(instanceId);
       if (result.success) {
         toast.success(`Connection test successful (${result.latency_ms}ms)`);
@@ -303,6 +308,8 @@ export function HostsScreen() {
       await loadData(); // Refresh to show updated state
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Test failed');
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -557,8 +564,14 @@ export function HostsScreen() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleTestInstance(instance.instance_id)}
+                              disabled={testingId === instance.instance_id}
+                              title="Test connection"
                             >
-                              <TestTube className="w-3 h-3" />
+                              {testingId === instance.instance_id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <TestTube className="w-3 h-3" />
+                              )}
                             </Button>
                             
                             <DropdownMenu>
@@ -568,7 +581,7 @@ export function HostsScreen() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => { setSettingsInstance(instance); setSettingsOpen(true); }}>
                                   <Settings className="w-4 h-4 mr-2" />
                                   Configure
                                 </DropdownMenuItem>
@@ -733,6 +746,59 @@ export function HostsScreen() {
                   <>Create Host</>
                 )}
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Host Settings / Details Dialog */}
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Host Settings</DialogTitle>
+              <DialogDescription>View details and re-test connection</DialogDescription>
+            </DialogHeader>
+            {settingsInstance ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-micro text-muted-foreground">Name</Label>
+                    <div className="font-mono">{settingsInstance.name}</div>
+                  </div>
+                  <div>
+                    <Label className="text-micro text-muted-foreground">Type</Label>
+                    <div className="font-mono">{settingsInstance.type_name || settingsInstance.type_id}</div>
+                  </div>
+                  <div>
+                    <Label className="text-micro text-muted-foreground">State</Label>
+                    <div>{getStatusBadge(settingsInstance.state)}</div>
+                  </div>
+                  <div>
+                    <Label className="text-micro text-muted-foreground">Last Test</Label>
+                    <div className="font-mono">{formatTimestamp(settingsInstance.last_test)}</div>
+                  </div>
+                </div>
+                <div className="border-t pt-3">
+                  <Label className="text-micro text-muted-foreground">Configuration</Label>
+                  <pre className="bg-muted/30 border rounded p-3 text-xs overflow-auto max-h-48">
+{JSON.stringify(settingsInstance.config, null, 2)}
+                  </pre>
+                  <p className="text-xs text-muted-foreground mt-2">Secrets are not displayed for security.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-muted-foreground">No instance selected.</div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSettingsOpen(false)}>Close</Button>
+              {settingsInstance && (
+                <Button onClick={() => settingsInstance && handleTestInstance(settingsInstance.instance_id)} disabled={testingId === settingsInstance?.instance_id}>
+                  {testingId === settingsInstance?.instance_id ? (
+                    <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Testing...</>
+                  ) : (
+                    <><TestTube className="w-4 h-4 mr-2" />Test Connection</>
+                  )}
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

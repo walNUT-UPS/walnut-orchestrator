@@ -2,19 +2,26 @@
 Main FastAPI application file for walNUT.
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
+import logging
+import time
 from typing import Optional
+
+from fastapi import FastAPI, Query, WebSocket, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
 from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations
 from walnut.api.websocket import websocket_endpoint, get_websocket_info
-from fastapi import WebSocket, Query
-from typing import Optional
 from walnut.api.websocket import authenticate_websocket_token
 from walnut.core.websocket_manager import websocket_manager
+import asyncio
+from pathlib import Path
+
 from walnut.transports.registry import init_transports
+from walnut.utils.logging import setup_logging
+
+logger = logging.getLogger("walnut.app")
 
 
 @asynccontextmanager
@@ -23,13 +30,21 @@ async def lifespan(app: FastAPI):
     Handles application startup and shutdown events.
     """
     # On startup
-    print("INFO:     Initializing walNUT services...")
+    setup_logging()
+    logger.info("Initializing walNUT services...")
     init_transports()
-    print("INFO:     Transport adapters initialized.")
+    logger.info("Transport adapters initialized.")
+    logger.info(
+        "App settings: cors=%s origins=%s secure_cookies=%s poll_interval=%s",
+        bool(settings.ALLOWED_ORIGINS),
+        settings.ALLOWED_ORIGINS,
+        settings.SECURE_COOKIES,
+        settings.POLL_INTERVAL,
+    )
     # TODO: Add other startup logic here (e.g., DB connection pool, discovery)
     yield
     # On shutdown
-    print("INFO:     Shutting down walNUT services...")
+    logger.info("Shutting down walNUT services...")
 
 
 app = FastAPI(
@@ -47,6 +62,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request logging middleware (complements Uvicorn access logs)
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.monotonic()
+    path = request.url.path
+    method = request.method
+    try:
+        response = await call_next(request)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        logger.info("%s %s -> %s in %dms", method, path, response.status_code, duration_ms)
+        return response
+    except Exception as e:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        logger.exception("%s %s -> 500 in %dms (error: %s)", method, path, duration_ms, e)
+        raise
 
 # Mount routers
 app.include_router(auth_router, prefix="/auth")
@@ -73,6 +104,7 @@ async def websocket_updates_endpoint(websocket: WebSocket, token: Optional[str] 
 async def websocket_job_endpoint(websocket: WebSocket, job_id: str, token: Optional[str] = Query(None)):
     client_id = None
     try:
+        logger.info("WS /ws/integrations/jobs/%s connect attempt", job_id)
         # Cookie fallback for token
         cookie_token = None
         try:
@@ -107,11 +139,118 @@ async def websocket_job_endpoint(websocket: WebSocket, job_id: str, token: Optio
             await websocket.receive_text()
 
     except Exception:
-        pass
+        logger.exception("WS job stream error for job_id=%s client_id=%s", job_id, client_id)
     finally:
         if client_id:
             websocket_manager.unsubscribe_job(job_id, client_id)
             await websocket_manager.disconnect(client_id)
+            logger.info("WS job stream closed for job_id=%s client_id=%s", job_id, client_id)
+
+
+# Simple log streaming over WebSocket for diagnostics
+@app.websocket("/ws/logs/{source}")
+async def websocket_logs_endpoint(websocket: WebSocket, source: str, token: Optional[str] = Query(None)):
+    """
+    Streams log lines from backend or frontend dev servers to the client.
+
+    Sources:
+    - backend: ./.tmp/walnut-uvicorn.log
+    - frontend: ./.tmp/vite.log
+    """
+    # Authenticate via token or cookie as with other endpoints
+    try:
+        cookie_token = None
+        try:
+            cookies = websocket.cookies or {}
+            for name in ("walnut_access", "fastapiusersauth", "fastapi_users_auth", "auth", "session"):
+                if name in cookies:
+                    cookie_token = cookies.get(name)
+                    if cookie_token:
+                        break
+        except Exception:
+            cookie_token = None
+
+        if not token:
+            token = cookie_token
+
+        if not token:
+            await websocket.close(code=4001, reason="Authentication token required")
+            return
+
+        user = await authenticate_websocket_token(token)
+        if not user:
+            await websocket.close(code=4001, reason="Invalid authentication token")
+            return
+
+        await websocket.accept()
+        logger.info("WS /ws/logs/%s opened", source)
+
+        # Determine log file path
+        if source == "backend":
+            log_path = Path(".tmp/walnut-uvicorn.log")
+        elif source == "frontend":
+            log_path = Path(".tmp/vite.log")
+        else:
+            await websocket.send_json({"type": "log.error", "data": {"message": f"Unknown source: {source}"}})
+            await websocket.close()
+            return
+
+        # Send an info banner
+        await websocket.send_json({"type": "log.open", "data": {"source": source, "path": str(log_path)}})
+
+        # If file doesn't exist yet, wait a bit and inform client
+        retries = 0
+        while not log_path.exists() and retries < 20:
+            await websocket.send_json({"type": "log.info", "data": {"message": f"Waiting for {source} logs..."}})
+            await asyncio.sleep(0.5)
+            retries += 1
+
+        if not log_path.exists():
+            await websocket.send_json({"type": "log.error", "data": {"message": f"Log file not found: {log_path}"}})
+            logger.warning("WS logs source %s missing file %s", source, log_path)
+            await websocket.close()
+            return
+
+        # Tail the file: send last 200 lines, then stream new ones
+        try:
+            with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+                # Read last N lines efficiently
+                try:
+                    f.seek(0, 2)
+                    file_size = f.tell()
+                    block = 2048
+                    data = ""
+                    while file_size > 0 and data.count("\n") < 200:
+                        step = block if file_size >= block else file_size
+                        file_size -= step
+                        f.seek(file_size)
+                        data = f.read(step) + data
+                    last_lines = data.splitlines()[-200:]
+                except Exception:
+                    f.seek(0)
+                    last_lines = f.read().splitlines()[-200:]
+
+                for line in last_lines:
+                    await websocket.send_json({"type": "log.line", "data": {"source": source, "line": line}})
+
+                # Now stream new lines
+                while True:
+                    line = f.readline()
+                    if not line:
+                        await asyncio.sleep(0.5)
+                        continue
+                    await websocket.send_json({"type": "log.line", "data": {"source": source, "line": line.rstrip('\n')}})
+        except Exception:
+            # Swallow errors; client likely disconnected
+            logger.exception("WS logs stream error for source=%s", source)
+            pass
+    except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+        finally:
+            logger.info("WS /ws/logs/%s closed", source)
 
 # Public health check for testing
 @app.get("/health")

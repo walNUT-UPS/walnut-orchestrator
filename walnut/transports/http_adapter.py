@@ -1,11 +1,15 @@
 """
 HTTP Transport Adapter.
 """
+import logging
 import time
 import httpx
 from typing import Dict, Any, Optional
 
 from .base import TransportAdapter
+
+
+logger = logging.getLogger(__name__)
 
 
 class HttpAdapter:
@@ -30,6 +34,13 @@ class HttpAdapter:
         headers = http_config.get("headers", {})
         verify = http_config.get("verify_tls", True)
         self._timeout_s = float(http_config.get("timeout_s", 10.0))
+
+        logger.info(
+            "Preparing HTTP adapter: base_url=%s verify_tls=%s timeout_s=%s",
+            base_url,
+            verify,
+            self._timeout_s,
+        )
 
         self._client = httpx.AsyncClient(
             base_url=base_url,
@@ -57,6 +68,7 @@ class HttpAdapter:
 
         start_time = time.monotonic()
         try:
+            logger.debug("HTTP %s %s params=%s json=%s", method, path, params, bool(json_data))
             response = await self._client.request(
                 method=method,
                 url=path,
@@ -75,6 +87,7 @@ class HttpAdapter:
             except Exception:
                 data = response.text
 
+            logger.info("HTTP %s %s -> %s in %dms", method, path, response.status_code, latency_ms)
             return {
                 "ok": True,
                 "status": response.status_code,
@@ -85,6 +98,13 @@ class HttpAdapter:
 
         except httpx.HTTPStatusError as e:
             latency_ms = int((time.monotonic() - start_time) * 1000)
+            logger.warning(
+                "HTTP %s %s -> %s in %dms (HTTP error)",
+                method,
+                path,
+                e.response.status_code if e.response else None,
+                latency_ms,
+            )
             return {
                 "ok": False,
                 "status": e.response.status_code,
@@ -94,6 +114,7 @@ class HttpAdapter:
             }
         except httpx.RequestError as e:
             latency_ms = int((time.monotonic() - start_time) * 1000)
+            logger.error("HTTP %s %s failed in %dms: %s", method, path, latency_ms, e)
             return {
                 "ok": False,
                 "status": None,
@@ -103,6 +124,7 @@ class HttpAdapter:
             }
         except Exception as e:
             latency_ms = int((time.monotonic() - start_time) * 1000)
+            logger.exception("HTTP %s %s failed in %dms: %s", method, path, latency_ms, e)
             return {
                 "ok": False,
                 "status": None,
@@ -116,5 +138,6 @@ class HttpAdapter:
         Closes the httpx client.
         """
         if self._client:
+            logger.info("Closing HTTP adapter client")
             await self._client.aclose()
             self._client = None

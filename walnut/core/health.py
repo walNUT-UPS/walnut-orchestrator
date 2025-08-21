@@ -432,8 +432,13 @@ class SystemHealthChecker:
         Returns:
             Dictionary with current configuration settings
         """
+        # Use package version for accuracy
+        try:
+            from walnut import __version__ as version
+        except Exception:
+            version = "0.0.0"
         return {
-            "version": "0.1.0",
+            "version": version,
             "poll_interval_seconds": settings.POLL_INTERVAL,
             "heartbeat_timeout_seconds": settings.HEARTBEAT_TIMEOUT,
             "data_retention_hours": settings.DATA_RETENTION_HOURS,
@@ -446,6 +451,8 @@ class SystemHealthChecker:
             },
             "cors_enabled": bool(settings.ALLOWED_ORIGINS),
             "allowed_origins_count": len(settings.ALLOWED_ORIGINS) if settings.ALLOWED_ORIGINS else 0,
+            "secure_cookies": bool(settings.SECURE_COOKIES),
+            "signup_enabled": bool(settings.SIGNUP_ENABLED),
         }
     
     def _determine_overall_status(self, components: Dict[str, ComponentHealth]) -> str:

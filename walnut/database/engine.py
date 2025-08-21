@@ -1,6 +1,7 @@
 """
 Database engine configuration for synchronous access with SQLCipher.
 """
+import logging
 import os
 import os.path
 
@@ -13,6 +14,7 @@ registry.register("sqlcipher", "walnut.database.sqlcipher_dialect", "SQLCipherDi
 
 engine = None
 SessionLocal = None
+logger = logging.getLogger(__name__)
 
 def get_db_key():
     """Get database key with user-friendly error handling."""
@@ -34,6 +36,7 @@ def get_db_key():
 def init_db(db_path: str):
     """Initializes the database engine and session factory."""
     global engine, SessionLocal
+    logger.info("Initializing SQLCipher database at %s", db_path)
 
     def _sqlcipher_creator():
         import pysqlcipher3.dbapi2 as sqlcipher
@@ -64,6 +67,7 @@ def init_db(db_path: str):
         autoflush=False,
         expire_on_commit=False,
     )
+    logger.info("Database engine initialized")
 
 # Initialize with default path for production
 DB_PATH_DEFAULT = os.path.abspath("data/walnut.db")
