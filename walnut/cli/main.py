@@ -36,6 +36,15 @@ def app(ctx, verbose, quiet):
     else:
         logging.basicConfig(level=logging.INFO)
 
+    from walnut.database.engine import init_db
+    if os.getenv("WALNUT_TESTING") == "true":
+        db_url = os.environ.get("WALNUT_DB_URL") or f"sqlite+pysqlite:///{os.getenv('WALNUT_DB_PATH','/tmp/test.db')}"
+    else:
+        db_url = os.environ.get("DATABASE_URL")
+
+    if db_url:
+        init_db(db_url)
+
 # Add subcommands
 app.add_command(db_cli, name='db')
 app.add_command(key_cli, name='key')

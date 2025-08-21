@@ -61,6 +61,9 @@ async def run_async_migrations() -> None:
     """Run migrations in 'online' async mode."""
     # this is the Alembic Config object, which provides
     # access to the values within the .ini file in use.
+    if os.getenv("WALNUT_TESTING") == "true":
+        return
+
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",

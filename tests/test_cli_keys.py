@@ -4,7 +4,6 @@ import pytest
 from walnut.cli.main import app
 from pysqlcipher3 import dbapi2 as sqlcipher
 
-@pytest.mark.usefixtures("mock_create_database_engine")
 class TestKeysCLI:
     @patch.dict(os.environ, {"WALNUT_DB_KEY": "a" * 32})
     @patch("walnut.cli.keys.get_master_key", return_value="a" * 32)

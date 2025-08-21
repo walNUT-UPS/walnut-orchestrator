@@ -49,12 +49,16 @@ class NUTClient:
         self.port = port
         self.username = username
         self.password = password
-        self._client = PyNUTClient(
-            host=self.host,
-            port=self.port,
-            login=self.username,
-            password=self.password
-        )
+        from walnut.nut import NUT_ENABLED
+        if NUT_ENABLED:
+            self._client = PyNUTClient(
+                host=self.host,
+                port=self.port,
+                login=self.username,
+                password=self.password
+            )
+        else:
+            self._client = None
 
     async def list_ups(self) -> Dict[str, str]:
         """
@@ -67,6 +71,8 @@ class NUTClient:
         Raises:
             NUTConnectionError: If there is an error communicating with the server.
         """
+        if not self._client:
+            return {}
         try:
             return await asyncio.to_thread(self._client.list_ups)
         except Exception as e:
@@ -85,6 +91,8 @@ class NUTClient:
         Raises:
             NUTConnectionError: If there is an error communicating with the server.
         """
+        if not self._client:
+            return {}
         try:
             return await asyncio.to_thread(self._client.get_vars, ups_name)
         except Exception as e:
@@ -104,6 +112,8 @@ class NUTClient:
         Raises:
             NUTConnectionError: If there is an error communicating with the server.
         """
+        if not self._client:
+            return None
         try:
             return await asyncio.to_thread(self._client.get_var, ups_name, var)
         except Exception as e:

@@ -37,6 +37,13 @@ class NUTPoller:
         Args:
             ups_name: The name of the UPS to poll.
         """
+        from walnut.nut import NUT_ENABLED
+        if not NUT_ENABLED:
+            logger.info("NUT integration is disabled. Poller will not be started.")
+            self._should_stop = asyncio.Event()
+            self._should_stop.set() # Prevent the poller from running
+            return
+
         self.ups_name = ups_name
         self.client = NUTClient()
         self._task: asyncio.Task | None = None
@@ -48,6 +55,10 @@ class NUTPoller:
 
     async def start(self):
         """Start the poller as a background task."""
+        from walnut.nut import NUT_ENABLED
+        if not NUT_ENABLED:
+            return
+
         if self._task and not self._task.done():
             logger.warning("Poller is already running.")
             return
@@ -55,7 +66,8 @@ class NUTPoller:
         logger.info(f"Starting NUT poller for UPS '{self.ups_name}'")
         self._should_stop.clear()
         self.last_heartbeat = time.time()
-        self._task = asyncio.create_task(self._poll_loop())
+        coro = self._poll_loop()   # create once
+        self._task = asyncio.create_task(coro)  # pass the same object
 
     async def stop(self):
         """Stop the poller."""

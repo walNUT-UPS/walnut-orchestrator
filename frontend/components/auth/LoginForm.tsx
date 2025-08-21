@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '../ui/card';
 import { Eye, EyeOff, Shield, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { toast } from 'sonner';
+import { authService, FrontendSettings } from '../../services/auth';
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -15,6 +16,15 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [frontendSettings, setFrontendSettings] = useState<FrontendSettings | null>(null);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const settings = await authService.getFrontendSettings();
+      setFrontendSettings(settings);
+    };
+    fetchSettings();
+  }, []);
 
   const onLogin = async (username: string, password: string) => {
     try {
@@ -35,6 +45,12 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     e.preventDefault();
     if (username.trim() && password.trim()) {
       onLogin(username.trim(), password);
+    }
+  };
+
+  const handleSsoLogin = () => {
+    if (frontendSettings) {
+      window.location.href = `/auth/oauth/${frontendSettings.oidc_provider_name}/authorize`;
     }
   };
 
@@ -129,6 +145,31 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
                 </button>
               </div>
             </form>
+
+            {frontendSettings?.oidc_enabled && (
+              <>
+                <div className="relative flex items-center justify-center my-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300 dark:border-gray-600" />
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white/95 dark:bg-gray-900/95 text-gray-500 dark:text-gray-400">
+                      Or continue with
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button
+                    type="button"
+                    onClick={handleSsoLogin}
+                    className="w-full h-12 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    Login with SSO
+                  </button>
+                </div>
+              </>
+            )}
 
             <div className="border-t border-gray-200/50 dark:border-gray-700/50"></div>
 

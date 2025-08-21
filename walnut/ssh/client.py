@@ -47,6 +47,7 @@ class SSHCommandResult:
     stderr: str
     execution_time: float
     success: bool
+    retry_count: int = 0
     
     @property
     def output(self) -> str:
@@ -377,7 +378,9 @@ class SSHClient:
         
         for attempt in range(max_retries + 1):  # +1 for initial attempt
             try:
-                return await self.execute_command(config, command)
+                result = await self.execute_command(config, command)
+                result.retry_count = attempt
+                return result
             
             except Exception as e:
                 last_exception = e

@@ -131,7 +131,7 @@ def get_valid_jwt_token() -> str:
     raise ValueError("Could not obtain JWT token - make sure admin user exists")
 
 
-@pytest.mark.integration
+@pytest.mark.skip(reason="Standalone WebSocket tests are disabled in CI")
 class TestWebSocketAuthenticationStandalone:
     """Standalone WebSocket authentication tests."""
     

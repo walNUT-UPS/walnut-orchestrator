@@ -2,7 +2,6 @@ from unittest.mock import patch
 import pytest
 from walnut.cli.main import app
 
-@pytest.mark.usefixtures("mock_create_database_engine")
 class TestSystemCLI:
     @patch('walnut.cli.system.get_database_health')
     def test_system_status(self, mock_get_health, cli_runner):

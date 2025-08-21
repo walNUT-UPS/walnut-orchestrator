@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     SIGNUP_ENABLED: bool = False
     TESTING_MODE: bool = False
 
+    # OIDC SSO Configuration
+    OIDC_ENABLED: bool = False
+    OIDC_PROVIDER_NAME: str = "google"  # or "azure", "okta", etc.
+    OIDC_CLIENT_ID: str | None = None
+    OIDC_CLIENT_SECRET: str | None = None
+    OIDC_DISCOVERY_URL: str | None = None
+    OIDC_ADMIN_ROLES: list[str] = []
+    OIDC_VIEWER_ROLES: list[str] = []
+    DB_PATH: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

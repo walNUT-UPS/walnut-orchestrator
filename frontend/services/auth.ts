@@ -5,7 +5,7 @@
 
 export interface User {
   email: string;
-  // Add other user properties as needed
+  role: string;
 }
 
 export interface LoginCredentials {
@@ -16,6 +16,11 @@ export interface LoginCredentials {
 export interface AuthError {
   message: string;
   code?: string;
+}
+
+export interface FrontendSettings {
+  oidc_enabled: boolean;
+  oidc_provider_name: string;
 }
 
 class AuthService {
@@ -75,14 +80,11 @@ class AuthService {
   }
 
   /**
-   * Get current user information
-   * This can be used to check if user is authenticated
-   * Since we don't have a /me endpoint yet, we'll try to access a protected endpoint
+   * Get current user information by calling the /api/me endpoint.
    */
   async getCurrentUser(): Promise<User | null> {
     try {
-      // Try to access a protected endpoint to check auth status
-      const response = await fetch(`/api/system/health`, {
+      const response = await fetch(`/api/me`, {
         method: 'GET',
         credentials: 'include', // Include cookies
       });
@@ -95,9 +97,8 @@ class AuthService {
         return null; // Assume not authenticated if we can't access protected resources
       }
 
-      // If we can access protected endpoints, assume authentication is valid
-      // Return a basic user object (we'll enhance this when we have a proper /me endpoint)
-      return { email: 'admin@test.com' };
+      const user = await response.json();
+      return user;
     } catch (error) {
       console.error('Error checking authentication:', error);
       return null;
@@ -110,6 +111,23 @@ class AuthService {
   async isAuthenticated(): Promise<boolean> {
     const user = await this.getCurrentUser();
     return user !== null;
+  }
+
+  async getFrontendSettings(): Promise<FrontendSettings> {
+    try {
+      const response = await fetch(`/api/settings/frontend`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch frontend settings");
+      }
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching frontend settings:", error);
+      // Return default settings if the endpoint fails
+      return {
+        oidc_enabled: false,
+        oidc_provider_name: "",
+      };
+    }
   }
 }
 

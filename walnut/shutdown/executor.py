@@ -409,6 +409,9 @@ class ShutdownExecutor:
         if not result and not metadata:
             return
         
+        if not hasattr(self, 'host_manager') or not self.host_manager:
+            return
+
         try:
             async with get_db_session() as session:
                 # Determine severity

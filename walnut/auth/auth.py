@@ -25,3 +25,22 @@ auth_backend = AuthenticationBackend(
     transport=cookie_transport,
     get_strategy=get_jwt_strategy,
 )
+
+auth_backends = [auth_backend]
+
+if settings.OIDC_ENABLED:
+    from httpx_oauth.clients.openid import OpenID
+
+    oidc_client = OpenID(
+        client_id=settings.OIDC_CLIENT_ID,
+        client_secret=settings.OIDC_CLIENT_SECRET,
+        openid_configuration_endpoint=settings.OIDC_DISCOVERY_URL,
+        name="oidc",
+    )
+
+    oauth_backend = AuthenticationBackend(
+        name="oidc",
+        transport=cookie_transport,
+        get_strategy=get_jwt_strategy,
+    )
+    auth_backends.append(oauth_backend)

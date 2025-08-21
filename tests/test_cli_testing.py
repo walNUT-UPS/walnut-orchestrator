@@ -2,7 +2,6 @@ from unittest.mock import patch
 import pytest
 from walnut.cli.main import app
 
-@pytest.mark.usefixtures("mock_create_database_engine")
 class TestTestingCLI:
     @patch('walnut.cli.test.PyNUTClient')
     def test_test_nut(self, mock_pynut, cli_runner):

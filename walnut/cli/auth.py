@@ -38,7 +38,7 @@ def create_admin(email, password):
 
         # Check if user already exists using sync query
         from sqlalchemy import select
-        existing_user = session.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        existing_user = session.execute(select(User).where(User.email == email)).unique().scalar_one_or_none()
         if existing_user:
             console.print(f"[red]User with email {email} already exists.[/red]")
             return
@@ -75,7 +75,7 @@ def list_users(json_output):
     session = SessionLocal()
     try:
         from sqlalchemy import select
-        users = session.execute(select(User)).scalars().all()
+        users = session.execute(select(User)).unique().scalars().all()
         
         if json_output:
             user_dicts = []
@@ -124,7 +124,7 @@ def set_role(email, role):
         # Get user using sync query
         from sqlalchemy import select
         result = session.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
+        user = result.unique().scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -158,7 +158,7 @@ def disable(email):
         # Get user using sync query
         from sqlalchemy import select
         result = session.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
+        user = result.unique().scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -188,7 +188,7 @@ def enable(email):
         # Get user using sync query
         from sqlalchemy import select
         result = session.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
+        user = result.unique().scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")
@@ -219,7 +219,7 @@ def reset_password(email, password):
         # Get user using sync query
         from sqlalchemy import select
         result = session.execute(select(User).where(User.email == email))
-        user = result.scalar_one_or_none()
+        user = result.unique().scalar_one_or_none()
 
         if not user:
             console.print(f"[red]User with email {email} not found.[/red]")

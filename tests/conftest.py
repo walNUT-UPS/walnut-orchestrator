@@ -55,9 +55,58 @@ from click.testing import CliRunner
 import httpx
 from walnut.app import app
 
+import importlib
+from httpx import Response, Request
+
 @pytest.fixture
 def cli_runner():
     return CliRunner()
+
+@pytest_asyncio.fixture(scope="function")
+async def oidc_async_client(test_db):
+    """
+    A dedicated async client for OIDC tests.
+    It creates a custom app instance with OIDC settings enabled.
+    """
+    from walnut.config import Settings
+    from walnut.app import create_app
+    from walnut.database.engine import init_db
+
+    test_settings = Settings(
+        TESTING_MODE=True,
+        DB_PATH=test_db,
+        OIDC_ENABLED=True,
+        OIDC_CLIENT_ID="test_client_id",
+        OIDC_CLIENT_SECRET="test_client_secret",
+        OIDC_DISCOVERY_URL="https://example.com/.well-known/openid-configuration",
+        OIDC_ADMIN_ROLES=["admin"],
+        OIDC_VIEWER_ROLES=["viewer"],
+        JWT_SECRET="test-secret", # Must provide a JWT secret for the test settings
+    )
+
+    original_get = httpx.Client.get
+    def mock_get(self, url, **kwargs):
+        if str(url) == test_settings.OIDC_DISCOVERY_URL:
+            response = Response(
+                200,
+                json={
+                    "authorization_endpoint": "https://example.com/auth",
+                    "token_endpoint": "https://example.com/token",
+                    "userinfo_endpoint": "https://example.com/userinfo",
+                },
+            )
+            response.request = Request("GET", url)
+            return response
+        return original_get(self, url, **kwargs)
+
+    with patch("httpx.Client.get", new=mock_get):
+        # Pass the custom settings object to the app factory
+        app = create_app(settings_override=test_settings)
+        init_db(test_db)
+
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            yield client
+
 
 @pytest.fixture
 async def async_client():
