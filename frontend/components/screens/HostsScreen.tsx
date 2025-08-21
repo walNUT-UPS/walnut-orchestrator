@@ -158,6 +158,7 @@ export function HostsScreen() {
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('table');
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const confirmDialog = useConfirm();
   
   // Data state
   const [integrationTypes, setIntegrationTypes] = useState<IntegrationType[]>([]);
@@ -183,8 +184,8 @@ export function HostsScreen() {
 
   const availableFilters = ['Connected', 'Disconnected', 'Error', 'Degraded'];
 
-  // Load data
-  const loadData = async () => {
+  // Load data and return latest arrays for callers that need them
+  const loadData = async (): Promise<{ types: IntegrationType[]; instances: IntegrationInstance[] }> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -197,8 +198,10 @@ export function HostsScreen() {
       // Allow creating instances for types that are available (valid or checking)
       setIntegrationTypes(types.filter(t => t.status !== 'unavailable'));
       setIntegrationInstances(instances);
+      return { types, instances };
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
+      return { types: [], instances: [] };
     } finally {
       setIsLoading(false);
     }
@@ -326,7 +329,12 @@ export function HostsScreen() {
       } else {
         toast.error(`Connection test failed: ${result.message}`);
       }
-      await loadData(); // Refresh to show updated state
+      const { instances } = await loadData(); // Refresh list and get latest
+      // If settings dialog is open for this instance, refresh it with latest data
+      if (settingsOpen) {
+        const refreshed = instances.find(i => i.instance_id === instanceId);
+        if (refreshed) setSettingsInstance(refreshed);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Test failed');
     } finally {
@@ -868,7 +876,6 @@ export function HostsScreen() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-  const confirmDialog = useConfirm();
       </div>
     </div>
   );

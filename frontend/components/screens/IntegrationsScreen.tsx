@@ -239,7 +239,8 @@ export function IntegrationsScreen() {
     if (url) {
       window.open(url, '_blank');
     } else {
-      alert(`No web interface configured for ${integration.name}`);
+      // Use a non-blocking toast for informational message
+      import('sonner').then(({ toast }) => toast.info(`No web interface configured for ${integration.name}`));
     }
   };
 
