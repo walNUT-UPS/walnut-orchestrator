@@ -2,6 +2,7 @@
 Proxmox VE Integration Driver (Refactored for Transports).
 """
 from typing import Dict, Any, Optional, List
+import logging
 
 # The core will pass Target, IntegrationInstance, and TransportManager objects.
 # The driver does not need to define them.
@@ -16,6 +17,11 @@ class ProxmoxVeDriver:
         self.config = instance.config
         self.secrets = secrets
         self.transports = transports
+
+        # Per-instance logger to help diagnose issues
+        type_id = getattr(instance, 'type_id', 'walnut.proxmox.ve')
+        name = getattr(instance, 'name', 'unknown')
+        self.logger = logging.getLogger(f"walnut.integration.{type_id}.{name}")
 
         # The API token is now configured into the transport's headers
         # during the 'prepare' phase, which is handled by the TransportManager.
@@ -32,6 +38,14 @@ class ProxmoxVeDriver:
             "Authorization": f"PVEAPIToken={api_token}",
             "Accept": "application/json",
         }
+        # Surface TLS verification setting regardless of key name used
+        verify = (
+            self.config.get("verify_tls", self.config.get("verify_ssl", True))
+        )
+        self.logger.info(
+            "Initialized Proxmox driver base_url=%s verify_tls=%s node=%s",
+            self.config.get("base_url"), bool(verify), self.config.get("node")
+        )
 
     async def test_connection(self) -> Dict[str, Any]:
         """
@@ -41,12 +55,28 @@ class ProxmoxVeDriver:
             # The transport manager will prepare the http adapter with the config
             # from the __init__ method.
             http = await self.transports.get('http')
+            self.logger.info("Testing Proxmox connection: GET /version")
             result = await http.call({"method": "GET", "path": "/version"})
 
             if not result.get("ok"):
-                return {"status": "error", "message": result.get("raw", "request failed"), "latency_ms": result.get("latency_ms")}
+                # Prefer structured error information when available
+                data = result.get("data") or {}
+                message = (
+                    (data.get("message") if isinstance(data, dict) else None)
+                    or result.get("raw")
+                    or "request failed"
+                )
+                self.logger.error(
+                    "Proxmox test failed status=%s latency_ms=%s error=%s",
+                    result.get("status"), result.get("latency_ms"), message
+                )
+                return {"status": "error", "message": message, "latency_ms": result.get("latency_ms")}
 
             data = result.get('data', {})
+            self.logger.info(
+                "Proxmox test succeeded latency_ms=%s version=%s",
+                result.get("latency_ms"), data.get('version')
+            )
             return {
                 "status": "connected",
                 "latency_ms": result.get("latency_ms"),
@@ -54,6 +84,7 @@ class ProxmoxVeDriver:
                 "details": data
             }
         except Exception as e:
+            self.logger.exception("Proxmox test threw exception: %s", e)
             return {"status": "error", "message": str(e)}
 
     async def inventory_list(self, target_type: str, dry_run: bool) -> List[Dict[str, Any]]:
