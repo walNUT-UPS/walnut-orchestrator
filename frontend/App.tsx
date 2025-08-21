@@ -16,7 +16,8 @@ import { Toaster } from './components/ui/sonner';
 function DashboardApp() {
   const location = useLocation();
   const systemStatus: 'ok' | 'warn' | 'error' = 'ok'; // This should come from system health API
-  const alertCount = 3; // This should come from alerts API
+  // No new notifications -> show no badge
+  const alertCount = 0; // TODO: wire to alerts API when available
 
   // Extract active tab from current route
   const getActiveTabFromPath = (pathname: string) => {
