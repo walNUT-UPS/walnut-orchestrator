@@ -321,7 +321,7 @@ class ApiService {
 
   // Users API (fastapi-users)
   async listUsers(): Promise<Array<{ id: string; email: string; is_active: boolean; is_verified: boolean; is_superuser: boolean }>> {
-    return this.request('/users');
+    return this.request('/admin/users');
   }
 
   async updateUser(id: string, data: Partial<{ email: string; password: string; is_active: boolean; is_superuser: boolean }>): Promise<any> {
@@ -337,6 +337,50 @@ class ApiService {
 
   async getSystemHealth(): Promise<any> {
     return this.request('/system/health');
+  }
+
+  // OIDC config endpoints
+  async getOidcConfig(): Promise<{
+    enabled: boolean;
+    provider_name?: string;
+    client_id?: string;
+    has_client_secret: boolean;
+    discovery_url?: string;
+    admin_roles: string[];
+    viewer_roles: string[];
+    requires_restart: boolean;
+  }> {
+    return this.request('/system/oidc/config');
+  }
+
+  async updateOidcConfig(cfg: Partial<{
+    enabled: boolean;
+    provider_name: string;
+    client_id: string;
+    client_secret: string;
+    discovery_url: string;
+    admin_roles: string[];
+    viewer_roles: string[];
+  }>): Promise<any> {
+    return this.request('/system/oidc/config', {
+      method: 'PUT',
+      body: JSON.stringify(cfg),
+    });
+  }
+
+  async testOidcConfig(cfg?: Partial<{
+    enabled: boolean;
+    provider_name: string;
+    client_id: string;
+    client_secret: string;
+    discovery_url: string;
+    admin_roles: string[];
+    viewer_roles: string[];
+  }>): Promise<{ status: string; details?: any }> {
+    return this.request('/system/oidc/test', {
+      method: 'POST',
+      body: cfg ? JSON.stringify(cfg) : undefined,
+    });
   }
 }
 

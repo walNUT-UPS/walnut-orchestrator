@@ -452,6 +452,16 @@ class Secret(Base):
     )
 
 
+class AppSetting(Base):
+    """
+    Simple key/value settings storage for global application settings.
+    """
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False)
+
+
 class LegacyPolicy(Base):
     """
     Shutdown policies and automation rules. (Legacy)
@@ -703,4 +713,3 @@ def create_event(
         severity=severity,
         event_metadata=metadata or {},
     )
-

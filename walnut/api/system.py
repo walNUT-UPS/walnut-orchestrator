@@ -5,7 +5,8 @@ This module provides REST API endpoints for checking system health status,
 configuration information, and testing individual components.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
+import logging
 import logging
 import io
 import json
@@ -19,6 +20,8 @@ from pydantic import BaseModel
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
 from walnut.core.health import SystemHealthChecker
+from walnut.core.app_settings import get_setting, set_setting
+from walnut.config import settings as runtime_settings
 
 
 router = APIRouter()
@@ -50,6 +53,27 @@ class TestResponse(BaseModel):
     """Response model for component test endpoints."""
     status: str
     details: Dict[str, Any]
+
+
+class OIDCConfigIn(BaseModel):
+    enabled: bool
+    provider_name: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    discovery_url: Optional[str] = None
+    admin_roles: Optional[List[str]] = None
+    viewer_roles: Optional[List[str]] = None
+
+
+class OIDCConfigOut(BaseModel):
+    enabled: bool
+    provider_name: Optional[str] = None
+    client_id: Optional[str] = None
+    has_client_secret: bool = False
+    discovery_url: Optional[str] = None
+    admin_roles: List[str] = []
+    viewer_roles: List[str] = []
+    requires_restart: bool = True
 
 
 # Initialize the health checker
@@ -108,6 +132,79 @@ async def get_system_config(
     except Exception as e:
         logger.exception("/system/config failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Configuration check failed: {str(e)}")
+
+
+@router.get("/system/oidc/config", response_model=OIDCConfigOut)
+async def get_oidc_config(_user: User = Depends(current_active_user)) -> OIDCConfigOut:
+    """Return stored OIDC configuration merged with runtime defaults."""
+    cfg = get_setting("oidc_config") or {}
+    enabled = bool(cfg.get("enabled", runtime_settings.OIDC_ENABLED))
+    provider_name = cfg.get("provider_name", runtime_settings.OIDC_PROVIDER_NAME)
+    client_id = cfg.get("client_id", runtime_settings.OIDC_CLIENT_ID)
+    discovery_url = cfg.get("discovery_url", runtime_settings.OIDC_DISCOVERY_URL)
+    admin_roles = cfg.get("admin_roles", runtime_settings.OIDC_ADMIN_ROLES or [])
+    viewer_roles = cfg.get("viewer_roles", runtime_settings.OIDC_VIEWER_ROLES or [])
+    has_secret = bool(cfg.get("client_secret")) or bool(runtime_settings.OIDC_CLIENT_SECRET)
+    # Changing this usually requires restart to mount routes
+    return OIDCConfigOut(
+        enabled=enabled,
+        provider_name=provider_name,
+        client_id=client_id,
+        has_client_secret=has_secret,
+        discovery_url=discovery_url,
+        admin_roles=admin_roles,
+        viewer_roles=viewer_roles,
+        requires_restart=True,
+    )
+
+
+@router.put("/system/oidc/config", response_model=OIDCConfigOut)
+async def update_oidc_config(payload: OIDCConfigIn, _user: User = Depends(current_active_user)) -> OIDCConfigOut:
+    """Persist OIDC configuration to the app settings store."""
+    # Store all values; keep existing secret if omitted
+    current = get_setting("oidc_config") or {}
+    new_cfg: Dict[str, Any] = {
+        "enabled": payload.enabled,
+        "provider_name": payload.provider_name or current.get("provider_name"),
+        "client_id": payload.client_id or current.get("client_id"),
+        "client_secret": payload.client_secret or current.get("client_secret"),
+        "discovery_url": payload.discovery_url or current.get("discovery_url"),
+        "admin_roles": payload.admin_roles or current.get("admin_roles", []),
+        "viewer_roles": payload.viewer_roles or current.get("viewer_roles", []),
+    }
+    set_setting("oidc_config", new_cfg)
+    return await get_oidc_config(_user)
+
+
+@router.post("/system/oidc/test")
+async def test_oidc_config(payload: Optional[OIDCConfigIn] = None, _user: User = Depends(current_active_user)) -> Dict[str, Any]:
+    """Basic OIDC configuration test: fetch discovery metadata and report endpoints."""
+    try:
+        cfg = (payload.model_dump() if payload else None) or get_setting("oidc_config") or {}
+        discovery_url = cfg.get("discovery_url") or runtime_settings.OIDC_DISCOVERY_URL
+        if not discovery_url:
+            raise HTTPException(status_code=400, detail="discovery_url is required")
+
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0, verify=True) as client:
+            r = await client.get(discovery_url)
+            r.raise_for_status()
+            data = r.json()
+        return {
+            "status": "success",
+            "details": {
+                "issuer": data.get("issuer"),
+                "authorization_endpoint": data.get("authorization_endpoint"),
+                "token_endpoint": data.get("token_endpoint"),
+                "userinfo_endpoint": data.get("userinfo_endpoint"),
+                "scopes_supported": data.get("scopes_supported"),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("OIDC test failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"OIDC test failed: {e}")
 
 
 @router.post(

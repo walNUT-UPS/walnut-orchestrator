@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { MetricCard } from '../MetricCard';
 import { EventsTable, Event } from '../EventsTable';
 import { StatusPill } from '../StatusPill';
 import { LinePower24h, PowerSegment } from '../LinePower24h';
 import { cn } from '../ui/utils';
 import { useWalnutApi } from '../../hooks/useWalnutApi';
+import { apiService, IntegrationInstance, IntegrationType } from '../../services/api';
 
 // Mock data
 const mockUPSMetrics = [
@@ -43,44 +44,41 @@ const mockEvents: Event[] = [
   }
 ];
 
-// Mock timeline data for 24-hour power status
-const mockTimelineSegments: PowerSegment[] = [
-  {
-    start: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24h ago
-    end: new Date(Date.now() - 22 * 60 * 60 * 1000), // 22h ago
-    status: 'online' as const,
-    meta: { batteryPercent: 100, inputVoltage: 230, loadWatts: 220 }
-  },
-  {
-    start: new Date(Date.now() - 22 * 60 * 60 * 1000), // 22h ago
-    end: new Date(Date.now() - 21.8 * 60 * 60 * 1000), // Brief outage
-    status: 'on-battery' as const,
-    meta: { batteryPercent: 95, inputVoltage: 0, loadWatts: 220 }
-  },
-  {
-    start: new Date(Date.now() - 21.8 * 60 * 60 * 1000),
-    end: new Date(Date.now() - 8 * 60 * 60 * 1000), // 8h ago
-    status: 'online' as const,
-    meta: { batteryPercent: 100, inputVoltage: 230, loadWatts: 245 }
-  },
-  {
-    start: new Date(Date.now() - 8 * 60 * 60 * 1000), // 8h ago
-    end: new Date(Date.now() - 7.5 * 60 * 60 * 1000), // 30min outage
-    status: 'on-battery' as const,
-    meta: { batteryPercent: 87, inputVoltage: 0, loadWatts: 245 }
-  },
-  {
-    start: new Date(Date.now() - 7.5 * 60 * 60 * 1000),
-    end: new Date(), // Now
-    status: 'online' as const,
-    meta: { batteryPercent: 100, inputVoltage: 230, loadWatts: 245 }
+// Build a simple 24h power timeline from events (OnBattery/Recovered)
+function buildTimelineFromEvents(events: Event[], hours: 6 | 12 | 24 = 24): PowerSegment[] {
+  const now = Date.now();
+  const startWindow = now - hours * 3600_000;
+  const within = events
+    .map(e => ({ ...e, ts: new Date(e.timestamp).getTime() }))
+    .filter(e => e.ts >= startWindow)
+    .sort((a, b) => a.ts - b.ts);
+
+  const segments: PowerSegment[] = [];
+  let cursor = startWindow;
+  let status: 'online' | 'on-battery' = 'online';
+
+  for (const e of within) {
+    const segEnd = e.ts;
+    if (segEnd > cursor) {
+      segments.push({ start: new Date(cursor), end: new Date(segEnd), status });
+      cursor = segEnd;
+    }
+    if (e.type === 'OnBattery') status = 'on-battery';
+    if (e.type === 'Recovered') status = 'online';
   }
-];
+  // Tail
+  if (cursor < now) {
+    segments.push({ start: new Date(cursor), end: new Date(now), status });
+  }
+  return segments;
+}
 
 export function OverviewScreen() {
   const { upsStatus, systemHealth, events, isLoading, error, wsConnected } = useWalnutApi();
   const [viewMode] = useState<'cards' | 'table'>('cards');
   const [timelineDuration, setTimelineDuration] = useState<'6h' | '12h' | '24h'>('24h');
+  const [types, setTypes] = useState<IntegrationType[]>([]);
+  const [instances, setInstances] = useState<IntegrationInstance[]>([]);
   // Overview has no filters/search controls
 
   // Convert API events to frontend format
@@ -95,6 +93,32 @@ export function OverviewScreen() {
   }));
 
   const filteredEvents = convertedEvents;
+
+  // Load integration summary for real counts
+  useEffect(() => {
+    (async () => {
+      try {
+        const [t, i] = await Promise.all([
+          apiService.getIntegrationTypes().catch(() => []),
+          apiService.getIntegrationInstances().catch(() => []),
+        ]);
+        setTypes(t);
+        setInstances(i);
+      } catch (_) {}
+    })();
+  }, []);
+
+  const integrationMetrics = useMemo(() => {
+    const totalTypes = types.length;
+    const totalInstances = instances.length;
+    const connected = instances.filter(x => x.state === 'connected').length;
+    const degraded = instances.filter(x => x.state === 'degraded').length;
+    return [
+      { label: 'Instances', value: totalInstances, max: Math.max(1, totalInstances), unit: '' },
+      { label: 'Connected', value: connected, max: Math.max(1, totalInstances), unit: '', status: 'ok' as const, inverse: true },
+      { label: 'Degraded', value: degraded, max: Math.max(1, totalInstances), unit: '', status: 'warn' as const },
+    ];
+  }, [types, instances]);
 
   // Convert UPS status to metrics format
   const upsMetrics = upsStatus ? [
@@ -162,7 +186,10 @@ export function OverviewScreen() {
           {/* 24-Hour Line Power Timeline */}
           <div className="col-span-12">
             <LinePower24h 
-              segments={mockTimelineSegments}
+              segments={buildTimelineFromEvents(
+                filteredEvents,
+                timelineDuration === '6h' ? 6 : timelineDuration === '12h' ? 12 : 24
+              )}
               duration={timelineDuration}
               onZoomChange={setTimelineDuration}
               showLegend={true}
@@ -217,9 +244,9 @@ export function OverviewScreen() {
                   title="Orchestration State"
                   status="ok"
                   metrics={[
-                    { label: 'Active Policies', value: 3, max: 5, unit: '' },
-                    { label: 'Pending Actions', value: 0, max: 10, unit: '' },
-                    { label: 'Success Rate', value: 98, max: 100, unit: '%', inverse: true }
+                    { label: 'Active Policies', value: 0, max: 1, unit: '' },
+                    { label: 'Pending Actions', value: 0, max: 1, unit: '' },
+                    { label: 'Success Rate', value: 100, max: 100, unit: '%', inverse: true }
                   ]}
                   meta={{
                     lastUpdate: wsConnected ? 'Live' : '1m ago'
@@ -234,11 +261,7 @@ export function OverviewScreen() {
                 <MetricCard
                   title="Integration Status"
                   status="ok"
-                  metrics={[
-                    { label: 'Proxmox', value: 1, max: 1, unit: ' connected', status: 'ok', inverse: true },
-                    { label: 'TrueNAS', value: 1, max: 1, unit: ' connected', status: 'ok', inverse: true },
-                    { label: 'Tapo Smart Plugs', value: 3, max: 3, unit: ' connected', status: 'ok', inverse: true }
-                  ]}
+                  metrics={integrationMetrics}
                   size="L"
                 />
               </div>

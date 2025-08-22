@@ -43,12 +43,28 @@ import {
 } from '../ui/table';
 import { Textarea } from '../ui/textarea';
 import { toast } from 'sonner';
+import { apiService } from '../../services/api';
 
-const mockUsers = [
-  { id: '1', email: 'admin@walnut.local', role: 'Administrator', status: 'Active', lastLogin: '2024-01-15T15:42:00Z' },
-  { id: '2', email: 'ops@company.com', role: 'Operator', status: 'Active', lastLogin: '2024-01-14T09:30:00Z' },
-  { id: '3', email: 'monitor@company.com', role: 'Read-Only', status: 'Inactive', lastLogin: '2024-01-10T14:15:00Z' }
-];
+type UserRow = { id: string; email: string; is_active: boolean; is_verified: boolean; is_superuser: boolean };
+const useUsers = () => {
+  const [users, setUsers] = React.useState<UserRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const reload = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await apiService.listUsers();
+      setUsers(data as any);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load users');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+  return { users, setUsers, loading, error, reload };
+};
 
 const useSystemConfig = () => {
   const [config, setConfig] = React.useState<any | null>(null);
@@ -99,6 +115,8 @@ export function SettingsScreen() {
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const { users, setUsers, loading: usersLoading, error: usersError, reload: reloadUsers } = useUsers();
+  const singleUser = users.length <= 1;
 
   const testConnection = async () => {
     setTestResult(null);
@@ -304,6 +322,9 @@ export function SettingsScreen() {
               </CardContent>
             </Card>
 
+            {/* OIDC SSO Configuration */}
+            <OIDCSettingsCard />
+
             <Card>
               <CardHeader>
                 <CardTitle>UPS Monitoring</CardTitle>
@@ -346,7 +367,7 @@ export function SettingsScreen() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+        </TabsContent>
 
           {/* Integrations Settings */}
           <TabsContent value="integrations" className="space-y-6">
@@ -415,9 +436,13 @@ export function SettingsScreen() {
                       Manage user accounts and permissions
                     </CardDescription>
                   </div>
-                  <Button variant="outline" onClick={handleInviteUser}>
-                    Invite User
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    {usersError && <span className="text-destructive text-xs">{usersError}</span>}
+                    <Button variant="outline" onClick={reloadUsers} disabled={usersLoading}>
+                      {usersLoading ? 'Loading…' : `${users.length} users`}
+                    </Button>
+                    <Button variant="outline" onClick={handleInviteUser}>Invite User</Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -428,32 +453,46 @@ export function SettingsScreen() {
                         <TableHead>Email</TableHead>
                         <TableHead>Role</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Last Login</TableHead>
+                        <TableHead>Verified</TableHead>
                         <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {mockUsers.map((user) => (
-                        <TableRow key={user.id} className="hover:bg-accent/50">
-                          <TableCell className="font-mono text-micro">
-                            {user.email}
-                          </TableCell>
+                      {users.map((u) => (
+                        <TableRow key={u.id} className="hover:bg-accent/50">
+                          <TableCell className="font-mono text-micro">{u.email}</TableCell>
                           <TableCell>
-                            <Badge variant={user.role === 'Administrator' ? 'default' : 'outline'}>
-                              {user.role}
+                            <Badge variant={u.is_superuser ? 'default' : 'outline'}>
+                              {u.is_superuser ? 'Administrator' : 'User'}
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={user.status === 'Active' ? 'secondary' : 'outline'}>
-                              {user.status}
+                            <Badge variant={u.is_active ? 'secondary' : 'outline'}>
+                              {u.is_active ? 'Active' : 'Disabled'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-micro tabular-nums">
-                            {new Date(user.lastLogin).toLocaleDateString()}
+                          <TableCell>
+                            <Badge variant={u.is_verified ? 'secondary' : 'outline'}>
+                              {u.is_verified ? 'Verified' : 'Unverified'}
+                            </Badge>
                           </TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="sm" onClick={() => handleEditUser(user.id)}>
-                              Edit
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={singleUser && u.is_active}
+                              title={singleUser && u.is_active ? 'Cannot disable the only user' : undefined}
+                              onClick={async () => {
+                                try {
+                                  const updated = await apiService.updateUser(u.id, { is_active: !u.is_active });
+                                  setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: updated.is_active } : x));
+                                  toast.success(updated.is_active ? 'User enabled' : 'User disabled');
+                                } catch (e: any) {
+                                  toast.error(e?.message || 'Failed to update');
+                                }
+                              }}
+                            >
+                              {u.is_active ? 'Disable' : 'Enable'}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -638,6 +677,130 @@ export function SettingsScreen() {
 }
 
 // --- Diagnostics Logs Tabs ---
+function OIDCSettingsCard() {
+  const [cfg, setCfg] = React.useState<any | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        const c = await apiService.getOidcConfig();
+        setCfg({
+          ...c,
+          admin_roles: (c.admin_roles || []).join(', '),
+          viewer_roles: (c.viewer_roles || []).join(', '),
+          client_secret: '',
+        });
+      } catch (_) {
+        setCfg({ enabled: false });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const save = async () => {
+    if (!cfg) return;
+    try {
+      setSaving(true);
+      const payload: any = {
+        enabled: !!cfg.enabled,
+        provider_name: cfg.provider_name || undefined,
+        client_id: cfg.client_id || undefined,
+        ...(cfg.client_secret ? { client_secret: cfg.client_secret } : {}),
+        discovery_url: cfg.discovery_url || undefined,
+        admin_roles: (cfg.admin_roles || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+        viewer_roles: (cfg.viewer_roles || '').split(',').map((s: string) => s.trim()).filter(Boolean),
+      };
+      const res = await apiService.updateOidcConfig(payload);
+      setCfg({
+        ...res,
+        admin_roles: (res.admin_roles || []).join(', '),
+        viewer_roles: (res.viewer_roles || []).join(', '),
+        client_secret: '',
+      });
+      toast.success('OIDC settings saved');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save OIDC settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const test = async () => {
+    if (!cfg?.discovery_url) return;
+    try {
+      setTesting(true);
+      const res = await apiService.testOidcConfig({ discovery_url: cfg.discovery_url });
+      if (res.status === 'success') {
+        toast.success('OIDC discovery OK');
+      } else {
+        toast.error('OIDC test failed');
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'OIDC test failed');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>OIDC Single Sign-On</CardTitle>
+        <CardDescription>Configure OpenID Connect login and roles</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Loading OIDC settings...</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <input id="oidc-enabled" type="checkbox" checked={!!cfg?.enabled} onChange={(e) => setCfg((p: any) => ({ ...p, enabled: e.target.checked }))} />
+              <label htmlFor="oidc-enabled" className="text-sm">Enable OIDC (activates login button)</label>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-sm">Provider Name</Label>
+                <Input value={cfg?.provider_name || ''} onChange={(e) => setCfg((p: any) => ({ ...p, provider_name: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-sm">Discovery URL</Label>
+                <Input value={cfg?.discovery_url || ''} onChange={(e) => setCfg((p: any) => ({ ...p, discovery_url: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-sm">Client ID</Label>
+                <Input value={cfg?.client_id || ''} onChange={(e) => setCfg((p: any) => ({ ...p, client_id: e.target.value }))} />
+              </div>
+              <div>
+                <Label className="text-sm">Client Secret</Label>
+                <Input type="password" value={cfg?.client_secret || ''} onChange={(e) => setCfg((p: any) => ({ ...p, client_secret: e.target.value }))} placeholder={cfg?.has_client_secret ? '•••••••• (set)' : ''} />
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-sm">Admin Roles (comma-separated)</Label>
+                <Input value={cfg?.admin_roles || ''} onChange={(e) => setCfg((p: any) => ({ ...p, admin_roles: e.target.value }))} />
+              </div>
+              <div className="md:col-span-2">
+                <Label className="text-sm">Viewer Roles (comma-separated)</Label>
+                <Input value={cfg?.viewer_roles || ''} onChange={(e) => setCfg((p: any) => ({ ...p, viewer_roles: e.target.value }))} />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-2">
+              <Button onClick={save} disabled={saving}>{saving ? 'Saving...' : 'Save OIDC'}</Button>
+              <Button variant="outline" onClick={test} disabled={testing || !cfg?.discovery_url}>{testing ? 'Testing...' : 'Test'}</Button>
+              {cfg?.requires_restart && (
+                <span className="text-xs text-muted-foreground">Server restart may be required to apply routing changes</span>
+              )}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 function DiagnosticsLogsTabs() {
   const [active, setActive] = React.useState<'backend' | 'frontend'>('backend');
   return (

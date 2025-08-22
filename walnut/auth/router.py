@@ -10,6 +10,9 @@ from walnut.auth.deps import (
 from walnut.auth.models import User
 from walnut.auth.schemas import MeResponse, UserCreate, UserRead, UserUpdate
 from walnut.config import settings
+import anyio
+from sqlalchemy import select
+from walnut.database.connection import get_db_session
 
 # APIRouter for all authentication-related endpoints
 # Note: CSRF protection removed from router level to avoid affecting WebSocket routes
@@ -74,3 +77,20 @@ async def admin_only_endpoint(user: User = Depends(current_admin)):
     An example endpoint that only admin users can access.
     """
     return {"message": f"Welcome, admin {user.email}!"}
+
+# Lightweight admin users list to avoid dependency mismatch issues 
+@api_router.get("/admin/users", tags=["Users"])
+async def list_users_admin(_user: User = Depends(current_admin)):
+    async with get_db_session() as session:
+        result = await anyio.to_thread.run_sync(session.execute, select(User))
+        rows = result.unique().scalars().all()
+        return [
+            {
+                "id": str(u.id),
+                "email": u.email,
+                "is_active": u.is_active,
+                "is_verified": u.is_verified,
+                "is_superuser": u.is_superuser,
+            }
+            for u in rows
+        ]

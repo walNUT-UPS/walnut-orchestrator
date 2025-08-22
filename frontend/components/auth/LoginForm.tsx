@@ -16,6 +16,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [stage, setStage] = useState<'email' | 'password'>('email');
+  const [oidcEnabled, setOidcEnabled] = useState<boolean>(false);
 
   const onLogin = async (username: string, password: string) => {
     try {
@@ -60,6 +61,18 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
     params.set('redirect_url', redirect);
     window.location.href = `${authorize}?${params.toString()}`;
   };
+
+  React.useEffect(() => {
+    // Detect if backend has OIDC enabled via settings; hide button otherwise
+    (async () => {
+      try {
+        const cfg = await fetch('/api/system/oidc/config', { credentials: 'include' }).then(r => r.ok ? r.json() : null);
+        setOidcEnabled(!!cfg?.enabled);
+      } catch (_) {
+        setOidcEnabled(false);
+      }
+    })();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-6">
@@ -166,23 +179,27 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
               </div>
             </form>
 
-            {/* OR Divider */}
-            <div className="flex items-center gap-3 my-2">
-              <div className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
-              <span className="text-xs text-gray-500 dark:text-gray-400">OR</span>
-              <div className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
-            </div>
+            {oidcEnabled && (
+              <>
+                {/* OR Divider */}
+                <div className="flex items-center gap-3 my-2">
+                  <div className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">OR</span>
+                  <div className="h-px bg-gray-200 dark:bg-gray-700 flex-1" />
+                </div>
 
-            {/* OIDC Button */}
-            <button
-              type="button"
-              onClick={beginOidcLogin}
-              className="w-full h-11 inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 font-semibold transition-colors"
-              disabled={isLoading}
-            >
-              <LogIn className="w-4 h-4" />
-              Login with OIDC
-            </button>
+                {/* OIDC Button */}
+                <button
+                  type="button"
+                  onClick={beginOidcLogin}
+                  className="w-full h-11 inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 dark:border-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 font-semibold transition-colors"
+                  disabled={isLoading}
+                >
+                  <LogIn className="w-4 h-4" />
+                  Login with OIDC
+                </button>
+              </>
+            )}
 
             <div className="border-t border-gray-200/50 dark:border-gray-700/50"></div>
 

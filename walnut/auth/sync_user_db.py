@@ -31,13 +31,13 @@ class SyncSQLAlchemyUserDatabase(BaseUserDatabase[User, uuid.UUID], Generic[UP, 
         """Get user by ID."""
         statement = select(self.user_table).where(self.user_table.id == id)
         result = self.session.execute(statement)
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
     
     async def get_by_email(self, email: str) -> Optional[UP]:
         """Get user by email."""
         statement = select(self.user_table).where(self.user_table.email == email)
         result = self.session.execute(statement)
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
     
     async def get_by_oauth_account(self, oauth: str, account_id: str) -> Optional[UP]:
         """Get user by OAuth account."""
@@ -48,7 +48,7 @@ class SyncSQLAlchemyUserDatabase(BaseUserDatabase[User, uuid.UUID], Generic[UP, 
             (self.oauth_account_table.account_id == account_id)
         )
         result = self.session.execute(statement)
-        return result.scalar_one_or_none()
+        return result.unique().scalar_one_or_none()
     
     async def create(self, create_dict: Dict[str, Any]) -> UP:
         """Create a new user."""

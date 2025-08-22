@@ -12,7 +12,7 @@ from walnut.auth.sync_user_db import SyncSQLAlchemyUserDatabase
 from walnut.auth.auth import auth_backends
 from walnut.auth.models import Role, User, OAuthAccount as OAuthAccountModel
 from walnut.config import settings
-from walnut.database.connection import get_db_session
+from walnut.database.connection import get_db_session, get_db_session_dependency
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -76,8 +76,15 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
 
 def get_user_db():
-    with get_db_session() as session:
+    session_gen = get_db_session_dependency()
+    session = next(session_gen)
+    try:
         yield SyncSQLAlchemyUserDatabase(session, User, OAuthAccountModel)
+    finally:
+        try:
+            next(session_gen)
+        except StopIteration:
+            pass
 
 
 def get_user_manager(
@@ -142,7 +149,7 @@ async def require_current_user(request: Request) -> User:
     # Load user using sync session wrapped with anyio
     async with get_db_session() as session:
         result = await anyio.to_thread.run_sync(session.execute, select(User).where(User.id == user_id))
-        user = result.scalar_one_or_none()
+        user = result.unique().scalar_one_or_none()
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
         return user
