@@ -1,6 +1,6 @@
 id: walnut.proxmox.ve
 name: Proxmox VE
-version: 1.0.0
+version: 1.0.1
 category: host-orchestrator
 min_core_version: "0.1.0"
 
@@ -16,10 +16,10 @@ schema:
     properties:
       host: { type: string, title: Host }
       port: { type: integer, default: 8006 }
-      token_name: { type: string, title: Token Name }
+      token_name: { type: string, title: Token Name }   # e.g. "user@pam!tokenid"
       node: { type: string, title: Node }
       verify_ssl: { type: boolean, default: true }
-      api_token: { type: string, secret: true, title: API Token }
+      api_token: { type: string, secret: true, title: API Token }  # token secret
 
 defaults:
   http:
@@ -39,12 +39,14 @@ test:
 
 capabilities:
   - id: vm.lifecycle
-    verbs: [shutdown, start, stop, suspend]
+    verbs: [shutdown, start, stop, suspend, resume, reset]
     targets: [vm]
     dry_run: required
+
   - id: power.control
-    verbs: [shutdown, cycle]   # reboot = shutdown+start
+    verbs: [shutdown, cycle]   # cycle = reboot intent
     targets: [host]
+
   - id: inventory.list
     verbs: [list]
     targets: [vm, host]
