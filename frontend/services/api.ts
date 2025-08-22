@@ -335,9 +335,6 @@ class ApiService {
     return this.request('/system/config');
   }
 
-  async getSystemHealth(): Promise<any> {
-    return this.request('/system/health');
-  }
 
   // OIDC config endpoints
   async getOidcConfig(): Promise<{

@@ -65,6 +65,9 @@ echo "Starting backend (uvicorn) on ${BACKEND_HOST}:${BACKEND_PORT}..."
 ) >> "$BACKEND_LOG" 2>&1 &
 pids+=($!)
 
+# Provide a restart command for backend to exec when /api/system/restart is called
+export WALNUT_RESTART_CMD="${PYTHON} -m uvicorn walnut.app:app --host ${BACKEND_HOST} --port ${BACKEND_PORT} ${BACKEND_RELOAD:+--reload}"
+
 echo "Starting frontend (Vite) on port ${VITE_PORT}..."
 (
   cd frontend

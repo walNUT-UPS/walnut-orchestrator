@@ -17,12 +17,12 @@ from fastapi.responses import StreamingResponse
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from walnut.auth.deps import current_active_user
+from walnut.auth.deps import current_active_user, current_admin
 from walnut.auth.models import User
 from walnut.core.health import SystemHealthChecker
 from walnut.core.app_settings import get_setting, set_setting
 from walnut.config import settings as runtime_settings
-import threading, os, time
+import threading, os, time, sys, shlex
 
 
 router = APIRouter()
@@ -222,7 +222,17 @@ async def restart_backend(_user: User = Depends(current_admin)) -> Dict[str, Any
                 time.sleep(0.5)
             except Exception:
                 pass
-            os._exit(0)
+            # Prefer exec of provided restart command, then fall back to re-exec current process
+            cmd = os.environ.get("WALNUT_RESTART_CMD")
+            if cmd:
+                try:
+                    os.execl("/bin/sh", "sh", "-c", cmd)
+                except Exception:
+                    pass
+            try:
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            except Exception:
+                os._exit(0)
 
         threading.Thread(target=_delayed_exit, daemon=True).start()
         return {"status": "restarting"}
