@@ -322,9 +322,6 @@ export function SettingsScreen() {
               </CardContent>
             </Card>
 
-            {/* OIDC SSO Configuration */}
-            <OIDCSettingsCard />
-
             <Card>
               <CardHeader>
                 <CardTitle>UPS Monitoring</CardTitle>
@@ -423,6 +420,8 @@ export function SettingsScreen() {
                 </div>
               </CardContent>
             </Card>
+            {/* OIDC SSO Configuration moved under Users tab as requested */}
+            <OIDCSettingsCard />
           </TabsContent>
 
           {/* Users & Roles */}
@@ -508,6 +507,8 @@ export function SettingsScreen() {
                 </div>
               </CardContent>
             </Card>
+            {/* OIDC SSO Configuration under Users */}
+            <OIDCSettingsCard />
           </TabsContent>
 
           {/* System Information */}
@@ -619,6 +620,25 @@ export function SettingsScreen() {
                         const res = await fetch('/api/system/restart', { method: 'POST', credentials: 'include' });
                         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
                         toast.success('Restarting backend...');
+                        // Poll for backend availability and prompt reload when ready
+                        const start = Date.now();
+                        const timeoutMs = 90_000; // 90s max wait
+                        const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+                        let backoff = 1000;
+                        while (Date.now() - start < timeoutMs) {
+                          try {
+                            const ping = await fetch('/api/health', { credentials: 'include' });
+                            if (ping.ok) {
+                              // Auto-reload immediately when backend is healthy
+                              location.reload();
+                              break;
+                            }
+                          } catch (_) {
+                            // ignore network errors while restarting
+                          }
+                          await delay(backoff);
+                          backoff = Math.min(backoff + 500, 3000);
+                        }
                       } catch (e: any) {
                         toast.error(e?.message || 'Failed to trigger restart');
                       }
