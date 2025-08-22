@@ -1,0 +1,82 @@
+id: com.aruba.aoss
+name: ArubaOS-S Switches
+version: 0.1.0
+category: network
+min_core_version: "0.10.0"
+
+schema:
+  connection:
+    type: object
+    required: [hostname, username, password, snmp_community]
+    properties:
+      hostname: { type: string, title: Hostname or IP Address }
+      username: { type: string, title: SSH Username }
+      password: { type: string, title: SSH Password, secret: true }
+      enable_password: { type: string, title: Optional Enable/Priv Password, secret: true }
+      ssh_port: { type: integer, title: SSH Port, default: 22 }
+      timeout_s: { type: integer, title: Session Timeout (s), default: 30 }
+      device_type: { type: string, title: Netmiko Device Type, default: "aruba_osswitch" }
+      # SNMP (v2c for MVP)
+      snmp_community: { type: string, title: SNMP Community, secret: true }
+      snmp_port: { type: integer, title: SNMP Port, default: 161 }
+
+defaults:
+  transports:
+    ssh:
+      timeout_s: 30
+      port: 22
+    snmp:
+      timeout_s: 5
+  heartbeat_interval_s: 60
+
+test:
+  method: ssh
+  ssh:
+    commands:
+      commands: ["show version"]
+
+capabilities:
+  # Parent-level reads
+  - id: switch.inventory
+    verbs: [read]
+    targets: [switch]
+    dry_run: unsupported
+  - id: switch.health
+    verbs: [read]
+    targets: [switch]
+    dry_run: unsupported
+  - id: poe.status
+    verbs: [read]
+    targets: [switch]
+    dry_run: unsupported
+
+  # Child-level operations
+  - id: poe.port
+    verbs: [set]         # params: { state: on|off|cycle, confirm?: bool }
+    targets: [poe-port]
+    dry_run: required
+  - id: poe.priority
+    verbs: [set]         # params: { level: low|high|critical }
+    targets: [poe-port]
+    dry_run: required
+  - id: net.interface
+    verbs: [set]         # params: { admin: up|down }
+    targets: [interface]
+    dry_run: required
+
+  # Config ops
+  - id: switch.config
+    verbs: [save, backup]  # backup returns text
+    targets: [switch]
+    dry_run: optional
+  - id: switch.reboot
+    verbs: [exec]          # params: { confirm: bool }
+    targets: [switch]
+    dry_run: required
+
+discovery:
+  implements: inventory.list
+  interval_s: 600
+
+errors: {}
+
