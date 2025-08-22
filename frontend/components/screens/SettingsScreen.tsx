@@ -602,6 +602,34 @@ export function SettingsScreen() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Backend Control */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Backend Control</CardTitle>
+                <CardDescription>Administrative actions for the backend service</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <Button
+                    variant="destructive"
+                    onClick={async () => {
+                      if (!confirm('Restart backend now? Active requests will be interrupted.')) return;
+                      try {
+                        const res = await fetch('/api/system/restart', { method: 'POST', credentials: 'include' });
+                        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+                        toast.success('Restarting backend...');
+                      } catch (e: any) {
+                        toast.error(e?.message || 'Failed to trigger restart');
+                      }
+                    }}
+                  >
+                    Restart Backend
+                  </Button>
+                  <span className="text-xs text-muted-foreground">Requires admin privileges. The app will reconnect when available.</span>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Diagnostics */}

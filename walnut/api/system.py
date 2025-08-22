@@ -22,6 +22,7 @@ from walnut.auth.models import User
 from walnut.core.health import SystemHealthChecker
 from walnut.core.app_settings import get_setting, set_setting
 from walnut.config import settings as runtime_settings
+import threading, os, time
 
 
 router = APIRouter()
@@ -205,6 +206,29 @@ async def test_oidc_config(payload: Optional[OIDCConfigIn] = None, _user: User =
     except Exception as e:
         logger.exception("OIDC test failed: %s", e)
         raise HTTPException(status_code=500, detail=f"OIDC test failed: {e}")
+
+
+@router.post("/system/restart")
+async def restart_backend(_user: User = Depends(current_admin)) -> Dict[str, Any]:
+    """Trigger a backend restart. Process will exit; supervisor or dev reload restarts it.
+
+    Returns immediately while scheduling a delayed exit to allow HTTP response to flush.
+    """
+    try:
+        logger.warning("Backend restart requested by admin")
+
+        def _delayed_exit():
+            try:
+                time.sleep(0.5)
+            except Exception:
+                pass
+            os._exit(0)
+
+        threading.Thread(target=_delayed_exit, daemon=True).start()
+        return {"status": "restarting"}
+    except Exception as e:
+        logger.exception("Failed to schedule restart: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to restart: {e}")
 
 
 @router.post(
