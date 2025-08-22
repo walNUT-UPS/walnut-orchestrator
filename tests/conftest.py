@@ -9,6 +9,7 @@ from walnut.app import app
 from walnut.database.engine import init_db
 from alembic.config import Config
 from alembic import command
+import respx
 
 
 
@@ -99,6 +100,45 @@ async def async_client(test_db):
     os.environ["WALNUT_DB_PATH"] = test_db
     os.environ["WALNUT_ALLOWED_ORIGINS"] = "http://test.com"
     os.environ["WALNUT_SIGNUP_ENABLED"] = "true"
+
+    # Initialize the database with the test DB path
+    init_db(test_db)
+
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+
+
+@pytest_asyncio.fixture(scope="function")
+@respx.mock
+async def oidc_async_client(test_db):
+    """
+    A fixture that provides an httpx.AsyncClient for testing OIDC functionality.
+    """
+    # Mock the OIDC discovery endpoint
+    OIDC_PROVIDER_URL = "https://example.com"
+    respx.get(f"{OIDC_PROVIDER_URL}/.well-known/openid-configuration").mock(
+        return_value=respx.Response(200, json={
+            "authorization_endpoint": f"{OIDC_PROVIDER_URL}/auth",
+            "token_endpoint": f"{OIDC_PROVIDER_URL}/token",
+            "userinfo_endpoint": f"{OIDC_PROVIDER_URL}/userinfo",
+        })
+    )
+    
+    # Set OIDC environment variables
+    os.environ["WALNUT_OIDC_ENABLED"] = "true"
+    os.environ["WALNUT_OIDC_CLIENT_ID"] = "test_client_id"
+    os.environ["WALNUT_OIDC_CLIENT_SECRET"] = "test_client_secret"
+    os.environ["WALNUT_OIDC_DISCOVERY_URL"] = f"{OIDC_PROVIDER_URL}/.well-known/openid-configuration"
+    os.environ["WALNUT_OIDC_ADMIN_ROLES"] = '["admin"]'
+    os.environ["WALNUT_OIDC_VIEWER_ROLES"] = '["viewer"]'
+
+    # Standard test environment
+    os.environ["WALNUT_TESTING"] = "true"
+    os.environ["WALNUT_DB_PATH"] = test_db
+    os.environ["WALNUT_ALLOWED_ORIGINS"] = "http://test.com"
+    os.environ["WALNUT_SIGNUP_ENABLED"] = "true"
+    os.environ["WALNUT_DB_KEY"] = "a-test-key-that-is-long-enough-for-sqlcipher"
+    os.environ["WALNUT_JWT_SECRET"] = "test-secret"
 
     # Initialize the database with the test DB path
     init_db(test_db)

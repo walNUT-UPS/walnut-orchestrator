@@ -43,6 +43,7 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     "fastapi-users[sqlalchemy]>=13.0.0",
     "python-jose[cryptography]>=3.3.0",
+    "httpx-oauth>=0.12.0",  # OIDC/OAuth support
 
     # CLI
     "typer>=0.9.0",
@@ -90,6 +91,7 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.12.0",
     "httpx>=0.25.0",  # for testing FastAPI
+    "respx>=0.20.0",  # for mocking HTTP requests in tests
     
     # Code quality
     "ruff>=0.1.6",

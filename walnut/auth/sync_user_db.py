@@ -8,13 +8,13 @@ from typing import Optional, Dict, Any, Generic, TypeVar
 import uuid
 
 from fastapi_users.db import BaseUserDatabase
-from fastapi_users.models import UP, ID
+from fastapi_users.models import UP, ID, OAP
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from walnut.auth.models import User
 
-class SyncSQLAlchemyUserDatabase(BaseUserDatabase[User, uuid.UUID], Generic[UP, ID]):
+class SyncSQLAlchemyUserDatabase(BaseUserDatabase[User, uuid.UUID], Generic[UP, ID, OAP]):
     """
     Database adapter for sync SQLAlchemy.
     
@@ -22,9 +22,10 @@ class SyncSQLAlchemyUserDatabase(BaseUserDatabase[User, uuid.UUID], Generic[UP, 
     that works with sync SQLAlchemy sessions.
     """
     
-    def __init__(self, session: Session, user_table: type[UP]):
+    def __init__(self, session: Session, user_table: type[UP], oauth_account_table: Optional[type[OAP]] = None):
         self.session = session
         self.user_table = user_table
+        self.oauth_account_table = oauth_account_table
     
     async def get(self, id: ID) -> Optional[UP]:
         """Get user by ID."""
@@ -39,8 +40,15 @@ class SyncSQLAlchemyUserDatabase(BaseUserDatabase[User, uuid.UUID], Generic[UP, 
         return result.scalar_one_or_none()
     
     async def get_by_oauth_account(self, oauth: str, account_id: str) -> Optional[UP]:
-        """Get user by OAuth account - not implemented for basic auth."""
-        raise NotImplementedError("OAuth not implemented in this sync adapter")
+        """Get user by OAuth account."""
+        if self.oauth_account_table is None:
+            raise NotImplementedError("OAuth not implemented in this sync adapter")
+        statement = select(self.user_table).join(self.oauth_account_table).where(
+            (self.oauth_account_table.oauth_name == oauth) &
+            (self.oauth_account_table.account_id == account_id)
+        )
+        result = self.session.execute(statement)
+        return result.scalar_one_or_none()
     
     async def create(self, create_dict: Dict[str, Any]) -> UP:
         """Create a new user."""

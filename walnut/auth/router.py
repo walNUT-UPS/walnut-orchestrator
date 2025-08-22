@@ -40,6 +40,14 @@ auth_router.include_router(
     tags=["Auth"],
 )
 
+if settings.OIDC_ENABLED:
+    from walnut.auth.auth import get_oidc_client, oauth_backend
+    auth_router.include_router(
+        fastapi_users.get_oauth_router(get_oidc_client(), oauth_backend, settings.JWT_SECRET),
+        prefix="/oauth/oidc",
+        tags=["Auth"],
+    )
+
 # Router for user management and API endpoints
 # Add CSRF protection for API endpoints (but NOT auth endpoints)
 api_router = APIRouter(dependencies=[Depends(csrf_protect)])
