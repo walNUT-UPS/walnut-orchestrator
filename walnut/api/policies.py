@@ -1,28 +1,24 @@
 """
 API endpoints for managing shutdown and automation policies.
 
-This module provides a full set of CRUD (Create, Read, Update, Delete)
-endpoints for managing policies. It also includes endpoints for linting
-and reordering policies.
-
-NOTE: This implementation uses an in-memory dictionary as a placeholder
-for a real database. It is intended for demonstration and testing purposes.
+Provides CRUD endpoints backed by the SQLCipher database and validation
+helpers using the policy linter. Also exposes endpoints for policy
+validation and a basic dry-run planner.
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any, Optional
+import anyio
+from sqlalchemy import select
 
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
+from walnut.database.connection import get_db_session, get_db_session_dependency
+from walnut.database.models import Policy as PolicyModel, serialize_model
 from walnut.policies.schemas import PolicySchema
 from walnut.policies.linter import lint_policy
 from walnut.policies.priority import recompute_priorities
 
 router = APIRouter()
-
-# Placeholder for in-memory storage. In a real application, this would
-# be replaced with database models and queries.
-policies_db: Dict[int, Dict[str, Any]] = {}
-next_policy_id = 1
 
 @router.get("/policies", summary="List all policies", response_model=List[Dict[str, Any]])
 async def list_policies(
@@ -34,15 +30,23 @@ async def list_policies(
 
     Optionally filters policies by their 'enabled' status.
     """
-    # In a real implementation, this would query the database.
-    # For now, return a placeholder list.
-    policies = [
-        {"id": 1, "name": "Policy 1", "enabled": True, "priority": 255, "last_run_status": "success"},
-        {"id": 2, "name": "Policy 2", "enabled": False, "priority": 128, "last_run_status": "failed"},
-    ]
-    if enabled is not None:
-        return [p for p in policies if p["enabled"] == enabled]
-    return policies
+    async with get_db_session() as session:
+        stmt = select(PolicyModel)
+        if enabled is not None:
+            stmt = stmt.where(PolicyModel.enabled == enabled)
+        result = await anyio.to_thread.run_sync(session.execute, stmt)
+        rows = result.scalars().all()
+        return [
+            {
+                **serialize_model(row),
+                # Expose convenient fields commonly shown in UI
+                "name": row.name,
+                "enabled": row.enabled,
+                "priority": row.priority,
+                "json": row.json,
+            }
+            for row in rows
+        ]
 
 @router.post(
     "/policies",
@@ -56,6 +60,7 @@ async def list_policies(
 async def create_policy(
     policy: PolicySchema,
     user: User = Depends(current_active_user),
+    session=Depends(get_db_session_dependency)
 ):
     """
     Create a new policy.
@@ -64,16 +69,20 @@ async def create_policy(
     the creation will fail with a 422 error. Warnings are returned
     in the response but do not block creation.
     """
-    global next_policy_id
     lint_result = lint_policy(policy)
     if lint_result["errors"]:
         raise HTTPException(status_code=422, detail={"errors": lint_result["errors"]})
 
-    new_id = next_policy_id
-    policies_db[new_id] = policy.model_dump()
-    next_policy_id += 1
-
-    return {"id": new_id, **policy.model_dump(), "warnings": lint_result["warnings"]}
+    model = PolicyModel(
+        name=policy.name,
+        enabled=policy.enabled,
+        priority=policy.priority,
+        json=policy.model_dump(mode="json"),
+    )
+    session.add(model)
+    await anyio.to_thread.run_sync(session.flush)
+    await anyio.to_thread.run_sync(session.refresh, model)
+    return {"id": model.id, **serialize_model(model), "warnings": lint_result["warnings"]}
 
 @router.get(
     "/policies/{policy_id}",
@@ -86,9 +95,13 @@ async def get_policy(
     user: User = Depends(current_active_user),
 ):
     """Retrieve a single policy by its ID."""
-    if policy_id not in policies_db:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    return policies_db[policy_id]
+    async with get_db_session() as session:
+        stmt = select(PolicyModel).where(PolicyModel.id == policy_id)
+        result = await anyio.to_thread.run_sync(session.execute, stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Policy not found")
+        return serialize_model(row)
 
 @router.put(
     "/policies/{policy_id}",
@@ -103,21 +116,29 @@ async def update_policy(
     policy_id: int,
     policy: PolicySchema,
     user: User = Depends(current_active_user),
+    session=Depends(get_db_session_dependency)
 ):
     """
     Update an existing policy.
 
     The updated policy is validated by the linter before saving.
     """
-    if policy_id not in policies_db:
+    stmt = select(PolicyModel).where(PolicyModel.id == policy_id)
+    result = session.execute(stmt)
+    row = result.scalar_one_or_none()
+    if not row:
         raise HTTPException(status_code=404, detail="Policy not found")
 
     lint_result = lint_policy(policy)
     if lint_result["errors"]:
         raise HTTPException(status_code=422, detail={"errors": lint_result["errors"]})
 
-    policies_db[policy_id] = policy.model_dump()
-    return {"id": policy_id, **policy.model_dump(), "warnings": lint_result["warnings"]}
+    row.name = policy.name
+    row.enabled = policy.enabled
+    row.priority = policy.priority
+    row.json = policy.model_dump(mode="json")
+    await anyio.to_thread.run_sync(session.flush)
+    return {"id": row.id, **serialize_model(row), "warnings": lint_result["warnings"]}
 
 @router.delete(
     "/policies/{policy_id}",
@@ -130,10 +151,15 @@ async def delete_policy(
     user: User = Depends(current_active_user),
 ):
     """Delete a policy by its ID."""
-    if policy_id not in policies_db:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    del policies_db[policy_id]
-    return
+    async with get_db_session() as session:
+        stmt = select(PolicyModel).where(PolicyModel.id == policy_id)
+        result = await anyio.to_thread.run_sync(session.execute, stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Policy not found")
+        await anyio.to_thread.run_sync(session.delete, row)
+        await anyio.to_thread.run_sync(session.commit)
+        return
 
 @router.post("/policies/reorder", summary="Reorder policies", response_model=List[Dict[str, Any]])
 async def reorder_policies(
@@ -146,8 +172,7 @@ async def reorder_policies(
     Accepts a list of policies in their desired order and returns the
     list with updated `priority` values.
     """
-    # In a real implementation, this would update the priorities in the DB.
-    # For now, we just recompute and return them.
+    # Recompute and return new priorities; caller can then persist if needed.
     new_priorities = recompute_priorities(ordered_policies)
     return new_priorities
 
@@ -166,7 +191,34 @@ async def lint_policy_endpoint(
 
     Returns a dictionary with 'errors' and 'warnings'.
     """
-    if policy_id not in policies_db:
-        raise HTTPException(status_code=404, detail="Policy not found")
-    policy = PolicySchema(**policies_db[policy_id])
-    return lint_policy(policy)
+    async with get_db_session() as session:
+        stmt = select(PolicyModel).where(PolicyModel.id == policy_id)
+        result = await anyio.to_thread.run_sync(session.execute, stmt)
+        row = result.scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Policy not found")
+        policy = PolicySchema(**row.json)
+        return lint_policy(policy)
+
+@router.post("/policies/validate", summary="Validate a policy spec", response_model=Dict[str, List[str]])
+async def validate_policy_spec(payload: PolicySchema, user: User = Depends(current_active_user)):
+    return lint_policy(payload)
+
+@router.post("/policies/test", summary="Dry-run a policy", response_model=Dict[str, Any])
+async def test_policy_dry_run(payload: PolicySchema, user: User = Depends(current_active_user)):
+    """
+    Produce a dry-run plan for the submitted policy. This does not mutate state
+    or contact external systems; it assembles an execution plan from the policy
+    actions and selectors.
+    """
+    plan = []
+    for idx, action in enumerate(payload.actions):
+        plan.append({
+            "step": idx + 1,
+            "capability": action.capability,
+            "verb": action.verb,
+            "selector": action.selector.model_dump(),
+            "expected_targets": 0,  # Target resolution happens at execution time
+            "options": action.options or {},
+        })
+    return {"status": "ok", "plan": plan}

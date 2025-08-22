@@ -243,6 +243,11 @@ class ApiService {
     return this.request<IntegrationInstance[]>('/integrations/instances');
   }
 
+  async getInstanceInventory(instanceId: number, type?: string): Promise<{ items: Array<{ type: string; external_id: string; name: string; attrs?: any; labels?: any }> }> {
+    const q = type ? `?type=${encodeURIComponent(type)}` : '';
+    return this.request(`/integrations/instances/${instanceId}/inventory${q}`);
+  }
+
   async getIntegrationManifest(typeId: string): Promise<{ type_id: string; path: string; manifest_yaml: string }>{
     return this.request(`/integrations/types/${encodeURIComponent(typeId)}/manifest`);
   }
@@ -378,6 +383,35 @@ class ApiService {
       method: 'POST',
       body: cfg ? JSON.stringify(cfg) : undefined,
     });
+  }
+
+  // Policies
+  async listPolicies(): Promise<any[]> {
+    return this.request('/policies');
+  }
+
+  async getPolicy(id: number): Promise<any> {
+    return this.request(`/policies/${id}`);
+  }
+
+  async createPolicy(body: any): Promise<any> {
+    return this.request('/policies', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async updatePolicy(id: number, body: any): Promise<any> {
+    return this.request(`/policies/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+  }
+
+  async deletePolicy(id: number): Promise<void> {
+    await this.request(`/policies/${id}`, { method: 'DELETE' });
+  }
+
+  async validatePolicy(body: any): Promise<{ errors: string[]; warnings: string[] }> {
+    return this.request('/policies/validate', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async testPolicy(body: any): Promise<{ status: string; plan: any[] }> {
+    return this.request('/policies/test', { method: 'POST', body: JSON.stringify(body) });
   }
 }
 

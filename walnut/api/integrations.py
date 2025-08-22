@@ -32,6 +32,7 @@ from walnut.core.integration_registry import get_integration_registry
 from walnut.core.websocket_manager import get_websocket_manager  # noqa: F401  (kept for future WS broadcasts)
 from walnut.core.websocket_manager import websocket_manager
 import uuid
+from fastapi import Query
 import copy
 
 
@@ -909,6 +910,67 @@ async def delete_integration_instance(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete integration instance: {str(e)}")
+
+
+@router.get("/instances/{instance_id}/inventory")
+async def get_instance_inventory(
+    instance_id: int,
+    type: Optional[str] = Query(None, description="Target type filter, e.g., 'vm' or 'host'"),
+    current_user=Depends(current_active_user)
+):
+    """
+    Return discovered targets for an integration instance via its driver's inventory capability.
+    """
+    async with get_db_session() as session:
+        # Load instance and type
+        stmt = (
+            select(IntegrationInstance, IntegrationType)
+            .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
+            .where(IntegrationInstance.instance_id == instance_id)
+        )
+        result = session.execute(stmt)
+        row = result.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Integration instance not found")
+        instance, integration_type = row
+
+        # Dynamically load driver
+        type_path = Path(integration_type.path)
+        driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
+        module_path = type_path / f"{driver_module}.py"
+        if not module_path.exists():
+            raise HTTPException(status_code=500, detail="Driver module not found")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(f"driver_inv_{instance_id}", module_path)
+        if spec is None or spec.loader is None:
+            raise HTTPException(status_code=500, detail="Could not load driver module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[f"driver_inv_{instance_id}"] = module
+        spec.loader.exec_module(module)
+        driver_class = getattr(module, driver_class_name, None)
+        if driver_class is None:
+            raise HTTPException(status_code=500, detail="Driver class not found")
+
+        # Fetch secrets (unencrypted placeholder as in test_instance_connection)
+        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
+        secrets_result = session.execute(secrets_query)
+        secrets_rows = secrets_result.fetchall()
+        secrets: Dict[str, str] = {}
+        for secret_row in secrets_rows:
+            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
+            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
+            secrets[field] = value.decode("utf-8")
+
+        from walnut.transports.manager import TransportManager
+        transports = TransportManager(instance.config)
+        try:
+            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
+            items = await driver.inventory_list(type or 'host', dry_run=False)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Inventory error: {e}")
+        finally:
+            await transports.close_all()
+        return {"items": items}
 
 
 # --- Helper Functions ---
