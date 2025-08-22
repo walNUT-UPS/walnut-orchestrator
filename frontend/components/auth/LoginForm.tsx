@@ -50,14 +50,15 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const isFormValid = stage === 'email' ? isEmailValid : (username.trim() && password.trim());
 
   const beginOidcLogin = () => {
-    // Default OIDC authorize endpoint from backend (fastapi-users oauth router)
-    const base = `${location.origin}/auth/oauth/oidc/authorize`;
+    // Prefer explicit backend URL if provided; fall back to common dev default :8000
+    const backendBase = (import.meta as any).env?.VITE_BACKEND_URL
+      || `${location.protocol}//${location.hostname}:8000`;
+    const authorize = `${backendBase}/auth/oauth/oidc/authorize`;
+    const redirect = `${backendBase}/auth/oauth/oidc/callback`;
     const params = new URLSearchParams();
-    // Common scopes; backend may ignore if configured differently
     params.set('scopes', 'openid email profile');
-    // Callback should match the backend router callback path
-    params.set('redirect_url', `${location.origin}/auth/oauth/oidc/callback`);
-    window.location.href = `${base}?${params.toString()}`;
+    params.set('redirect_url', redirect);
+    window.location.href = `${authorize}?${params.toString()}`;
   };
 
   return (
