@@ -211,21 +211,85 @@ class ProxmoxVeDriver:
             raise ValueError(f"Unsupported vm.lifecycle verb: {verb}")
 
         path = f"/nodes/{node}/qemu/{vmid}/status/{verb}"
-        plan = {"steps": [{"type": "http.request", "request": {"method": "POST", "path": path}}]}
-
+        
         if dry_run:
-            return {
-                "dry_run": True,
-                "plan": plan,
-                "expected_effect": {"target": {"type": "vm", "id": vmid}, "state_change": f"unknown -> {verb}"},
-                "assumptions": ["vm.exists", "auth.token.valid"],
-                "risk": "low",
-            }
+            return await self._vm_lifecycle_dry_run(verb, vmid, node, path)
 
+        plan = {"steps": [{"type": "http.request", "request": {"method": "POST", "path": path}}]}
         result = await self._execute_plan(plan)
         if not result.get("ok"):
             raise RuntimeError(f"API call to {path} failed: {result.get('raw')}")
         return {"task_id": (result.get("data") or {}).get("data")}
+
+    async def _vm_lifecycle_dry_run(self, verb: str, vmid: str, node: str, path: str) -> Dict[str, Any]:
+        """Standardized dry-run response for VM lifecycle operations."""
+        try:
+            # Check VM exists and get current state
+            http = await self._http()
+            vm_resp = await http.call({"method": "GET", "path": f"/nodes/{node}/qemu/{vmid}/status/current"})
+            
+            preconditions = [
+                {"check": "auth_scope", "ok": True},
+                {"check": "vm_exists", "ok": vm_resp.get("ok", False)}
+            ]
+            
+            current_state = "unknown"
+            target_state = verb
+            severity = "info"
+            
+            if vm_resp.get("ok"):
+                vm_data = vm_resp.get("data", {})
+                current_state = vm_data.get("status", "unknown")
+                
+                # Check if action would be a no-op
+                if (verb == "shutdown" and current_state == "stopped") or \
+                   (verb == "start" and current_state == "running"):
+                    severity = "info"  # No-op
+                    preconditions.append({
+                        "check": "vm_state_transition", 
+                        "ok": True, 
+                        "details": {"from": current_state, "to": target_state, "no_op": True}
+                    })
+                else:
+                    preconditions.append({
+                        "check": "vm_state_transition", 
+                        "ok": True, 
+                        "details": {"from": current_state, "to": target_state}
+                    })
+            else:
+                severity = "error"
+                preconditions.append({"check": "vm_exists", "ok": False})
+
+            return {
+                "ok": vm_resp.get("ok", False),
+                "severity": severity,
+                "idempotency_key": f"proxmox.vm:{verb}:vm:{vmid}",
+                "preconditions": preconditions,
+                "plan": {
+                    "kind": "api",
+                    "preview": [{"method": "POST", "endpoint": path}]
+                },
+                "effects": {
+                    "summary": f"VM {vmid} would transition from {current_state} to {target_state}",
+                    "per_target": [{
+                        "id": f"vm:{vmid}",
+                        "from": {"status": current_state},
+                        "to": {"status": target_state}
+                    }]
+                },
+                "reason": None if vm_resp.get("ok") else f"VM {vmid} not found or inaccessible"
+            }
+            
+        except Exception as e:
+            return {
+                "ok": False,
+                "severity": "error",
+                "idempotency_key": f"proxmox.vm:{verb}:vm:{vmid}",
+                "preconditions": [{"check": "api_connectivity", "ok": False}],
+                "plan": {"kind": "api", "preview": []},
+                "effects": {"summary": "Operation failed", "per_target": []},
+                "reason": f"Dry-run check failed: {str(e)}"
+            }
 
     async def power_control(self, verb: str, target, dry_run: bool) -> Dict[str, Any]:
         node = self.config["node"]
@@ -238,19 +302,68 @@ class ProxmoxVeDriver:
             raise ValueError(f"Unsupported verb for host power.control: {verb}")
 
         if dry_run:
-            cmd = "reboot" if verb == "cycle" else "shutdown"
-            return {
-                "will_call": [{"transport": "http", "method": "POST", "path": path, "data": {"command": cmd}}],
-                "expected_effect": {
-                    "target": {"type": "host", "id": node},
-                    "state_change": "running -> restarting" if verb == "cycle" else "running -> stopped",
-                },
-                "assumptions": ["host.exists"],
-                "risk": "high",
-            }
+            return await self._power_control_dry_run(verb, node, path)
 
         # Execution is simulated (actual reboot/shutdown requires elevated perms).
         return {"message": "Simulated host power action via API.", "verb": verb}
+
+    async def _power_control_dry_run(self, verb: str, node: str, path: str) -> Dict[str, Any]:
+        """Standardized dry-run response for power control operations."""
+        try:
+            # Check node status
+            http = await self._http()
+            node_resp = await http.call({"method": "GET", "path": f"/nodes/{node}/status"})
+            
+            cmd = "reboot" if verb == "cycle" else "shutdown"
+            target_state = "restarting" if verb == "cycle" else "stopped"
+            
+            preconditions = [
+                {"check": "auth_scope", "ok": True},
+                {"check": "node_exists", "ok": node_resp.get("ok", False)}
+            ]
+            
+            if node_resp.get("ok"):
+                node_data = node_resp.get("data", {})
+                current_uptime = node_data.get("uptime", 0)
+                preconditions.append({
+                    "check": "node_accessible", 
+                    "ok": True, 
+                    "details": {"uptime": current_uptime}
+                })
+                severity = "warn"  # Power operations are high-risk
+            else:
+                severity = "error"
+
+            return {
+                "ok": node_resp.get("ok", False),
+                "severity": severity,
+                "idempotency_key": f"proxmox.power:{verb}:host:{node}",
+                "preconditions": preconditions,
+                "plan": {
+                    "kind": "api",
+                    "preview": [{"method": "POST", "endpoint": path, "data": {"command": cmd}}]
+                },
+                "effects": {
+                    "summary": f"Host {node} would {verb}",
+                    "per_target": [{
+                        "id": f"host:{node}",
+                        "from": {"status": "running"},
+                        "to": {"status": target_state}
+                    }]
+                },
+                "reason": "Power operations require elevated permissions" if node_resp.get("ok") else f"Node {node} not accessible"
+            }
+            
+        except Exception as e:
+            return {
+                "ok": False,
+                "severity": "error", 
+                "idempotency_key": f"proxmox.power:{verb}:host:{node}",
+                "preconditions": [{"check": "api_connectivity", "ok": False}],
+                "plan": {"kind": "api", "preview": []},
+                "effects": {"summary": "Operation failed", "per_target": []},
+                "reason": f"Dry-run check failed: {str(e)}"
+            }
 
     # ---------- Inventory helpers ----------
 

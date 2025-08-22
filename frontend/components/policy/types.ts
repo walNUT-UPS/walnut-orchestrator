@@ -1,48 +1,126 @@
-export type Trigger = {
-  type: 'status_transition' | 'duration' | 'schedule';
-  from?: string | null;
-  to?: string | null;
-  stable_for?: string | null;
+export type TriggerType = 
+  | { type: 'ups.state'; equals: string }
+  | { type: 'metric.threshold'; metric: string; op: string; value: number; for?: string }
+  | { type: 'timer.at'; schedule: { repeat: string; at: string; days?: string[] } }
+  | { type: 'timer.after'; after: string; since_event: { type: string; equals: string } };
+
+export type TriggerGroup = {
+  logic: 'ALL' | 'ANY';
+  triggers: TriggerType[];
 };
 
-export type TargetSelector = {
-  labels?: Record<string, any>;
-  attrs?: Record<string, any>;
-  names?: string[];
-  external_ids?: string[];
+export type Condition = {
+  scope: 'ups' | 'host' | 'metric' | 'vm';
+  field: string;
+  op: string;
+  value: any;
 };
 
-export type CapabilityAction = {
-  capability: string;
+export type TargetSpec = {
+  host_id: string;
+  target_type: string;
+  selector: {
+    mode: 'list' | 'range' | 'query';
+    value: string;
+  };
+};
+
+export type PolicyAction = {
+  capability_id: string;
   verb: string;
-  selector: TargetSelector;
-  options?: Record<string, any>;
-  instance_id?: number; // UI helper (not in schema)
-  type_id?: string; // UI helper
-  concurrency?: number;
-  backoff_ms?: number;
-  timeout_s?: number;
+  params: Record<string, any>;
+  idempotency?: { key_hint?: string | null };
 };
 
 export type PolicySpec = {
-  version: string;
+  version: 1;
   name: string;
   enabled: boolean;
   priority: number;
-  trigger: Trigger;
-  conditions: { all: Array<Record<string, any>>; any: Array<Record<string, any>> };
-  safeties: { suppression_window?: string | null; global_lock?: string | null; never_hosts?: string[] };
-  actions: CapabilityAction[];
+  stop_on_match: boolean;
+  dynamic_resolution: boolean;
+  trigger_group: TriggerGroup;
+  conditions: {
+    all: Condition[];
+  };
+  targets: TargetSpec;
+  actions: PolicyAction[];
+  suppression_window?: string;
+  idempotency_window?: string;
+  notes?: string;
 };
 
 export const defaultPolicy = (): PolicySpec => ({
-  version: '2.0',
+  version: 1,
   name: '',
-  enabled: true,
-  priority: 128,
-  trigger: { type: 'status_transition', from: null, to: null, stable_for: null },
-  conditions: { all: [], any: [] },
-  safeties: { suppression_window: null, global_lock: null, never_hosts: [] },
+  enabled: false,
+  priority: 0,
+  stop_on_match: false,
+  dynamic_resolution: true,
+  trigger_group: {
+    logic: 'ANY',
+    triggers: [{ type: 'ups.state', equals: 'on_battery' }]
+  },
+  conditions: { all: [] },
+  targets: {
+    host_id: '',
+    target_type: '',
+    selector: { mode: 'list', value: '' }
+  },
   actions: [],
+  suppression_window: '5m',
+  idempotency_window: '10m',
+  notes: ''
 });
+
+export interface Host {
+  id: string;
+  name: string;
+  ip_address: string;
+  os_type: string;
+  status: string;
+}
+
+export interface HostCapability {
+  id: string;
+  verbs: string[];
+  invertible?: Record<string, { inverse: string }>;
+  idempotency?: { key_fields: string[] };
+  dry_run: 'required' | 'optional';
+  params_schema?: Record<string, any>;
+}
+
+export interface InventoryItem {
+  id: string;
+  name: string;
+  type: string;
+  labels: Record<string, any>;
+}
+
+export interface ValidationResult {
+  ok: boolean;
+  schema: { path: string; message: string }[];
+  compile: { path: string; message: string }[];
+  ir?: any;
+  hash?: string;
+}
+
+export interface DryRunResult {
+  severity: 'info' | 'warn' | 'error';
+  results: {
+    target_id: string;
+    capability: string;
+    verb: string;
+    driver: string;
+    ok: boolean;
+    severity: 'info' | 'warn' | 'error';
+    idempotency_key: string;
+    preconditions: { check: string; ok: boolean; details?: any }[];
+    plan: { kind: string; preview: any[] };
+    effects: { summary: string; per_target: any[] };
+    reason: string | null;
+  }[];
+  transcript_id: string;
+  used_inventory: { refreshed: boolean; ts: string };
+}
 

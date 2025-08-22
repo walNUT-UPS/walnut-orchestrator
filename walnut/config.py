@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     OIDC_ADMIN_ROLES: list[str] = []
     OIDC_VIEWER_ROLES: list[str] = []
     DB_PATH: str | None = None
+    
+    # Feature Flags
+    POLICY_V1_ENABLED: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

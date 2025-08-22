@@ -146,6 +146,45 @@ PLUGIN_MANIFEST_SCHEMA: Dict[str, Any] = {
                         "enum": ["required", "optional", "not_supported"],
                         "default": "optional",
                         "description": "Dry run support level for this capability"
+                    },
+                    "invertible": {
+                        "type": "object",
+                        "description": "Invertible verb mappings for policy inverse creation",
+                        "additionalProperties": False,
+                        "patternProperties": {
+                            "^[a-z][a-z0-9_]*$": {
+                                "type": "object",
+                                "required": ["inverse"],
+                                "additionalProperties": False,
+                                "properties": {
+                                    "inverse": {
+                                        "type": "string",
+                                        "pattern": "^[a-z][a-z0-9_]*$",
+                                        "description": "Inverse verb for this action"
+                                    }
+                                }
+                            }
+                        },
+                        "examples": [
+                            {
+                                "start": {"inverse": "shutdown"},
+                                "shutdown": {"inverse": "start"},
+                                "enable": {"inverse": "disable"}
+                            }
+                        ]
+                    },
+                    "idempotency": {
+                        "type": "object",
+                        "description": "Idempotency configuration hints for the policy engine",
+                        "additionalProperties": False,
+                        "properties": {
+                            "key_fields": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Fields to include in idempotency key generation",
+                                "examples": [["verb", "target_id"], ["verb", "target_id", "params.confirm"]]
+                            }
+                        }
                     }
                 }
             }
@@ -154,6 +193,15 @@ PLUGIN_MANIFEST_SCHEMA: Dict[str, Any] = {
             "type": "object",
             "description": "Default configuration values",
             "additionalProperties": True,
+            "properties": {
+                "dry_run_refresh_sla_s": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60,
+                    "default": 5,
+                    "description": "Maximum time to spend on inventory refresh for dry-run operations"
+                }
+            },
             "examples": [
                 {
                     "http": {
@@ -161,7 +209,8 @@ PLUGIN_MANIFEST_SCHEMA: Dict[str, Any] = {
                         "retries": 2,
                         "verify_tls": True
                     },
-                    "heartbeat_interval_s": 120
+                    "heartbeat_interval_s": 120,
+                    "dry_run_refresh_sla_s": 5
                 }
             ]
         },

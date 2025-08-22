@@ -8,11 +8,25 @@ import type { CapabilityAction } from './types';
 import type { IntegrationType, IntegrationInstance } from '../../services/api';
 import { toast } from 'sonner';
 import { apiService } from '../../services/api';
+import { TargetSelector } from './TargetSelector';
+import { GripVertical } from 'lucide-react';
+// Drag-and-drop support can be enabled by installing react-dnd + backend and wiring here.
+const DndProvider: any = null;
+const useDrag: any = null;
+const useDrop: any = null;
+const HTML5Backend: any = null;
 
 export function ActionList({ value, onChange, types, instances }: { value: CapabilityAction[]; onChange: (a: CapabilityAction[]) => void; types: IntegrationType[]; instances: IntegrationInstance[] }) {
   const add = () => onChange([...value, { capability: '', verb: '', selector: {}, options: {}, concurrency: 1, backoff_ms: 500, timeout_s: 30 }]);
   const remove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
   const update = (idx: number, patch: Partial<CapabilityAction>) => onChange(value.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+  const move = (from: number, to: number) => {
+    if (from === to) return;
+    const clone = value.slice();
+    const [item] = clone.splice(from, 1);
+    clone.splice(to, 0, item);
+    onChange(clone);
+  };
 
   const testOne = async (idx: number) => {
     try {
@@ -26,7 +40,7 @@ export function ActionList({ value, onChange, types, instances }: { value: Capab
     }
   };
 
-  return (
+  const ListBody = (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -39,8 +53,13 @@ export function ActionList({ value, onChange, types, instances }: { value: Capab
         {value.map((a, idx) => {
           const selectedType = a.type_id ? types.find((t) => t.id === a.type_id) : undefined;
           const verbs = selectedType?.capabilities.find((c) => c.id === a.capability)?.verbs || [];
-          return (
-            <div key={idx} className="border rounded-md p-3 space-y-3">
+          // Draggable wrapper when DnD available
+          const content = (
+            <div className="border rounded-md p-3 space-y-3">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <GripVertical className="w-3.5 h-3.5" />
+                <span className="text-xs">Step {idx + 1}</span>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label>Integration Type</Label>
@@ -75,18 +94,28 @@ export function ActionList({ value, onChange, types, instances }: { value: Capab
                 </div>
               </div>
 
-              <div>
-                <Label>Selector (labels JSON)</Label>
-                <Textarea
-                  className="mt-1 font-mono text-xs"
-                  value={JSON.stringify(a.selector?.labels || {}, null, 2)}
-                  onChange={(e) => {
-                    try {
-                      const next = JSON.parse(e.target.value || '{}');
-                      update(idx, { selector: { ...(a.selector || {}), labels: next } });
-                    } catch (_) { /* ignore */ }
-                  }}
-                />
+              {/* Instance and target type */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label>Instance</Label>
+                  <Select value={String(a.instance_id || '')} onValueChange={(v) => update(idx, { instance_id: Number(v) })}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select instance" /></SelectTrigger>
+                    <SelectContent>
+                      {instances.filter(inst => !a.type_id || inst.type_id === a.type_id).map(inst => (
+                        <SelectItem key={inst.instance_id} value={String(inst.instance_id)}>{inst.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="md:col-span-2">
+                  <Label>Target Selector</Label>
+                  <TargetSelector
+                    instance={instances.find(i => i.instance_id === a.instance_id)}
+                    targetType={selectedType?.capabilities.find(c => c.id === a.capability)?.targets?.[0]}
+                    value={a.selector || {}}
+                    onChange={(sel) => update(idx, { selector: sel })}
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2">
@@ -95,9 +124,40 @@ export function ActionList({ value, onChange, types, instances }: { value: Capab
               </div>
             </div>
           );
+
+          if (DndProvider && useDrag && useDrop) {
+            // DnD item wrapper
+            const ActionRow = () => {
+              const ref = React.useRef<HTMLDivElement>(null);
+              const [{ isDragging }, drag] = useDrag({
+                type: 'policy-action',
+                item: { index: idx },
+                collect: (monitor: any) => ({ isDragging: monitor.isDragging() }),
+              });
+              const [, drop] = useDrop({
+                accept: 'policy-action',
+                hover: (item: any) => {
+                  const dragIndex = item.index;
+                  const hoverIndex = idx;
+                  if (dragIndex === hoverIndex) return;
+                  move(dragIndex, hoverIndex);
+                  item.index = hoverIndex;
+                },
+              });
+              drag(drop(ref));
+              return <div ref={ref} className={isDragging ? 'opacity-60' : ''}>{content}</div>;
+            };
+            return <ActionRow key={idx} />;
+          }
+          return <div key={idx}>{content}</div>;
         })}
       </CardContent>
     </Card>
   );
-}
 
+  return DndProvider ? (
+    <DndProvider backend={HTML5Backend}>{ListBody}</DndProvider>
+  ) : (
+    ListBody
+  );
+}

@@ -34,44 +34,18 @@ import {
   TableRow,
 } from '../ui/table';
 
-interface Policy { id: number; name: string; enabled: boolean; priority: number; json?: any }
-
-interface Action {
-  id: string;
-  policyId: string;
-  policyName: string;
-  action: string;
-  target: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  startTime: string;
-  endTime?: string;
-  error?: string;
+interface Policy { 
+  id: number; 
+  name: string; 
+  enabled: boolean; 
+  priority: number; 
+  status: 'enabled' | 'disabled' | 'invalid';
+  last_run_ts?: string;
+  last_status?: 'info' | 'warn' | 'error';
+  json?: any;
 }
 
-const mockPolicies: Policy[] = [];
-
-const mockActions: Action[] = [
-  {
-    id: '1',
-    policyId: '1',
-    policyName: 'Emergency Shutdown - Proxmox',
-    action: 'SSH Shutdown',
-    target: 'srv-pbs-01',
-    status: 'completed',
-    startTime: '2024-01-15T12:45:30Z',
-    endTime: '2024-01-15T12:46:15Z'
-  },
-  {
-    id: '2',
-    policyId: '2',
-    policyName: 'TrueNAS Backup Alert',
-    action: 'Webhook',
-    target: 'https://truenas.local/api/backup/pause',
-    status: 'completed',
-    startTime: '2024-01-15T14:30:15Z',
-    endTime: '2024-01-15T14:30:18Z'
-  }
-];
+// Recent actions feed is not implemented yet; show empty table without mocks
 
 export function OrchestrationScreen() {
   const [searchValue, setSearchValue] = useState('');
@@ -97,14 +71,26 @@ export function OrchestrationScreen() {
     );
   };
 
-  const togglePolicy = (policyId: string) => {
-    // Handle policy enable/disable
-    console.log('Toggle policy:', policyId);
+  const togglePolicy = async (policyId: number | string) => {
+    try {
+      const p = policies.find(p => p.id === Number(policyId));
+      if (!p) return;
+      const next = { ...(p.json || {}), name: p.name, enabled: !p.enabled, priority: p.priority };
+      await apiService.updatePolicy(p.id, next);
+      await reloadPolicies();
+    } catch (_) {}
   };
 
-  const testPolicy = (policyId: string) => {
-    // Handle policy test
-    console.log('Test policy:', policyId);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [plan, setPlan] = useState<any[] | null>(null);
+  const testPolicy = async (policyId: number | string) => {
+    try {
+      const p = policies.find(p => p.id === Number(policyId));
+      if (!p) return;
+      const res = await apiService.testPolicy(p.json);
+      setPlan(res.plan || []);
+      setPlanOpen(true);
+    } catch (_) { setPlan(null); setPlanOpen(false); }
   };
 
   const formatTimestamp = (timestamp: string) => {
@@ -156,63 +142,93 @@ export function OrchestrationScreen() {
           </Button>
         </div>
 
-        {/* Policies Grid */}
-        {viewMode === 'cards' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {policies.map((policy) => (
-              <Card 
-                key={policy.id} 
-                className="bg-card hover:bg-accent/50 transition-colors cursor-pointer"
-                style={{ boxShadow: 'var(--shadow-card)' }}
-              >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-title">{policy.name}</CardTitle>
-                      <p className="text-micro text-muted-foreground mt-1">Priority {policy.priority}</p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Switch 
-                        checked={policy.enabled} 
-                        onCheckedChange={() => togglePolicy(policy.id)}
-                      />
-                    </div>
-                  </div>
-                </CardHeader>
-                
-                <CardContent className="space-y-4">
-                  <div className="text-micro text-muted-foreground">Version {policy.json?.version || '2.0'}</div>
-
-                  <div className="flex items-center space-x-2 pt-3 border-t border-border">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1"
-                      onClick={() => { setEdit({ id: policy.id, spec: policy.json }); setFlyoutOpen(true); }}
-                    >
-                      <Settings className="w-3 h-3 mr-1" />
-                      Edit
-                    </Button>
-
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => testPolicy(policy.id)}
-                    >
-                      <Zap className="w-3 h-3 mr-1" />
-                      Test
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+        {/* Policies Table */}
+        <div className="bg-card rounded-lg border border-border overflow-hidden">
+          <Table>
+            <TableHeader className="bg-muted/30">
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Priority</TableHead>
+                <TableHead>Last Run</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {policies.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                    No policies configured yet
+                  </TableCell>
+                </TableRow>
+              ) : (
+                policies.map((policy) => (
+                  <TableRow key={policy.id} className="hover:bg-muted/20">
+                    <TableCell>
+                      <div className="font-medium">{policy.name}</div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={
+                        policy.status === 'enabled' ? 'default' : 
+                        policy.status === 'disabled' ? 'secondary' : 
+                        'destructive'
+                      }>
+                        {policy.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{policy.priority}</TableCell>
+                    <TableCell>
+                      {policy.last_run_ts ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{formatTimestamp(policy.last_run_ts)}</span>
+                          <Badge 
+                            variant={
+                              policy.last_status === 'info' ? 'secondary' :
+                              policy.last_status === 'warn' ? 'outline' :
+                              'destructive'
+                            }
+                            className="text-xs"
+                          >
+                            {policy.last_status}
+                          </Badge>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">Never</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => { setEdit({ id: policy.id, spec: policy.json }); setFlyoutOpen(true); }}
+                        >
+                          <Settings className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => testPolicy(policy.id)}
+                        >
+                          <Zap className="w-4 h-4" />
+                        </Button>
+                        <Switch 
+                          size="sm"
+                          checked={policy.enabled} 
+                          onCheckedChange={() => togglePolicy(policy.id)}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
 
         {/* Recent Actions */}
         <div className="space-y-4">
           <h2 className="text-display">Recent Actions</h2>
-          
           <div className="bg-card rounded-lg border border-border overflow-hidden">
             <Table>
               <TableHeader className="bg-muted/30">
@@ -226,45 +242,35 @@ export function OrchestrationScreen() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mockActions.map((action) => {
-                  const duration = action.endTime 
-                    ? Math.round((new Date(action.endTime).getTime() - new Date(action.startTime).getTime()) / 1000)
-                    : null;
-
-                  return (
-                    <TableRow key={action.id} className="hover:bg-accent/50">
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{action.policyName}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{action.action}</Badge>
-                      </TableCell>
-                      <TableCell className="font-mono text-micro">
-                        {action.target}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {getStatusIcon(action.status)}
-                          <span className="capitalize">{action.status}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-micro tabular-nums">
-                        {formatTimestamp(action.startTime)}
-                      </TableCell>
-                      <TableCell className="text-micro tabular-nums">
-                        {duration ? `${duration}s` : '-'}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                    No actions recorded yet
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </div>
         </div>
       </div>
+
+      {/* Modals */}
       <PolicyFlyout open={flyoutOpen} onOpenChange={setFlyoutOpen} initial={edit} onSaved={reloadPolicies} />
+      
+      {planOpen && (
+        <div className="fixed inset-0 bg-background/70 backdrop-blur z-50 p-6" onClick={() => setPlanOpen(false)}>
+          <div className="max-w-2xl mx-auto bg-card border rounded-md p-4" onClick={e => e.stopPropagation()}>
+            <div className="text-title mb-2">Dry Run Plan</div>
+            <ol className="text-sm list-decimal ml-5 max-h-[50vh] overflow-auto">
+              {(plan || []).map((s, i) => (
+                <li key={i} className="mb-1">{s.capability} • {s.verb}</li>
+              ))}
+            </ol>
+            <div className="text-right mt-3">
+              <Button variant="outline" onClick={() => setPlanOpen(false)}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

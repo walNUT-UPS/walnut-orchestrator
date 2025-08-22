@@ -1,5 +1,12 @@
 import re
 
+def parse_duration(time_str: str) -> int:
+    """
+    Parse a duration string like '15s', '10m', '1h' into seconds.
+    Alias for parse_time for compatibility.
+    """
+    return parse_time(time_str)
+
 def parse_time(time_str: str) -> int:
     """
     Parse a time string like '15s', '10m', '1h' into seconds.

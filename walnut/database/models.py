@@ -713,3 +713,196 @@ def create_event(
         severity=severity,
         event_metadata=metadata or {},
     )
+
+
+# ===== New Policy System Models (v1) =====
+
+class PolicyV1(Base):
+    """
+    Policy System v1 table for storing compiled policy specifications.
+    
+    Stores policy specs, compiled IR, validation results, and execution history
+    as specified in POLICY.md v1.
+    """
+    __tablename__ = "policies_v1"
+    
+    # Primary identifiers
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="Policy UUID")
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        index=True,
+        comment="Policy name (min 3 chars)"
+    )
+    
+    # Status and versioning
+    status: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="disabled",
+        index=True,
+        comment="enabled|disabled|invalid"
+    )
+    version_int: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        comment="Version number, incremented on updates"
+    )
+    hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="SHA256 hash of normalized spec"
+    )
+    
+    # Policy execution configuration
+    priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        index=True,
+        comment="Execution priority (lower = higher priority)"
+    )
+    stop_on_match: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Stop processing further policies on match"
+    )
+    dynamic_resolution: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="Re-resolve target selectors at runtime"
+    )
+    
+    # Execution windows (in seconds)
+    suppression_window_s: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=300,
+        comment="Suppression window in seconds"
+    )
+    idempotency_window_s: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=600,
+        comment="Idempotency window in seconds"
+    )
+    
+    # Policy content (JSON fields)
+    spec: Mapped[Dict[str, Any]] = mapped_column(
+        SQLiteJSON,
+        nullable=False,
+        comment="Original policy specification JSON"
+    )
+    compiled_ir: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        SQLiteJSON,
+        nullable=True,
+        comment="Compiled intermediate representation JSON"
+    )
+    
+    # Validation and dry-run results
+    last_validation: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        SQLiteJSON,
+        nullable=True,
+        comment="Last validation result with schema/compile errors"
+    )
+    last_dry_run: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        SQLiteJSON,
+        nullable=True,
+        comment="Last dry-run result with transcript"
+    )
+    
+    # Audit fields
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="Policy creation timestamp"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+        comment="Policy last update timestamp"
+    )
+    
+    # Relationships
+    executions: Mapped[List["PolicyExecution"]] = relationship(
+        back_populates="policy",
+        cascade="all, delete-orphan",
+        order_by="PolicyExecution.ts.desc()"
+    )
+    
+    __table_args__ = (
+        Index("idx_policies_v1_status", "status"),
+        Index("idx_policies_v1_priority", "priority"),
+        Index("idx_policies_v1_hash", "hash"),
+        Index("idx_policies_v1_enabled_priority", "status", "priority"),
+        Index("idx_policies_v1_updated_at", "updated_at"),
+    )
+
+
+class PolicyExecution(Base):
+    """
+    Policy execution history with automatic pruning to last 30 per policy.
+    
+    Records individual policy execution attempts, results, and summaries
+    for audit and debugging purposes.
+    """
+    __tablename__ = "policy_executions"
+    
+    # Primary identifiers  
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="Execution UUID")
+    policy_id: Mapped[str] = mapped_column(
+        ForeignKey("policies_v1.id"),
+        nullable=False,
+        index=True,
+        comment="Policy UUID reference"
+    )
+    
+    # Execution metadata
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+        comment="Execution timestamp"
+    )
+    severity: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        comment="info|warn|error execution severity"
+    )
+    
+    # Execution context and results
+    event_snapshot: Mapped[Dict[str, Any]] = mapped_column(
+        SQLiteJSON,
+        nullable=False,
+        comment="Snapshot of triggering event"
+    )
+    actions: Mapped[Dict[str, Any]] = mapped_column(
+        SQLiteJSON,
+        nullable=False,
+        comment="Executed actions with results"
+    )
+    summary: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Human-readable execution summary"
+    )
+    
+    # Relationships
+    policy: Mapped["PolicyV1"] = relationship(back_populates="executions")
+    
+    __table_args__ = (
+        Index("idx_policy_executions_policy_id", "policy_id"),
+        Index("idx_policy_executions_ts", "ts"),
+        Index("idx_policy_executions_severity", "severity"),
+        Index("idx_policy_executions_policy_ts", "policy_id", "ts"),
+    )

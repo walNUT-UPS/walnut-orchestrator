@@ -28,6 +28,7 @@ defaults:
     snmp:
       timeout_s: 5
   heartbeat_interval_s: 60
+  dry_run_refresh_sla_s: 8
 
 test:
   method: ssh
@@ -55,14 +56,26 @@ capabilities:
     verbs: [set]         # params: { state: on|off|cycle, confirm?: bool }
     targets: [poe-port]
     dry_run: required
+    invertible:
+      set:
+        inverse: set  # PoE set is self-inverse with state parameter
+    idempotency:
+      key_fields: [verb, target_id, params.state]
   - id: poe.priority
     verbs: [set]         # params: { level: low|high|critical }
     targets: [poe-port]
     dry_run: required
+    idempotency:
+      key_fields: [verb, target_id, params.level]
   - id: net.interface
     verbs: [set]         # params: { admin: up|down }
     targets: [interface]
     dry_run: required
+    invertible:
+      set:
+        inverse: set  # Interface set is self-inverse with admin parameter
+    idempotency:
+      key_fields: [verb, target_id, params.admin]
 
   # Config ops
   - id: switch.config

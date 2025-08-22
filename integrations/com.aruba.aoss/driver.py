@@ -319,44 +319,18 @@ def _poe_port_set(target: dict, params: dict, connection: dict, dry_run: bool) -
     state = params.get("state")
     if state not in ("on", "off", "cycle"):
         return {"ok": False, "error_code": "validation_error", "error": "state must be one of on|off|cycle"}
+    
     # destructive ops require confirm
     if (state in ("off", "cycle")) and not dry_run:
         val = _validate_confirm(params, True)
         if val:
             return val
+    
     keys = normalize_targets(target)
     ranges = compress_to_cli(keys)
 
-    # preconditions
-    snmp = _snmp_ctx(connection)
-    poe_main = _safe_snmp_walk(snmp_helpers.PETH_MAIN_PSE_TABLE, snmp)
-    poe_supported = bool(poe_main)
-    lldp = _safe_snmp_walk(snmp_helpers.LLDP_REM_TABLE, snmp)
-    protected: List[str] = []
-    for k in keys:
-        # basic heuristic: no LLDP per-if mapping here; just skip none
-        if is_protected_port(None, None):
-            protected.append(f"{k.member}/{k.slot}{k.port}")
-    pre = [
-        {"check": "poe_supported", "ok": poe_supported},
-        {"check": "protected_ports", "ok": len(protected) == 0, "blocked": protected},
-    ]
-
-    effects = {
-        "expected_free_w_increase": 0.0 if state == "on" else 15.0,  # heuristic
-        "ports": [
-            {
-                "id": f"{k.member}/{k.slot}{k.port}" if not k.slot.isdigit() else f"{k.member}/{k.slot}/{k.port}",
-                "from": {"draw_w": 7.5},
-                "to": {"draw_w": 0.0 if state in ("off", "cycle") else 7.5},
-            }
-            for k in keys
-        ],
-    }
-
-    plan = _build_plan("poe.port:set", target, params, connection, ranges, pre, effects)
     if dry_run:
-        return plan
+        return _poe_port_set_dry_run(state, keys, ranges, connection)
 
     # execute
     lines: List[str] = ["interface " + r for r in ranges]
@@ -373,6 +347,92 @@ def _poe_port_set(target: dict, params: dict, connection: dict, dry_run: bool) -
         out2 = _do_config(connection, ["configure", *("interface " + r for r in ranges), "power-over-ethernet", "exit", "exit"])
         out.extend(out2)
     return {"ok": True, "result": out}
+
+
+def _poe_port_set_dry_run(state: str, keys: List[PortKey], ranges: List[str], connection: dict) -> dict:
+    """Standardized dry-run response for PoE port operations."""
+    try:
+        # Check preconditions
+        snmp = _snmp_ctx(connection)
+        poe_main = _safe_snmp_walk(snmp_helpers.PETH_MAIN_PSE_TABLE, snmp)
+        poe_supported = bool(poe_main)
+        
+        # Check protected ports
+        protected: List[str] = []
+        for k in keys:
+            if is_protected_port(None, None):
+                protected.append(f"{k.member}/{k.slot}{k.port}")
+        
+        preconditions = [
+            {"check": "poe_supported", "ok": poe_supported},
+            {"check": "protected_ports", "ok": len(protected) == 0, "details": {"blocked": protected}},
+        ]
+        
+        # Determine severity
+        if not poe_supported:
+            severity = "error"
+            reason = "PoE not supported on this device"
+        elif protected:
+            severity = "error" 
+            reason = f"Cannot modify protected ports: {', '.join(protected)}"
+        else:
+            severity = "warn"  # PoE operations are potentially disruptive
+            reason = "inventory stale; fast refresh failed" if not poe_main else None
+
+        # Build CLI plan
+        cli_commands = ["configure"]
+        for r in ranges:
+            cli_commands.append(f"interface {r}")
+            if state == "off":
+                cli_commands.append("no power-over-ethernet")
+            elif state == "on":
+                cli_commands.append("power-over-ethernet")
+            elif state == "cycle":
+                cli_commands.append("no power-over-ethernet")
+                cli_commands.append("! wait 4s")
+                cli_commands.append("power-over-ethernet")
+            cli_commands.append("exit")
+        cli_commands.append("exit")
+
+        # Build effects
+        per_target_effects = []
+        for k in keys:
+            port_id = f"{k.member}/{k.slot}{k.port}" if not k.slot.isdigit() else f"{k.member}/{k.slot}/{k.port}"
+            per_target_effects.append({
+                "id": port_id,
+                "from": {"draw_w": 7.5},
+                "to": {"draw_w": 0.0 if state in ("off", "cycle") else 7.5}
+            })
+
+        # Build target range string for idempotency key
+        target_range = ",".join(ranges)
+
+        return {
+            "ok": poe_supported and not protected,
+            "severity": severity,
+            "idempotency_key": f"aoss.poe.port:set:{target_range}:{state}",
+            "preconditions": preconditions,
+            "plan": {
+                "kind": "cli",
+                "preview": cli_commands
+            },
+            "effects": {
+                "summary": f"Ports {target_range} would power {'off' if state == 'off' else 'on' if state == 'on' else 'cycle'}",
+                "per_target": per_target_effects
+            },
+            "reason": reason
+        }
+        
+    except Exception as e:
+        return {
+            "ok": False,
+            "severity": "error",
+            "idempotency_key": f"aoss.poe.port:set:error",
+            "preconditions": [{"check": "connectivity", "ok": False}],
+            "plan": {"kind": "cli", "preview": []},
+            "effects": {"summary": "Operation failed", "per_target": []},
+            "reason": f"Dry-run check failed: {str(e)}"
+        }
 
 
 def _poe_priority_set(target: dict, params: dict, connection: dict, dry_run: bool) -> dict:

@@ -140,6 +140,8 @@ The key will be automatically loaded from `/run/secrets/walnut_db_key`.
 
 ### Running Tests
 
+For comprehensive testing instructions including Policy System tests, see [docs/TESTING.md](docs/TESTING.md).
+
 ```bash
 # Install development dependencies
 pip install -e ".[dev]"
@@ -149,6 +151,9 @@ pytest
 
 # Run database tests only
 pytest tests/test_database.py -v
+
+# Run Policy System tests
+pytest tests/test_policy_*.py --cov=walnut.policy -v
 
 # Run with coverage
 pytest --cov=walnut tests/

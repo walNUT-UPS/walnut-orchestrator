@@ -28,6 +28,7 @@ defaults:
     backoff_ms_start: 250
     verify_tls: true
   heartbeat_interval_s: 120
+  dry_run_refresh_sla_s: 5
 
 test:
   method: http
@@ -42,11 +43,22 @@ capabilities:
     verbs: [shutdown, start, stop, suspend, resume, reset]
     targets: [vm]
     dry_run: required
+    invertible:
+      start:
+        inverse: shutdown
+      shutdown:
+        inverse: start
+    idempotency:
+      key_fields: [verb, target_id]
 
   - id: power.control
     verbs: [shutdown, cycle]   # cycle = reboot intent
     targets: [host]
+    dry_run: required
+    idempotency:
+      key_fields: [verb, target_id]
 
   - id: inventory.list
     verbs: [list]
     targets: [vm, host]
+    dry_run: optional

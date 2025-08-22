@@ -115,16 +115,59 @@ export interface LegacyIntegrationInstance {
 
 class ApiService {
   private baseUrl = '/api';
+  private csrfToken: string | null = null;
+
+  private async getCsrfToken(): Promise<string | null> {
+    if (this.csrfToken) {
+      return this.csrfToken;
+    }
+
+    try {
+      // Try to get CSRF token from meta tag first
+      const metaTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement;
+      if (metaTag) {
+        this.csrfToken = metaTag.content;
+        return this.csrfToken;
+      }
+
+      // Otherwise fetch from API
+      const response = await fetch('/api/csrf-token', { credentials: 'include' });
+      if (response.ok) {
+        const data = await response.json();
+        this.csrfToken = data.csrf_token;
+        return this.csrfToken;
+      }
+    } catch (e) {
+      console.warn('Failed to get CSRF token:', e);
+    }
+
+    return null;
+  }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    };
+
+    // Add CSRF token for non-GET requests
+    if (options?.method && options.method !== 'GET') {
+      const csrfToken = await this.getCsrfToken();
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+      }
+    }
+
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       credentials: 'include', // Include cookies for authentication
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      headers,
       ...options,
     });
+
+    // Clear CSRF token on 403 (CSRF failure) to force refresh
+    if (response.status === 403) {
+      this.csrfToken = null;
+    }
 
     if (response.status === 401) {
       // Don't redirect here - let the auth context handle it
@@ -412,6 +455,27 @@ class ApiService {
 
   async testPolicy(body: any): Promise<{ status: string; plan: any[] }> {
     return this.request('/policies/test', { method: 'POST', body: JSON.stringify(body) });
+  }
+
+  async dryRunPolicy(id: number): Promise<any> {
+    return this.request(`/policies/${id}/dry-run`, { method: 'POST' });
+  }
+
+  async createInversePolicy(id: number): Promise<any> {
+    return this.request(`/policies/${id}/inverse`, { method: 'POST' });
+  }
+
+  // Host management
+  async getHosts(): Promise<any[]> {
+    return this.request('/hosts');
+  }
+
+  async getHostCapabilities(hostId: string): Promise<any[]> {
+    return this.request(`/hosts/${hostId}/capabilities`);
+  }
+
+  async getHostInventory(hostId: string, refresh = false): Promise<any[]> {
+    return this.request(`/hosts/${hostId}/inventory?refresh=${refresh}`);
   }
 }
 
