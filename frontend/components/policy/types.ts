@@ -1,78 +1,61 @@
-export type TriggerType = 
-  | { type: 'ups.state'; equals: string }
-  | { type: 'metric.threshold'; metric: string; op: string; value: number; for?: string }
-  | { type: 'timer.at'; schedule: { repeat: string; at: string; days?: string[] } }
-  | { type: 'timer.after'; after: string; since_event: { type: string; equals: string } };
+// Policy Schema v2 types (aligned with backend pydantic models)
 
-export type TriggerGroup = {
-  logic: 'ALL' | 'ANY';
-  triggers: TriggerType[];
+export type Trigger = {
+  type: 'status_transition' | 'duration' | 'schedule';
+  from?: string; // alias for from_status
+  to?: string;   // alias for to_status
+  stable_for?: string; // e.g., "60s"
 };
 
-export type Condition = {
-  scope: 'ups' | 'host' | 'metric' | 'vm';
-  field: string;
-  op: string;
-  value: any;
+export type Conditions = {
+  all: Array<Record<string, any>>;
+  any: Array<Record<string, any>>;
 };
 
-export type TargetSpec = {
-  host_id: string;
-  target_type: string;
-  selector: {
-    mode: 'list' | 'range' | 'query';
-    value: string;
-  };
+export type TargetSelector = {
+  labels?: Record<string, any>;
+  attrs?: Record<string, any>;
+  names?: string[];
+  external_ids?: string[];
 };
 
-export type PolicyAction = {
-  capability_id: string;
+export interface CapabilityAction {
+  host_id?: string;
+  capability: string;
   verb: string;
-  params: Record<string, any>;
-  idempotency?: { key_hint?: string | null };
+  selector: TargetSelector;
+  options?: Record<string, any>;
+}
+
+export type Safeties = {
+  suppression_window?: string | null;
+  global_lock?: string | null;
+  never_hosts?: string[];
 };
 
 export type PolicySpec = {
-  version: 1;
+  version: '2.0';
   name: string;
   enabled: boolean;
-  priority: number;
-  stop_on_match: boolean;
-  dynamic_resolution: boolean;
-  trigger_group: TriggerGroup;
-  conditions: {
-    all: Condition[];
-  };
-  targets: TargetSpec;
-  actions: PolicyAction[];
-  suppression_window?: string;
-  idempotency_window?: string;
-  notes?: string;
+  priority: number; // 0-255
+  trigger: Trigger;
+  conditions: Conditions;
+  safeties: Safeties;
+  actions: CapabilityAction[];
 };
 
 export const defaultPolicy = (): PolicySpec => ({
-  version: 1,
+  version: '2.0',
   name: '',
-  enabled: false,
-  priority: 0,
-  stop_on_match: false,
-  dynamic_resolution: true,
-  trigger_group: {
-    logic: 'ANY',
-    triggers: [{ type: 'ups.state', equals: 'on_battery' }]
-  },
-  conditions: { all: [] },
-  targets: {
-    host_id: '',
-    target_type: '',
-    selector: { mode: 'list', value: '' }
-  },
+  enabled: true,
+  priority: 128,
+  trigger: { type: 'status_transition', from: '', to: '' },
+  conditions: { all: [], any: [] },
+  safeties: { suppression_window: '10m', global_lock: null, never_hosts: [] },
   actions: [],
-  suppression_window: '5m',
-  idempotency_window: '10m',
-  notes: ''
 });
 
+// Legacy host/inventory types (kept for compatibility if needed elsewhere)
 export interface Host {
   id: string;
   name: string;
@@ -84,6 +67,7 @@ export interface Host {
 export interface HostCapability {
   id: string;
   verbs: string[];
+  targets?: string[];
   invertible?: Record<string, { inverse: string }>;
   idempotency?: { key_fields: string[] };
   dry_run: 'required' | 'optional';
@@ -123,4 +107,3 @@ export interface DryRunResult {
   transcript_id: string;
   used_inventory: { refreshed: boolean; ts: string };
 }
-

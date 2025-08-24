@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { ThemeProvider } from './components/ThemeProvider';
 import { ConfirmProvider } from './components/ui/confirm';
 import { AuthProvider } from './contexts/AuthContext';
+import { AuthPromptProvider } from './contexts/AuthPrompt';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { TopBar } from './components/TopBar';
 import { OverviewScreen } from './components/screens/OverviewScreen';
@@ -64,6 +65,7 @@ function App() {
   return (
     <ThemeProvider defaultTheme="dark" storageKey="walnut-theme">
       <AuthProvider>
+        <AuthPromptProvider>
         <ConfirmProvider>
           <Router>
             <ProtectedRoute>
@@ -71,6 +73,7 @@ function App() {
             </ProtectedRoute>
           </Router>
         </ConfirmProvider>
+        </AuthPromptProvider>
       </AuthProvider>
     </ThemeProvider>
   );

@@ -2,10 +2,10 @@ import React from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
 import { Textarea } from '../ui/textarea';
-import type { CapabilityAction } from './types';
-import type { IntegrationType, IntegrationInstance } from '../../services/api';
+import { Input } from '../ui/input';
+import type { CapabilityAction, HostCapability } from './types';
+import type { Host } from './types';
 import { toast } from 'sonner';
 import { apiService } from '../../services/api';
 import { TargetSelector } from './TargetSelector';
@@ -16,8 +16,35 @@ const useDrag: any = null;
 const useDrop: any = null;
 const HTML5Backend: any = null;
 
-export function ActionList({ value, onChange, types, instances }: { value: CapabilityAction[]; onChange: (a: CapabilityAction[]) => void; types: IntegrationType[]; instances: IntegrationInstance[] }) {
-  const add = () => onChange([...value, { capability: '', verb: '', selector: {}, options: {}, concurrency: 1, backoff_ms: 500, timeout_s: 30 }]);
+export function ActionList({ value, onChange }: { value: CapabilityAction[]; onChange: (a: CapabilityAction[]) => void }) {
+  const [hosts, setHosts] = React.useState<Host[]>([]);
+  const [capsByHost, setCapsByHost] = React.useState<Record<string, HostCapability[]>>({});
+  const [loadingHosts, setLoadingHosts] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        setLoadingHosts(true);
+        const hs = await apiService.getHosts();
+        setHosts(hs as any);
+      } catch (e) {
+        // ignore
+      } finally {
+        setLoadingHosts(false);
+      }
+    })();
+  }, []);
+
+  const loadCaps = async (hostId: string) => {
+    try {
+      if (capsByHost[hostId]) return;
+      const caps = await apiService.getHostCapabilities(hostId);
+      setCapsByHost((m) => ({ ...m, [hostId]: caps as any }));
+    } catch (e) {
+      // ignore
+    }
+  };
+  const add = () => onChange([...value, { host_id: '', capability: '', verb: '', selector: {}, options: {} } as any]);
   const remove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
   const update = (idx: number, patch: Partial<CapabilityAction>) => onChange(value.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
   const move = (from: number, to: number) => {
@@ -51,8 +78,6 @@ export function ActionList({ value, onChange, types, instances }: { value: Capab
       <CardContent className="space-y-4">
         {value.length === 0 && <div className="text-sm text-muted-foreground">No actions defined yet.</div>}
         {value.map((a, idx) => {
-          const selectedType = a.type_id ? types.find((t) => t.id === a.type_id) : undefined;
-          const verbs = selectedType?.capabilities.find((c) => c.id === a.capability)?.verbs || [];
           // Draggable wrapper when DnD available
           const content = (
             <div className="border rounded-md p-3 space-y-3">
@@ -62,63 +87,69 @@ export function ActionList({ value, onChange, types, instances }: { value: Capab
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <Label>Integration Type</Label>
-                  <Select value={a.type_id || ''} onValueChange={(v) => update(idx, { type_id: v, capability: '', verb: '' })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select type" /></SelectTrigger>
-                    <SelectContent>
-                      {types.filter(t => t.status === 'valid').map((t) => (
-                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>Host</Label>
+                  <select
+                    value={(a as any).host_id || ''}
+                    onChange={async (e) => { const host_id = e.target.value; update(idx, { ...(a as any), selector: a.selector || {}, } as any); update(idx, { ...(a as any), host_id } as any); await loadCaps(host_id); }}
+                    className="w-full p-2 border rounded text-sm"
+                  >
+                    <option value="">Select host</option>
+                    {hosts.map((h) => (
+                      <option key={h.id} value={h.id}>{h.name || h.id}</option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <Label>Capability</Label>
-                  <Select value={a.capability || ''} onValueChange={(v) => update(idx, { capability: v, verb: '' })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select capability" /></SelectTrigger>
-                    <SelectContent>
-                      {selectedType?.capabilities.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.id}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Verb</Label>
-                  <Select value={a.verb || ''} onValueChange={(v) => update(idx, { verb: v })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select verb" /></SelectTrigger>
-                    <SelectContent>
-                      {verbs.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {(a as any).host_id && (
+                  <>
+                    <div>
+                      <Label>Capability</Label>
+                      <select
+                        value={a.capability || ''}
+                        onChange={(e) => update(idx, { capability: e.target.value, verb: '' })}
+                        className="w-full p-2 border rounded text-sm"
+                      >
+                        <option value="">Select capability</option>
+                        {(capsByHost[(a as any).host_id || ''] || []).filter(c => c.id !== 'inventory.list').map((c) => (
+                          <option key={c.id} value={c.id}>{c.id}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Verb</Label>
+                      <select
+                        value={a.verb || ''}
+                        onChange={(e) => update(idx, { verb: e.target.value })}
+                        className="w-full p-2 border rounded text-sm"
+                        disabled={!a.capability}
+                      >
+                        <option value="">Select verb</option>
+                        {(capsByHost[(a as any).host_id || ''] || []).find(c => c.id === a.capability)?.verbs?.map((v) => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* Instance and target type */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(a as any).host_id && a.capability && (
                 <div>
-                  <Label>Instance</Label>
-                  <Select value={String(a.instance_id || '')} onValueChange={(v) => update(idx, { instance_id: Number(v) })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select instance" /></SelectTrigger>
-                    <SelectContent>
-                      {instances.filter(inst => !a.type_id || inst.type_id === a.type_id).map(inst => (
-                        <SelectItem key={inst.instance_id} value={String(inst.instance_id)}>{inst.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="md:col-span-2">
                   <Label>Target Selector</Label>
-                  <TargetSelector
-                    instance={instances.find(i => i.instance_id === a.instance_id)}
-                    targetType={selectedType?.capabilities.find(c => c.id === a.capability)?.targets?.[0]}
-                    value={a.selector || {}}
-                    onChange={(sel) => update(idx, { selector: sel })}
-                  />
+                  {(() => {
+                    const cap = (capsByHost[(a as any).host_id || ''] || []).find(c => c.id === a.capability);
+                    const targets = cap?.targets || [];
+                    const hostOnly = targets.length === 1 && targets[0] === 'host';
+                    if (hostOnly) {
+                      return <div className="text-xs text-muted-foreground">Operates on host. No target selection required.</div>;
+                    }
+                    return <TargetSelector value={a.selector || {}} onChange={(sel) => update(idx, { selector: sel })} />;
+                  })()}
                 </div>
-              </div>
+              )}
 
               <div className="flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => move(idx, Math.max(0, idx - 1))} disabled={idx === 0}>Up</Button>
+                <Button size="sm" variant="secondary" onClick={() => move(idx, Math.min(value.length - 1, idx + 1))} disabled={idx === value.length - 1}>Down</Button>
                 <Button size="sm" variant="outline" onClick={() => testOne(idx)}>Dry Run</Button>
                 <Button size="sm" variant="outline" onClick={() => remove(idx)}>Remove</Button>
               </div>

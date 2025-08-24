@@ -129,7 +129,8 @@
   --muted-foreground: var(--text-muted);
   --accent: var(--bg-elevated);
   --accent-foreground: var(--text-primary);
-  --destructive: var(--status-error);
+  /* Tailwind expects HSL components here for hsl(var(--destructive)) */
+  --destructive: 0 84% 60%;
   --destructive-foreground: var(--text-primary);
   --border: var(--border-muted);
   --input: var(--bg-surface);

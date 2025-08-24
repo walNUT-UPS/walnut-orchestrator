@@ -195,8 +195,8 @@ export function HostsScreen() {
         apiService.getIntegrationInstances()
       ]);
       
-      // Allow creating instances for types that are available (valid or checking)
-      setIntegrationTypes(types.filter(t => t.status !== 'unavailable'));
+      // Only allow creating instances for VALID types
+      setIntegrationTypes(types.filter(t => t.status === 'valid'));
       setIntegrationInstances(instances);
       return { types, instances };
     } catch (err) {

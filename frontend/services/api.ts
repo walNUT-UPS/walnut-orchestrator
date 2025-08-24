@@ -113,6 +113,13 @@ export interface LegacyIntegrationInstance {
   config: Record<string, any>;
 }
 
+export type AuthRequiredHandler = () => Promise<void>;
+let authRequiredHandler: AuthRequiredHandler | null = null;
+
+export function setAuthRequiredHandler(handler: AuthRequiredHandler) {
+  authRequiredHandler = handler;
+}
+
 class ApiService {
   private baseUrl = '/api';
   private csrfToken: string | null = null;
@@ -170,7 +177,19 @@ class ApiService {
     }
 
     if (response.status === 401) {
-      // Don't redirect here - let the auth context handle it
+      if (authRequiredHandler) {
+        // Prompt login then retry once
+        await authRequiredHandler();
+        const retry = await fetch(`${this.baseUrl}${endpoint}`, {
+          credentials: 'include',
+          headers,
+          ...options,
+        });
+        if (!retry.ok) {
+          throw new Error(retry.status === 401 ? 'Authentication required' : `API request failed: ${retry.status} ${retry.statusText}`);
+        }
+        return retry.json();
+      }
       throw new Error('Authentication required');
     }
 

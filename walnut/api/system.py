@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from uuid import uuid4
 
 from walnut.auth.deps import current_active_user, current_admin
 from walnut.auth.models import User
@@ -384,3 +385,11 @@ def _get_current_timestamp() -> str:
 
 # Monkey patch the method (not ideal but keeps it simple)
 SystemHealthChecker._get_current_timestamp = _get_current_timestamp
+# Simple CSRF token provider for frontend
+@router.get("/csrf-token")
+async def get_csrf_token() -> Dict[str, str]:
+    """
+    Return a CSRF token value for clients to echo in X-CSRF-Token.
+    Current CSRF protection only checks for header presence, not value.
+    """
+    return {"csrf_token": uuid4().hex}

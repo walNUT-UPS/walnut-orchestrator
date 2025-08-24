@@ -112,6 +112,22 @@ router = APIRouter(
 )
 
 
+# --- Action Schemas ---
+
+class VmLifecycleRequest(BaseModel):
+    verb: str = Field(..., description="Lifecycle verb: start|stop|shutdown|suspend|resume|reset")
+    dry_run: bool = Field(default=False, description="If true, perform dry-run only")
+
+class VmLifecycleResponse(BaseModel):
+    ok: bool | None = None
+    severity: Optional[str] = None
+    task_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    reason: Optional[str] = None
+    plan: Optional[Dict[str, Any]] = None
+    effects: Optional[Dict[str, Any]] = None
+
+
 # --- Integration Types Endpoints ---
 
 @router.get("/types", response_model=List[IntegrationTypeOut])
@@ -971,6 +987,90 @@ async def get_instance_inventory(
         finally:
             await transports.close_all()
         return {"items": items}
+
+
+@router.post("/instances/{instance_id}/vm/{vm_id}/lifecycle", response_model=VmLifecycleResponse)
+async def vm_lifecycle_action(
+    instance_id: int,
+    vm_id: str,
+    action: VmLifecycleRequest,
+    current_user=Depends(current_active_user),
+):
+    """
+    Execute a VM lifecycle action on a Proxmox VE integration instance.
+
+    This loads the instance driver and calls `vm_lifecycle(verb, target, dry_run)`.
+    """
+    async with get_db_session() as session:
+        # Load instance and type
+        stmt = (
+            select(IntegrationInstance, IntegrationType)
+            .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
+            .where(IntegrationInstance.instance_id == instance_id)
+        )
+        result = session.execute(stmt)
+        row = result.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Integration instance not found")
+        instance, integration_type = row
+
+        # Basic guardrail: enforce capability presence
+        caps = integration_type.capabilities or []
+        has_vm = any((c.get("id") == "vm.lifecycle") for c in caps if isinstance(c, dict))
+        if not has_vm:
+            raise HTTPException(status_code=400, detail="Integration does not support vm.lifecycle")
+
+        # Dynamically load driver
+        type_path = Path(integration_type.path)
+        driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
+        module_path = type_path / f"{driver_module}.py"
+        if not module_path.exists():
+            raise HTTPException(status_code=500, detail="Driver module not found")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(f"driver_vm_{instance_id}", module_path)
+        if spec is None or spec.loader is None:
+            raise HTTPException(status_code=500, detail="Could not load driver module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[f"driver_vm_{instance_id}"] = module
+        spec.loader.exec_module(module)
+        driver_class = getattr(module, driver_class_name, None)
+        if driver_class is None:
+            raise HTTPException(status_code=500, detail="Driver class not found")
+
+        # Fetch secrets (unencrypted placeholder as in test_instance_connection)
+        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
+        secrets_result = session.execute(secrets_query)
+        secrets_rows = secrets_result.fetchall()
+        secrets: Dict[str, str] = {}
+        for secret_row in secrets_rows:
+            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
+            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
+            secrets[field] = value.decode("utf-8")
+
+        from walnut.transports.manager import TransportManager
+        transports = TransportManager(instance.config)
+        try:
+            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
+            # Minimal target shim with external_id
+            target = type("T", (), {"external_id": str(vm_id)})
+            res = await driver.vm_lifecycle(verb=action.verb, target=target, dry_run=action.dry_run)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"vm.lifecycle failed: {e}")
+        finally:
+            await transports.close_all()
+
+        # Normalize response
+        if isinstance(res, dict):
+            return VmLifecycleResponse(
+                ok=res.get("ok"),
+                severity=res.get("severity"),
+                task_id=res.get("task_id"),
+                idempotency_key=res.get("idempotency_key"),
+                reason=res.get("reason"),
+                plan=res.get("plan"),
+                effects=res.get("effects"),
+            )
+        return VmLifecycleResponse(ok=True)
 
 
 # --- Helper Functions ---

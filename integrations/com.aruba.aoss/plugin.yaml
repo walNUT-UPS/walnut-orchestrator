@@ -1,8 +1,9 @@
 id: com.aruba.aoss
 name: ArubaOS-S Switches
 version: 0.1.0
-category: network
+category: network-device
 min_core_version: "0.10.0"
+driver: com.aruba.aoss.driver:ArubaOSSwitchDriver
 
 schema:
   connection:
@@ -31,30 +32,27 @@ defaults:
   dry_run_refresh_sla_s: 8
 
 test:
-  method: ssh
-  ssh:
-    commands:
-      commands: ["show version"]
+  method: driver
 
 capabilities:
   # Parent-level reads
   - id: switch.inventory
     verbs: [read]
     targets: [switch]
-    dry_run: unsupported
+    dry_run: not_supported
   - id: switch.health
     verbs: [read]
     targets: [switch]
-    dry_run: unsupported
+    dry_run: not_supported
   - id: poe.status
     verbs: [read]
     targets: [switch]
-    dry_run: unsupported
+    dry_run: not_supported
 
   # Child-level operations
   - id: poe.port
     verbs: [set]         # params: { state: on|off|cycle, confirm?: bool }
-    targets: [poe-port]
+    targets: [poe_port]
     dry_run: required
     invertible:
       set:
@@ -63,7 +61,7 @@ capabilities:
       key_fields: [verb, target_id, params.state]
   - id: poe.priority
     verbs: [set]         # params: { level: low|high|critical }
-    targets: [poe-port]
+    targets: [poe_port]
     dry_run: required
     idempotency:
       key_fields: [verb, target_id, params.level]
@@ -87,9 +85,4 @@ capabilities:
     targets: [switch]
     dry_run: required
 
-discovery:
-  implements: inventory.list
-  interval_s: 600
-
-errors: {}
 

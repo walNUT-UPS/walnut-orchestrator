@@ -21,6 +21,7 @@ class TargetSelector(BaseModel):
 
 class CapabilityAction(BaseModel):
     """Defines a capability-based action to be performed."""
+    host_id: Optional[str] = Field(default=None, description="Target host (integration instance) ID for this action")
     capability: str = Field(..., description="The capability to invoke, e.g., 'vm.lifecycle'")
     verb: str = Field(..., description="The specific action to perform, e.g., 'shutdown'")
     selector: TargetSelector = Field(default_factory=TargetSelector, description="Selector for the targets of this action")

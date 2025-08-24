@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
-from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations
+from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations, hosts
 from walnut.api.websocket import websocket_endpoint, get_websocket_info
 from walnut.api.websocket import authenticate_websocket_token
 from walnut.core.websocket_manager import websocket_manager
@@ -19,6 +19,10 @@ import asyncio
 from pathlib import Path
 
 from walnut.transports.registry import init_transports
+from walnut.core.integration_registry import get_integration_registry
+from walnut.database.connection import get_db_session
+from walnut.database.models import IntegrationType
+import anyio
 from walnut.utils.logging import setup_logging
 
 logger = logging.getLogger("walnut.app")
@@ -41,6 +45,23 @@ async def lifespan(app: FastAPI):
         settings.SECURE_COOKIES,
         settings.POLL_INTERVAL,
     )
+    # Auto-scan integrations on first boot (when no types exist in DB)
+    try:
+        async with get_db_session() as session:
+            def _count_types():
+                return session.query(IntegrationType).count()
+
+            types_count = await anyio.to_thread.run_sync(_count_types)
+
+        if types_count == 0:
+            logger.info("First boot detected: no integration types found. Starting discovery & validation...")
+            registry = get_integration_registry()
+            # Run asynchronously so API becomes available immediately
+            asyncio.create_task(registry.discover_and_validate_all(force_rescan=True))
+        else:
+            logger.info("Integration types present in DB: %d — skipping first-boot scan", types_count)
+    except Exception:
+        logger.exception("Failed to run first-boot integration scan check")
     # TODO: Add other startup logic here (e.g., DB connection pool, discovery)
     yield
     # On shutdown
@@ -89,6 +110,7 @@ app.include_router(ups.router, prefix="/api", tags=["UPS Monitoring"])
 app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(system.router, prefix="/api", tags=["System Health"])
 app.include_router(integrations.router, prefix="/api", tags=["Integrations"])
+app.include_router(hosts.router, prefix="/api", tags=["Hosts"])
 
 # WebSocket endpoints
 @app.websocket("/ws")

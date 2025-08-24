@@ -1,35 +1,147 @@
-from .schemas import PolicySchema
+from typing import Dict, List, Any, Optional
 from walnut.utils.timeparse import parse_time
-from typing import Dict, List, Any
 
-def lint_policy(policy: PolicySchema) -> Dict[str, List[str]]:
-    errors = []
-    warnings = []
 
-    # Errors
-    if not policy.name:
+def _safe_get(d: Dict[str, Any], path: List[str], default=None):
+    cur = d
+    try:
+        for p in path:
+            if isinstance(cur, dict):
+                cur = cur.get(p)
+            else:
+                return default
+        return cur if cur is not None else default
+    except Exception:
+        return default
+
+
+def _lint_v1(spec: Dict[str, Any]) -> Dict[str, List[str]]:
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    name = spec.get("name")
+    if not name or not str(name).strip():
         errors.append("Policy name cannot be empty.")
-    if not policy.steps:
-        errors.append("Policy must have at least one step.")
-    if not policy.trigger.type:
-        errors.append("Trigger type is missing.")
-    if not policy.targets.selector.hosts and not policy.targets.selector.tags and not policy.targets.selector.types:
-        warnings.append("Policy has no targets and will not run on any host.") # Changed to warning as per user feedback
 
-    for i, step in enumerate(policy.steps):
-        if not step.timeout:
-            errors.append(f"Step {i+1} ('{step.type}') is missing a timeout.")
+    # triggers
+    triggers = _safe_get(spec, ["trigger_group", "triggers"], [])
+    if not isinstance(triggers, list) or len(triggers) == 0:
+        errors.append("At least one trigger is required.")
 
-        if step.type == "ssh.shutdown" and not policy.safeties.global_lock and not policy.safeties.never_hosts:
-            warnings.append(f"Step {i+1} ('{step.type}') is a destructive action but has no safeties like 'global_lock' or 'never_hosts'.")
+    # actions
+    actions = spec.get("actions", [])
+    if not isinstance(actions, list) or len(actions) == 0:
+        errors.append("At least one action is required.")
+    else:
+        for i, a in enumerate(actions):
+            if not isinstance(a, dict):
+                errors.append(f"Action {i+1} is not an object.")
+                continue
+            if not a.get("capability_id"):
+                errors.append(f"Action {i+1} missing capability_id.")
+            if not a.get("verb"):
+                errors.append(f"Action {i+1} missing verb.")
 
-    # Warnings
-    if policy.safeties.suppression_window:
+    # targets
+    targets = spec.get("targets", {}) or {}
+    if not targets or not targets.get("host_id"):
+        warnings.append("No host selected in targets; target resolution may fail.")
+
+    # safeties/limits
+    sup = spec.get("suppression_window")
+    if sup:
         try:
-            suppression_seconds = parse_time(policy.safeties.suppression_window)
-            if suppression_seconds > 3600 * 24:  # 24 hours
-                warnings.append("Suppression window is very large (more than 24 hours).")
-        except ValueError:
-            errors.append(f"Invalid format for suppression_window: '{policy.safeties.suppression_window}'")
+            seconds = parse_time(str(sup))
+            if seconds > 24 * 3600:
+                warnings.append("Suppression window is very large (> 24h).")
+        except Exception:
+            errors.append(f"Invalid suppression_window: {sup}")
+
+    idem = spec.get("idempotency_window")
+    if idem:
+        try:
+            parse_time(str(idem))
+        except Exception:
+            errors.append(f"Invalid idempotency_window: {idem}")
 
     return {"errors": errors, "warnings": warnings}
+
+
+def _lint_v2(spec: Dict[str, Any]) -> Dict[str, List[str]]:
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    name = spec.get("name")
+    if not name or not str(name).strip():
+        errors.append("Policy name cannot be empty.")
+
+    trigger = spec.get("trigger") or {}
+    if not isinstance(trigger, dict) or not trigger.get("type"):
+        errors.append("Trigger type is missing.")
+
+    actions = spec.get("actions", [])
+    if not isinstance(actions, list) or len(actions) == 0:
+        errors.append("At least one action is required.")
+    else:
+        for i, a in enumerate(actions):
+            if not isinstance(a, dict):
+                errors.append(f"Action {i+1} is not an object.")
+                continue
+            if not a.get("capability"):
+                errors.append(f"Action {i+1} missing capability.")
+            if not a.get("verb"):
+                errors.append(f"Action {i+1} missing verb.")
+            # Disallow non-policy/editor capabilities
+            if a.get("capability") == "inventory.list":
+                errors.append(f"Action {i+1} uses unsupported capability 'inventory.list'.")
+            # Host-only caps shouldn't require selector
+            if a.get("capability") == "power.control":
+                sel = a.get("selector") or {}
+                if sel and any(sel.get(k) for k in ("external_ids", "names", "labels", "attrs")):
+                    errors.append(f"Action {i+1} is host-only but has a target selector.")
+                if not a.get("host_id"):
+                    errors.append(f"Action {i+1} (host-only) requires host_id.")
+            # VM lifecycle must have identifiers
+            if a.get("capability") == "vm.lifecycle":
+                sel = a.get("selector") or {}
+                ids = (sel.get("external_ids") or sel.get("names") or [])
+                if not ids:
+                    errors.append(f"Action {i+1} requires target identifiers for vm.lifecycle.")
+                if not a.get("host_id"):
+                    errors.append(f"Action {i+1} requires host_id for vm.lifecycle.")
+
+    safeties = spec.get("safeties", {}) or {}
+    sup = safeties.get("suppression_window")
+    if sup:
+        try:
+            seconds = parse_time(str(sup))
+            if seconds > 24 * 3600:
+                warnings.append("Suppression window is very large (> 24h).")
+        except Exception:
+            errors.append(f"Invalid suppression_window: {sup}")
+
+    return {"errors": errors, "warnings": warnings}
+
+
+def lint_policy(policy: Any) -> Dict[str, List[str]]:
+    """
+    Tolerant linter supporting both legacy v1 and new v2 policy shapes.
+
+    Returns a consistent {"errors": [], "warnings": []} structure.
+    """
+    try:
+        if hasattr(policy, "model_dump"):
+            spec = policy.model_dump()  # pydantic model -> dict
+        elif isinstance(policy, dict):
+            spec = policy
+        else:
+            # Best-effort conversion
+            spec = dict(policy or {})
+    except Exception:
+        spec = {}
+
+    # Heuristics to detect shape
+    if "trigger_group" in spec or spec.get("version") in (1, "1", "1.0"):
+        return _lint_v1(spec)
+    else:
+        return _lint_v2(spec)

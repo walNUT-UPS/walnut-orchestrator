@@ -17,7 +17,15 @@ import logging
 from walnut.auth.deps import current_active_user, require_current_user
 from walnut.auth.models import User
 from walnut.database.connection import get_db_session, get_db_session_dependency
-from walnut.database.models import Policy as PolicyModel, PolicyV1, PolicyExecution, serialize_model
+from walnut.database.models import (
+    Policy as PolicyModel,
+    PolicyV1,
+    PolicyExecution,
+    serialize_model,
+    IntegrationInstance,
+    IntegrationType,
+    IntegrationSecret,
+)
 from walnut.policies.schemas import PolicySchema
 from walnut.policies.linter import lint_policy
 from walnut.policies.priority import recompute_priorities
@@ -33,6 +41,7 @@ if settings.POLICY_V1_ENABLED:
     from walnut.inventory import create_inventory_index
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("/policies", summary="List all policies", response_model=List[Dict[str, Any]])
 async def list_policies(
@@ -215,26 +224,166 @@ async def lint_policy_endpoint(
         return lint_policy(policy)
 
 @router.post("/policies/validate", summary="Validate a policy spec", response_model=Dict[str, List[str]])
-async def validate_policy_spec(payload: PolicySchema, user: User = Depends(require_current_user)):
-    return lint_policy(payload)
+async def validate_policy_spec(payload: Dict[str, Any], user: User = Depends(require_current_user)):
+    """
+    Validate a policy spec (supports both legacy v1 and new v2 formats).
+
+    Accepts a free-form dict to avoid Pydantic 422s due to schema drift
+    and delegates to a tolerant linter that understands both shapes.
+    """
+    try:
+        return lint_policy(payload)
+    except Exception as e:
+        # Never raise 500 on linting – surface as errors to the client
+        return {"errors": [f"Validation error: {e}"], "warnings": []}
 
 @router.post("/policies/test", summary="Dry-run a policy", response_model=Dict[str, Any])
-async def test_policy_dry_run(payload: PolicySchema, user: User = Depends(require_current_user)):
+async def test_policy_dry_run(payload: Dict[str, Any], user: User = Depends(require_current_user)):
     """
     Produce a dry-run plan for the submitted policy. This does not mutate state
     or contact external systems; it assembles an execution plan from the policy
     actions and selectors.
     """
-    plan = []
-    for idx, action in enumerate(payload.actions):
-        plan.append({
-            "step": idx + 1,
-            "capability": action.capability,
-            "verb": action.verb,
-            "selector": action.selector.model_dump(),
-            "expected_targets": 0,  # Target resolution happens at execution time
-            "options": action.options or {},
-        })
+    try:
+        logger.info("/policies/test received policy name=%s actions=%d", payload.name, len(payload.actions))
+    except Exception:
+        logger.info("/policies/test received policy (unstructured)")
+    from pathlib import Path
+    import sys
+    import importlib.util
+    from walnut.transports.manager import TransportManager
+    import anyio
+
+    actions = payload.get("actions", [])
+    plan: list[dict] = []
+
+    async with get_db_session() as session:
+        # cache drivers per host_id
+        drivers: Dict[str, Any] = {}
+        transports_by_host: Dict[str, TransportManager] = {}
+        try:
+            for idx, action in enumerate(actions):
+                capability = action.get("capability")
+                verb = action.get("verb")
+                selector = action.get("selector") or {}
+                host_id = str(action.get("host_id") or "").strip()
+                if not host_id:
+                    plan.append({"step": idx + 1, "error": "missing host_id", "capability": capability, "verb": verb})
+                    continue
+
+                # Load driver for host if not cached
+                if host_id not in drivers:
+                    inst_stmt = select(IntegrationInstance, IntegrationType).join(
+                        IntegrationType, IntegrationInstance.type_id == IntegrationType.id
+                    ).where(IntegrationInstance.instance_id == int(host_id))
+                    inst_res = await anyio.to_thread.run_sync(session.execute, inst_stmt)
+                    row = inst_res.first()
+                    if not row:
+                        plan.append({"step": idx + 1, "host_id": host_id, "error": "host not found"})
+                        continue
+                    instance, itype = row
+                    # Secrets
+                    secrets_q = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance.instance_id)
+                    secrets_rows = (await anyio.to_thread.run_sync(session.execute, secrets_q)).fetchall()
+                    secrets: Dict[str, str] = {}
+                    for srow in secrets_rows:
+                        rec = srow[0] if not hasattr(srow, 'IntegrationSecret') else srow.IntegrationSecret
+                        secrets[rec.field_name] = rec.encrypted_value.decode("utf-8")
+                    # Driver import
+                    type_path = Path(itype.path)
+                    driver_module, driver_class_name = itype.driver_entrypoint.split(":", 1)
+                    module_path = type_path / f"{driver_module}.py"
+                    if not module_path.exists():
+                        plan.append({"step": idx + 1, "host_id": host_id, "error": "driver module not found"})
+                        continue
+                    spec = importlib.util.spec_from_file_location(f"driver_{host_id}", module_path)
+                    if spec is None or spec.loader is None:
+                        plan.append({"step": idx + 1, "host_id": host_id, "error": "driver import failed"})
+                        continue
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[f"driver_{host_id}"] = module
+                    spec.loader.exec_module(module)
+                    driver_class = getattr(module, driver_class_name, None)
+                    if driver_class is None:
+                        plan.append({"step": idx + 1, "host_id": host_id, "error": "driver class not found"})
+                        continue
+                    tm = TransportManager(instance.config)
+                    transports_by_host[host_id] = tm
+                    drivers[host_id] = driver_class(instance=instance, secrets=secrets, transports=tm)
+
+                driver = drivers[host_id]
+                # Map policy capability -> driver method
+                if capability == "power.control":
+                    # host-only
+                    try:
+                        # Construct a minimal target with external_id equal to node
+                        target = type("T", (), {"external_id": driver.config.get("node") or "host"})
+                        res = await driver.power_control(verb=verb, target=target, dry_run=True)
+                        plan.append({
+                            "step": idx + 1,
+                            "host_id": host_id,
+                            "capability": capability,
+                            "verb": verb,
+                            "host_only": True,
+                            "result": res,
+                        })
+                    except Exception as e:
+                        plan.append({"step": idx + 1, "host_id": host_id, "capability": capability, "verb": verb, "error": str(e)})
+                elif capability == "vm.lifecycle":
+                    # per-identifier
+                    logger.info(f"[POLICY-DEBUG] vm.lifecycle action: verb={verb}, host_id={host_id}, selector={selector}")
+                    ids_arr: List[str] = []
+                    if isinstance(selector, dict):
+                        logger.info(f"[POLICY-DEBUG] selector is dict, checking external_ids and names")
+                        if isinstance(selector.get("external_ids"), list):
+                            ids_arr = selector.get("external_ids")
+                            logger.info(f"[POLICY-DEBUG] Found external_ids: {ids_arr}")
+                        elif isinstance(selector.get("names"), list):
+                            ids_arr = selector.get("names")
+                            logger.info(f"[POLICY-DEBUG] Found names: {ids_arr}")
+                        else:
+                            logger.warning(f"[POLICY-DEBUG] No valid external_ids or names found in selector")
+                    else:
+                        logger.warning(f"[POLICY-DEBUG] selector is not dict: {type(selector)}")
+                    
+                    if not ids_arr:
+                        logger.error(f"[POLICY-DEBUG] No targets found, adding error to plan")
+                        plan.append({"step": idx + 1, "host_id": host_id, "capability": capability, "verb": verb, "error": "no targets provided"})
+                        continue
+                    
+                    logger.info(f"[POLICY-DEBUG] Processing {len(ids_arr)} targets: {ids_arr}")
+                    per_targets: List[Dict[str, Any]] = []
+                    for vmid in ids_arr:
+                        try:
+                            logger.info(f"[POLICY-DEBUG] Calling vm_lifecycle for VM {vmid}")
+                            target = type("T", (), {"external_id": str(vmid)})
+                            res = await driver.vm_lifecycle(verb=verb, target=target, dry_run=True)
+                            logger.info(f"[POLICY-DEBUG] vm_lifecycle result for VM {vmid}: ok={res.get('ok')}, severity={res.get('severity')}")
+                            per_targets.append({"target": str(vmid), "result": res})
+                        except Exception as e:
+                            logger.error(f"[POLICY-DEBUG] vm_lifecycle failed for VM {vmid}: {e}")
+                            per_targets.append({"target": str(vmid), "error": str(e)})
+                    
+                    plan_item = {
+                        "step": idx + 1,
+                        "host_id": host_id,
+                        "capability": capability,
+                        "verb": verb,
+                        "targets": per_targets,
+                    }
+                    logger.info(f"[POLICY-DEBUG] Adding plan item: {plan_item}")
+                    plan.append(plan_item)
+                else:
+                    plan.append({"step": idx + 1, "host_id": host_id, "capability": capability, "verb": verb, "error": "unsupported capability"})
+        finally:
+            # Ensure transports are closed
+            for tm in transports_by_host.values():
+                try:
+                    await tm.close_all()
+                except Exception:
+                    pass
+
+    logger.info("/policies/test built plan items=%d", len(plan))
     return {"status": "ok", "plan": plan}
 
 
