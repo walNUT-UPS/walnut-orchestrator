@@ -87,8 +87,8 @@ export function OrchestrationScreen() {
     try {
       const p = policies.find(p => p.id === Number(policyId));
       if (!p) return;
-      const res = await apiService.testPolicy(p.json);
-      setPlan(res.plan || []);
+      const res = await apiService.dryRunPolicyById(p.id);
+      setPlan(res.results || []);
       setPlanOpen(true);
     } catch (_) { setPlan(null); setPlanOpen(false); }
   };
@@ -278,12 +278,40 @@ export function OrchestrationScreen() {
       {planOpen && (
         <div className="fixed inset-0 bg-background/70 backdrop-blur z-50 p-6" onClick={() => setPlanOpen(false)}>
           <div className="max-w-2xl mx-auto bg-card border rounded-md p-4" onClick={e => e.stopPropagation()}>
-            <div className="text-title mb-2">Dry Run Plan</div>
-            <ol className="text-sm list-decimal ml-5 max-h-[50vh] overflow-auto">
-              {(plan || []).map((s, i) => (
-                <li key={i} className="mb-1">{s.capability} • {s.verb}</li>
+            <div className="text-title mb-2">Dry Run Results</div>
+            <div className="text-xs text-muted-foreground mb-2">Severity colors indicate driver preflight outcome per target.</div>
+            <div className="max-h-[55vh] overflow-auto space-y-2">
+              {(plan || []).map((r: any, i: number) => (
+                <div key={i} className="border rounded p-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block w-1.5 h-3 rounded ${r.severity==='error'?'bg-status-error':r.severity==='warn'?'bg-status-warn':'bg-status-ok'}`} />
+                      <span className="font-medium">{r.capability} • {r.verb}</span>
+                      {r.target_id && <span className="text-micro text-muted-foreground">{r.target_id}</span>}
+                    </div>
+                    {typeof r.ok === 'boolean' && (
+                      <Badge variant={r.severity==='error'?'destructive':r.severity==='warn'?'outline':'secondary'} className="text-2xs">{r.severity || (r.ok ? 'info' : 'error')}</Badge>
+                    )}
+                  </div>
+                  {r.effects?.summary && (
+                    <div className="text-sm mt-1">{r.effects.summary}</div>
+                  )}
+                  {r.plan?.preview && (
+                    <pre className="bg-muted/30 text-xs p-2 rounded mt-2 overflow-auto">{JSON.stringify(r.plan.preview, null, 2)}</pre>
+                  )}
+                  {Array.isArray(r.preconditions) && r.preconditions.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-xs cursor-pointer">Preconditions</summary>
+                      <ul className="text-xs list-disc ml-5 mt-1">
+                        {r.preconditions.map((p: any, idx: number) => (
+                          <li key={idx}>{p.check}: {String(p.ok)}{p.details?` – ${JSON.stringify(p.details)}`:''}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </div>
               ))}
-            </ol>
+            </div>
             <div className="text-right mt-3">
               <Button variant="outline" onClick={() => setPlanOpen(false)}>Close</Button>
             </div>

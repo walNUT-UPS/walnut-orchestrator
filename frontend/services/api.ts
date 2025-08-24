@@ -476,6 +476,10 @@ class ApiService {
     return this.request('/policies/test', { method: 'POST', body: JSON.stringify(body) });
   }
 
+  async dryRunPolicyById(id: number | string): Promise<{ severity: string; results: any[]; transcript_id: string; used_inventory: any }> {
+    return this.request(`/policies/${id}/dry-run`, { method: 'POST' });
+  }
+
   async dryRunPolicy(id: number): Promise<any> {
     return this.request(`/policies/${id}/dry-run`, { method: 'POST' });
   }
