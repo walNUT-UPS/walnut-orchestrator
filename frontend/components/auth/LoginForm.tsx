@@ -17,6 +17,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [stage, setStage] = useState<'email' | 'password'>('email');
   const [oidcEnabled, setOidcEnabled] = useState<boolean>(false);
+  const twoStep = oidcEnabled;
 
   const onLogin = async (username: string, password: string) => {
     try {
@@ -35,20 +36,24 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (stage === 'email') {
-      // Allow any email to proceed; validate after password
-      if (username.trim()) {
-        setStage('password');
+    if (twoStep) {
+      if (stage === 'email') {
+        if (username.trim()) setStage('password');
+        return;
+      }
+      if (stage === 'password' && username.trim() && password.trim()) {
+        onLogin(username.trim(), password);
       }
       return;
     }
-    if (stage === 'password' && username.trim() && password.trim()) {
+    // Single-step (OIDC disabled)
+    if (username.trim() && password.trim()) {
       onLogin(username.trim(), password);
     }
   };
 
   const isEmailValid = !!username.trim();
-  const isFormValid = stage === 'email' ? isEmailValid : (username.trim() && password.trim());
+  const isFormValid = twoStep ? (stage === 'email' ? isEmailValid : (username.trim() && password.trim())) : (username.trim() && password.trim());
 
   const beginOidcLogin = () => {
     // Prefer explicit backend URL if provided; fall back to common dev default :8000
@@ -106,7 +111,7 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
             {/* Login Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Step 1: Email */}
+              {/* Email */}
               <div className="space-y-3">
                 <label htmlFor="username" className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
                   Email
@@ -117,15 +122,15 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="you@example.com"
-                  disabled={isLoading || stage === 'password'}
+                  disabled={isLoading || (twoStep && stage === 'password')}
                   className="w-full h-12 px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 disabled:opacity-60 shadow-sm"
                   autoComplete="username"
                   autoFocus
                 />
               </div>
 
-              {/* Step 2: Password (only after email) */}
-              {stage === 'password' && (
+              {/* Password */}
+              {(!twoStep || stage === 'password') && (
                 <div className="space-y-3">
                   <label htmlFor="password" className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
                     Password
@@ -164,9 +169,9 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
                   className="w-full h-12 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:from-blue-300 disabled:to-blue-400 text-white font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-[1.02] active:scale-[0.98]"
                   disabled={!isFormValid || isLoading}
                 >
-                  {isLoading ? 'Signing in...' : stage === 'email' ? 'Continue' : 'Sign In'}
+                  {isLoading ? 'Signing in...' : (twoStep ? (stage === 'email' ? 'Continue' : 'Sign In') : 'Sign In')}
                 </button>
-                {stage === 'password' && (
+                {twoStep && stage === 'password' && (
                   <button
                     type="button"
                     className="w-full h-10 text-sm font-medium rounded-xl border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"

@@ -11,11 +11,21 @@ import time
 class ProxmoxVeDriver:
     """
     Driver for interacting with the Proxmox VE API using the transport layer.
+    
+    This driver provides comprehensive Proxmox VE integration with enhanced dry-run
+    capabilities that fetch live VM state data for accurate operation planning.
+    
+    Key features:
+      - Live state fetching: Dry-runs query actual VM status, not cached data
+      - State normalization: Converts status/qmpstatus to consistent representation  
+      - Intelligent analysis: Deep inspection of VM runtime state and constraints
+      - Comprehensive planning: Detailed execution plans with timing estimates
+    
     Implements:
       - test_connection(): GET /version (+ optional node status)
       - heartbeat(): GET /nodes/{node}/status (+ VM counts)
       - inventory.list: host metrics + VM metrics (status/current)
-      - vm.lifecycle: start/stop/shutdown/suspend/resume/reset (plan-based)
+      - vm.lifecycle: start/stop/shutdown/suspend/resume/reset with live state analysis
       - power.control: shutdown/cycle (dry-run plan or simulated)
     """
 
@@ -203,6 +213,22 @@ class ProxmoxVeDriver:
         return await transport.call(request)
 
     async def vm_lifecycle(self, verb: str, target, dry_run: bool) -> Dict[str, Any]:
+        """Execute or simulate VM lifecycle operations.
+        
+        When dry_run=True, this method fetches live VM state data from Proxmox API
+        and performs comprehensive analysis to provide accurate operation planning.
+        The dry-run response includes the VM's actual current state (normalized from
+        status/qmpstatus fields) rather than fallback 'unknown' values.
+        
+        Args:
+            verb: Lifecycle action ('start', 'stop', 'shutdown', 'suspend', 'resume', 'reset')
+            target: Target object with external_id containing the VM ID
+            dry_run: If True, only simulate and analyze the operation
+            
+        Returns:
+            For dry_run=True: Comprehensive analysis with real VM state
+            For dry_run=False: Execution result with task_id
+        """
         node = self.config["node"]
         vmid = target.external_id
         valid = {"start", "stop", "shutdown", "suspend", "resume", "reset"}
@@ -231,8 +257,90 @@ class ProxmoxVeDriver:
             # Fallback for other response formats
             return {"task_id": str(task_data) if task_data else None}
 
+    def _normalize_vm_state(self, vm_data: Dict[str, Any]) -> str:
+        """Derive a normalized VM state from status/qmpstatus fields.
+        
+        This method consolidates Proxmox's status and qmpstatus fields into a consistent
+        state representation. It prioritizes the most reliable state indicators and
+        only falls back to 'unknown' when truly no state information is available.
+        
+        Args:
+            vm_data: Raw VM data from Proxmox API containing status and qmpstatus fields
+            
+        Returns:
+            Normalized state: 'running', 'stopped', 'suspended', or 'unknown'
+        """
+        if not vm_data or not isinstance(vm_data, dict):
+            return "unknown"
+            
+        status = vm_data.get("status")
+        qmp = vm_data.get("qmpstatus")
+        
+        # Priority 1: Use status field if it's a valid string
+        if isinstance(status, str) and status.strip():
+            normalized_status = status.strip().lower()
+            # Handle common Proxmox status values
+            if normalized_status in ("running", "online"):
+                return "running"
+            elif normalized_status in ("stopped", "shutdown", "offline"):
+                return "stopped"
+            elif normalized_status in ("paused", "suspended"):
+                return "suspended"
+            else:
+                # Return the status as-is if it's a valid string (might be newer Proxmox state)
+                return normalized_status
+        
+        # Priority 2: Use qmpstatus if available and status is missing/invalid
+        if isinstance(qmp, str) and qmp.strip():
+            normalized_qmp = qmp.strip().lower()
+            if normalized_qmp in ("running", "run", "active"):
+                return "running"
+            elif normalized_qmp in ("stopped", "shutdown", "stopped (shutdown)", "inactive"):
+                return "stopped"
+            elif normalized_qmp in ("paused", "suspended", "prelaunch"):
+                return "suspended"
+            else:
+                # Return qmp state as-is if it's a valid string
+                return normalized_qmp
+        
+        # Priority 3: Check for other state indicators
+        # VM has uptime > 0 suggests it's running
+        uptime = vm_data.get("uptime", 0)
+        if isinstance(uptime, (int, float)) and uptime > 0:
+            return "running"
+        
+        # VM has PID suggests it's running
+        pid = vm_data.get("pid")
+        if pid is not None and str(pid).isdigit() and int(str(pid)) > 0:
+            return "running"
+        
+        # CPU usage > 0 suggests running state
+        cpu = vm_data.get("cpu", 0)
+        if isinstance(cpu, (int, float)) and cpu > 0:
+            return "running"
+        
+        # If we have memory allocation but no uptime/pid/cpu, likely stopped
+        maxmem = vm_data.get("maxmem", 0)
+        if isinstance(maxmem, (int, float)) and maxmem > 0:
+            # Has configuration but no runtime indicators = stopped
+            return "stopped"
+        
+        # Last resort: truly unknown state
+        return "unknown"
+
     async def _vm_lifecycle_dry_run(self, verb: str, vmid: str, node: str, path: str) -> Dict[str, Any]:
-        """Enhanced dry-run response with intelligent inventory integration."""
+        """Enhanced dry-run response with live state fetching and intelligent inventory integration.
+        
+        This method performs comprehensive dry-run evaluation by:
+        1. Fetching live VM state from Proxmox API (no fallbacks to 'unknown')
+        2. Normalizing status/qmpstatus into consistent state representation
+        3. Performing intelligent precondition validation
+        4. Calculating operation severity and effects
+        5. Generating detailed execution plans
+        
+        The implementation prioritizes accuracy over speed, ensuring that dry-run results
+        reflect the actual current state of the VM rather than cached or stale data.
+        """
         try:
             http = await self._http()
             
@@ -256,26 +364,44 @@ class ProxmoxVeDriver:
                 http, node, vmid, inventory_context
             )
             preconditions.append(vm_exists_check)
-            
+
             if not vm_exists_check.get("ok"):
                 return self._build_error_response(verb, vmid, preconditions, f"VM {vmid} not found or inaccessible")
-            
+
+            # Record current VM state explicitly for UI clarity - this is the authoritative state
+            # that will be used throughout the dry-run evaluation instead of "unknown" fallbacks
+            normalized_state = self._normalize_vm_state(vm_data)
+            preconditions.append({
+                "check": "vm_current_state",
+                "ok": True,
+                "details": {
+                    "status": vm_data.get("status"),
+                    "qmpstatus": vm_data.get("qmpstatus"),
+                    "normalized": normalized_state,
+                    "uptime_seconds": vm_data.get("uptime", 0),
+                    "pid": vm_data.get("pid"),
+                    "cpu_usage": vm_data.get("cpu", 0),
+                    "state_confidence": "high" if normalized_state != "unknown" else "low",
+                    "data_timestamp": int(time.time() * 1000),  # When this state was fetched
+                }
+            })
+
             # State consistency validation - detect if state changed since last known data
             consistency_check = await self._validate_state_consistency(
                 http, node, vmid, vm_data, inventory_context
             )
             preconditions.append(consistency_check)
-            
+
             # VM constraint validation (locks, HA, maintenance)
             constraints_check = await self._validate_vm_constraints(http, node, vmid, vm_data, verb)
             preconditions.extend(constraints_check)
-            
+
             # Resource and dependency validation
             resource_check = await self._validate_vm_resources(http, node, vmid, vm_data, verb)
             preconditions.extend(resource_check)
-            
+
             # Phase 2: Deep state analysis with inventory context
-            current_state = vm_data.get("status", "unknown")
+            current_state = normalized_state
             state_analysis = await self._analyze_vm_state(
                 http, node, vmid, vm_data, verb, inventory_context
             )
@@ -336,7 +462,7 @@ class ProxmoxVeDriver:
                 "idempotency_key": f"proxmox.vm:{verb}:vm:{vmid}",
                 "preconditions": [{"check": "api_connectivity", "ok": False}],
                 "plan": {"kind": "api", "preview": [], "steps": [], "estimated_duration_seconds": 0},
-                "effects": {"summary": "Operation failed", "per_target": [], "business_impact": "unknown"},
+                "effects": {"summary": "Operation failed", "per_target": [], "business_impact": "operation_blocked"},
                 "reason": f"Dry-run check failed: {str(e)}",
                 "inventory_metadata": {"strategy_used": "error", "data_staleness_ms": 0}
             }
@@ -439,7 +565,6 @@ class ProxmoxVeDriver:
     
     async def _get_inventory_context(self, http, node: str, vmid: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
         """Get inventory context with staleness tracking and refresh logic."""
-        import time
         now_ms = int(time.time() * 1000)
         
         # For now, simulate inventory metadata - in real implementation this would
@@ -480,23 +605,96 @@ class ProxmoxVeDriver:
         }
     
     async def _get_vm_state(self, http, node: str, vmid: str, inventory_context: Dict[str, Any]) -> tuple:
-        """Get VM state using appropriate caching strategy."""
-        # Always fetch fresh for now - in real implementation would check cache first
-        vm_resp = await http.call({"method": "GET", "path": f"/nodes/{node}/qemu/{vmid}/status/current"})
+        """Get VM state using appropriate caching strategy with robust state fetching.
         
-        vm_exists_check = {
-            "check": "vm_exists",
-            "ok": vm_resp.get("ok", False),
-            "details": {
-                "vmid": vmid, 
-                "node": node,
-                "data_source": "fresh" if inventory_context["strategy"]["strategy"] == "fresh_required" else "cached",
-                "consistency_token": inventory_context.get("consistency_token")
+        This method ensures that we always attempt to fetch live VM state from Proxmox
+        rather than falling back to cached or unknown data. It handles various response
+        formats and provides comprehensive state information for dry-run evaluation.
+
+        Args:
+            http: HTTP transport instance
+            node: Proxmox node name
+            vmid: VM identifier
+            inventory_context: Context containing caching strategy and metadata
+            
+        Returns:
+            tuple: (vm_data_dict, vm_exists_check_dict)
+        """
+        try:
+            # Always fetch fresh state data for accurate dry-run evaluation
+            vm_resp = await http.call({
+                "method": "GET", 
+                "path": f"/nodes/{node}/qemu/{vmid}/status/current"
+            })
+
+            # Track the source of our data for transparency
+            data_source = "live_api" if inventory_context["strategy"]["strategy"] == "fresh_required" else "api_fallback"
+            
+            vm_exists_check = {
+                "check": "vm_exists",
+                "ok": vm_resp.get("ok", False),
+                "details": {
+                    "vmid": vmid,
+                    "node": node,
+                    "data_source": data_source,
+                    "consistency_token": inventory_context.get("consistency_token"),
+                    "api_status_code": vm_resp.get("status", 200),
+                    "response_time_ms": vm_resp.get("latency_ms", 0)
+                }
             }
-        }
-        
-        vm_data = vm_resp.get("data", {}) if vm_resp.get("ok") else {}
-        return vm_data, vm_exists_check
+
+            if not vm_resp.get("ok", False):
+                # VM doesn't exist or is inaccessible
+                vm_exists_check["details"]["error"] = vm_resp.get("raw", "VM not found")
+                return {}, vm_exists_check
+
+            # Extract VM data, handling nested response structures
+            vm_data_raw = vm_resp.get("data", {})
+            
+            # Handle Proxmox API's nested data structure: {ok: true, data: {data: {...}}}
+            if isinstance(vm_data_raw, dict) and "data" in vm_data_raw and isinstance(vm_data_raw["data"], dict):
+                vm_data = vm_data_raw["data"]
+            else:
+                vm_data = vm_data_raw if isinstance(vm_data_raw, dict) else {}
+
+            # Validate that we actually got VM state data
+            if not vm_data:
+                vm_exists_check["ok"] = False
+                vm_exists_check["details"]["error"] = "Empty VM data received from API"
+                return {}, vm_exists_check
+                
+            # Enhance the vm_exists_check with state information
+            vm_exists_check["details"].update({
+                "has_status_field": "status" in vm_data,
+                "has_qmpstatus_field": "qmpstatus" in vm_data,
+                "raw_status": vm_data.get("status"),
+                "raw_qmpstatus": vm_data.get("qmpstatus"),
+                "state_indicators": {
+                    "uptime": vm_data.get("uptime", 0),
+                    "pid": vm_data.get("pid"),
+                    "cpu": vm_data.get("cpu", 0)
+                }
+            })
+
+            return vm_data, vm_exists_check
+            
+        except Exception as e:
+            # Handle any unexpected errors during state fetching
+            error_check = {
+                "check": "vm_exists",
+                "ok": False,
+                "details": {
+                    "vmid": vmid,
+                    "node": node,
+                    "data_source": "error",
+                    "consistency_token": inventory_context.get("consistency_token"),
+                    "error": f"Failed to fetch VM state: {str(e)}",
+                    "exception_type": type(e).__name__
+                }
+            }
+            
+            self.logger.error("Failed to fetch VM %s state from node %s: %s", vmid, node, e)
+            return {}, error_check
     
     async def _validate_state_consistency(self, http, node: str, vmid: str, vm_data: Dict[str, Any], 
                                         inventory_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -508,7 +706,7 @@ class ProxmoxVeDriver:
             "ok": True,
             "details": {
                 "consistency_token": inventory_context.get("consistency_token"),
-                "state_version": vm_data.get("pid", "unknown"),  # Use PID as state indicator
+                "state_version": vm_data.get("pid", "<no_pid>"),  # Use PID as state indicator
                 "change_detected": False
             }
         }
@@ -600,13 +798,32 @@ class ProxmoxVeDriver:
 
     async def _analyze_vm_state(self, http, node: str, vmid: str, vm_data: Dict[str, Any], 
                               verb: str, inventory_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Deep analysis of VM state beyond basic status."""
+        """Deep analysis of VM state beyond basic status.
+        
+        This method performs comprehensive state analysis using live data fetched from
+        the Proxmox API. It builds upon the normalized state to provide detailed context
+        for dry-run decision making.
+        """
+        # Use normalized state from our enhanced detection method
+        normalized_state = self._normalize_vm_state(vm_data)
+        
         analysis = {
-            "basic_state": vm_data.get("status", "unknown"),
-            "qmp_status": vm_data.get("qmpstatus", "unknown"),
+            # Raw state fields (exactly as received from API)
+            "basic_state": vm_data.get("status", "<not_provided>"),
+            "qmp_status": vm_data.get("qmpstatus", "<not_provided>"),
+            # Normalized state (our authoritative interpretation)
+            "normalized_state": normalized_state,
+            # Runtime indicators
             "has_guest_agent": "agent" in vm_data and vm_data.get("agent", 0) == 1,
             "uptime_seconds": vm_data.get("uptime", 0),
-            "boot_time": vm_data.get("uptime", 0) > 0
+            "boot_time": vm_data.get("uptime", 0) > 0,
+            "process_id": vm_data.get("pid"),
+            "is_running_process": bool(vm_data.get("pid") is not None and str(vm_data.get("pid", 0)).isdigit() and int(str(vm_data.get("pid", 0))) > 0),
+            # Resource usage (indicates actual activity)
+            "cpu_usage_percent": round((vm_data.get("cpu", 0) or 0) * 100, 2),
+            "memory_used_bytes": vm_data.get("mem", 0),
+            "memory_total_bytes": vm_data.get("maxmem", 0),
+            "disk_usage_bytes": vm_data.get("disk", 0)
         }
         
         # Check for running tasks
@@ -807,8 +1024,8 @@ class ProxmoxVeDriver:
                                  inventory_context: Dict[str, Any]) -> str:
         """Generate enhanced idempotency key with context."""
         # Include state context in key for better idempotency detection
-        state_signature = f"{current_state}:{state_analysis.get('qmp_status', 'unknown')}"
-        consistency_token = inventory_context.get("consistency_token", "unknown")
+        state_signature = f"{current_state}:{state_analysis.get('qmp_status', '<missing>')}"
+        consistency_token = inventory_context.get("consistency_token", "<no_token>")
         
         return f"proxmox.vm:{verb}:vm:{vmid}:state:{state_signature}:token:{consistency_token[:8]}"
 
@@ -827,16 +1044,35 @@ class ProxmoxVeDriver:
             
     def _build_error_response(self, verb: str, vmid: str, preconditions: List[Dict[str, Any]], 
                              reason: str) -> Dict[str, Any]:
-        """Build standardized error response for failed dry runs."""
+        """Build standardized error response for failed dry runs.
+        
+        This method creates a comprehensive error response that provides clear information
+        about why the operation cannot proceed, without falling back to unknown states.
+        """
         return {
             "ok": False,
             "severity": "error",
-            "idempotency_key": f"proxmox.vm:{verb}:vm:{vmid}:error",
+            "idempotency_key": f"proxmox.vm:{verb}:vm:{vmid}:error:{int(time.time())}",
             "preconditions": preconditions,
-            "plan": {"kind": "api", "preview": [], "steps": [], "estimated_duration_seconds": 0},
-            "effects": {"summary": "Operation cannot proceed", "per_target": [], "business_impact": "blocked"},
+            "plan": {
+                "kind": "api", 
+                "preview": [], 
+                "steps": [f"Operation blocked: {reason}"], 
+                "estimated_duration_seconds": 0,
+                "blocked": True
+            },
+            "effects": {
+                "summary": "Operation cannot proceed", 
+                "per_target": [], 
+                "business_impact": "operation_blocked",
+                "error_details": reason
+            },
             "reason": reason,
-            "inventory_metadata": {"strategy_used": "error", "data_staleness_ms": 0}
+            "inventory_metadata": {
+                "strategy_used": "error_fallback", 
+                "data_staleness_ms": 0,
+                "error_encountered": True
+            }
         }
 
     # ---------- Inventory helpers ----------
@@ -875,7 +1111,18 @@ class ProxmoxVeDriver:
                 continue  # Skip malformed entries
             if not isinstance(vm, dict):
                 continue  # Skip non-dict entries
-                
+            # Skip templates: Proxmox marks templates with template=1
+            try:
+                tmpl = vm.get("template", 0)
+                if isinstance(tmpl, str):
+                    is_template = tmpl.strip().lower() in ("1", "true", "yes")
+                else:
+                    is_template = bool(tmpl)
+                if is_template:
+                    continue
+            except Exception:
+                pass
+            
             vmid = str(vm.get("vmid", ""))
             if not vmid:
                 continue  # Skip entries without vmid

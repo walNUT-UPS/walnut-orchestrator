@@ -3,15 +3,15 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional
 
-from utils.logging import get_logger
-from utils.normalize import (
+from .utils.logging import get_logger
+from .utils.normalize import (
     PortKey,
     compress_to_cli,
     normalize_targets,
     is_protected_port,
 )
-from parsers.interfaces import parse_show_modules, parse_show_version, parse_show_vsf
-from parsers import snmp as snmp_helpers
+from .parsers.interfaces import parse_show_modules, parse_show_version, parse_show_vsf
+from .parsers import snmp as snmp_helpers
 
 log = get_logger("driver")
 

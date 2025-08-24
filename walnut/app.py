@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from walnut.auth.router import auth_router, api_router
 from walnut.config import settings
-from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations, hosts
+from walnut.api import policies, policy_runs, admin_events, ups, events, system, integrations, hosts, workers
 from walnut.api.websocket import websocket_endpoint, get_websocket_info
 from walnut.api.websocket import authenticate_websocket_token
 from walnut.core.websocket_manager import websocket_manager
@@ -111,6 +111,7 @@ app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(system.router, prefix="/api", tags=["System Health"])
 app.include_router(integrations.router, prefix="/api", tags=["Integrations"])
 app.include_router(hosts.router, prefix="/api", tags=["Hosts"])
+app.include_router(workers.router, prefix="/api", tags=["Workers"])
 
 # WebSocket endpoints
 @app.websocket("/ws")

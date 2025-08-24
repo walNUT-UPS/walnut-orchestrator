@@ -30,23 +30,30 @@ class AuthService {
     formData.append('username', credentials.username);
     formData.append('password', credentials.password);
 
-    const response = await fetch(`/auth/jwt/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      credentials: 'include', // Include cookies
-      body: formData,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`/auth/jwt/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        credentials: 'include', // Include cookies
+        body: formData,
+      });
+    } catch (_) {
+      // Network or CORS failure
+      throw new Error('Unable to connect to backend');
+    }
 
     if (!response.ok) {
       if (response.status === 401) {
         throw new Error('Invalid email or password');
-      } else if (response.status >= 500) {
-        throw new Error('Server error, please try again later');
-      } else {
-        throw new Error('Connection failed, please try again');
       }
+      if (response.status >= 500) {
+        throw new Error('Server error, please try again later');
+      }
+      const msg = await response.text().catch(() => '');
+      throw new Error(msg || 'Login failed');
     }
 
     // Backend returns HTTP 204 No Content on successful login
