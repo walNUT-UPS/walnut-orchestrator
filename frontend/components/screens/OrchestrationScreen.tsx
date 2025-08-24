@@ -168,13 +168,15 @@ export function OrchestrationScreen() {
                       <div className="font-medium">{policy.name}</div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={
-                        policy.status === 'enabled' ? 'default' : 
-                        policy.status === 'disabled' ? 'secondary' : 
-                        'destructive'
-                      }>
-                        {policy.status}
-                      </Badge>
+                      {(() => {
+                        const derived = (policy as any).status || ((policy as any).enabled ? 'enabled' : 'disabled');
+                        const variant = derived === 'enabled' ? 'default' : derived === 'disabled' ? 'secondary' : 'destructive';
+                        return (
+                          <Badge variant={variant}>
+                            {derived}
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>{policy.priority}</TableCell>
                     <TableCell>
