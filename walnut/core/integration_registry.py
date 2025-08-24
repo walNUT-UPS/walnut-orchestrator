@@ -372,19 +372,44 @@ class IntegrationTypeRegistry:
             raise ImportError(f"Driver module not found: {module_path}")
         
         # Create a unique module name to avoid conflicts
-        spec_name = f"walnut_integration_{type_path.name}_{module_name}"
+        package_name = f"walnut_integration_{type_path.name.replace('.', '_').replace('-', '_')}"
+        spec_name = f"{package_name}.{module_name}"
         
         try:
-            # Import the module
-            spec = importlib.util.spec_from_file_location(spec_name, module_path)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"Could not load module spec from {module_path}")
+            # Add the integrations directory to sys.path temporarily to support relative imports
+            integrations_path = str(type_path.parent)
+            integration_path = str(type_path)
             
-            module = importlib.util.module_from_spec(spec)
-            
-            # Add to sys.modules temporarily for imports within the module
-            sys.modules[spec_name] = module
-            spec.loader.exec_module(module)
+            path_added = False
+            if integration_path not in sys.path:
+                sys.path.insert(0, integration_path)
+                path_added = True
+                
+            try:
+                # Create the package structure in sys.modules to support relative imports
+                if package_name not in sys.modules:
+                    # Create a package module
+                    package_module = type(sys)('package')
+                    package_module.__path__ = [str(type_path)]
+                    package_module.__package__ = package_name
+                    sys.modules[package_name] = package_module
+                
+                # Import the module with package context
+                spec = importlib.util.spec_from_file_location(spec_name, module_path)
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"Could not load module spec from {module_path}")
+                
+                module = importlib.util.module_from_spec(spec)
+                module.__package__ = package_name  # Set package for relative imports
+                
+                # Add to sys.modules temporarily for imports within the module
+                sys.modules[spec_name] = module
+                spec.loader.exec_module(module)
+                
+            finally:
+                # Clean up sys.path
+                if path_added and integration_path in sys.path:
+                    sys.path.remove(integration_path)
             
             # Get the driver class
             if not hasattr(module, class_name):

@@ -572,3 +572,202 @@ def _latency_probe(connection: dict) -> int:
     _ = _snmp_ctx(connection)  # access only
     return int((time.time() - start) * 1000)
 
+
+class ArubaOSSwitchDriver:
+    """
+    Aruba OS-S Switch Driver for walNUT Integration Framework.
+    
+    This driver provides comprehensive management for ArubaOS-S switches including:
+    - Switch inventory and health monitoring
+    - PoE port control and status
+    - Network interface management 
+    - Configuration backup and system reboot
+    
+    The driver uses both SSH and SNMP transports for switch communication.
+    """
+    
+    def __init__(self, instance, secrets: Dict[str, str], transports):
+        self.instance = instance
+        self.config = instance.config
+        self.secrets = secrets
+        self.transports = transports
+        
+        # Per-instance logger
+        type_id = getattr(instance, "type_id", "com.aruba.aoss")
+        name = getattr(instance, "name", "unknown")
+        self.logger = log  # Use the existing logger from the module
+        
+        # Validate required configuration
+        required_fields = ['hostname', 'username', 'password', 'snmp_community']
+        for field in required_fields:
+            if not self.config.get(field):
+                raise ValueError(f"Required configuration field '{field}' is missing")
+        
+        self.logger.info(
+            "Initialized ArubaOS-S driver for %s (%s)", 
+            self.config.get("hostname"), 
+            name
+        )
+    
+    async def test_connection(self) -> Dict[str, Any]:
+        """
+        Test connectivity to the Aruba switch using both SSH and SNMP.
+        """
+        connection = self._build_connection_dict()
+        
+        try:
+            # Test basic connectivity and get switch info
+            start_time = time.time()
+            
+            # Try SNMP first (faster)
+            try:
+                latency_ms = _latency_probe(connection)
+                self.logger.info("SNMP connectivity test successful, latency: %dms", latency_ms)
+            except Exception as e:
+                self.logger.warning("SNMP test failed: %s", e)
+                return {
+                    "status": "error", 
+                    "message": f"SNMP connection failed: {str(e)}"
+                }
+            
+            # Test SSH connectivity
+            try:
+                with SSH(
+                    host=connection["hostname"],
+                    username=connection["username"],
+                    password=connection["password"],
+                    device_type=connection.get("device_type", "aruba_osswitch"),
+                    timeout=connection.get("timeout_s", 30)
+                ) as ssh:
+                    # Simple command to verify SSH works
+                    output = ssh.send_command("show version | include Software")
+                    if "Software" in output:
+                        self.logger.info("SSH connectivity test successful")
+                    else:
+                        self.logger.warning("SSH command returned unexpected output")
+            except Exception as e:
+                self.logger.warning("SSH test failed: %s", e)
+                return {
+                    "status": "error",
+                    "message": f"SSH connection failed: {str(e)}"
+                }
+            
+            total_time = time.time() - start_time
+            return {
+                "status": "connected",
+                "latency_ms": int(latency_ms),
+                "total_test_time": round(total_time, 2),
+                "transports_tested": ["snmp", "ssh"]
+            }
+            
+        except Exception as e:
+            self.logger.error("Connection test failed: %s", e)
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def heartbeat(self) -> Dict[str, Any]:
+        """
+        Lightweight health check for the switch.
+        """
+        connection = self._build_connection_dict()
+        
+        try:
+            # Quick SNMP probe
+            start_time = time.time()
+            latency_ms = _latency_probe(connection)
+            
+            return {
+                "state": "connected",
+                "latency_ms": latency_ms,
+                "checked_at": time.time()
+            }
+        except Exception as e:
+            self.logger.error("Heartbeat failed: %s", e)
+            return {
+                "state": "error",
+                "error_code": "connection_failed",
+                "latency_ms": None
+            }
+    
+    async def switch_inventory(self, target, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Get switch inventory information.
+        """
+        connection = self._build_connection_dict()
+        return execute("switch.inventory", "read", target, {}, connection, dry_run)
+    
+    async def switch_health(self, target, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Get switch health status.
+        """
+        connection = self._build_connection_dict()
+        return execute("switch.health", "read", target, {}, connection, dry_run)
+    
+    async def poe_status(self, target, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Get PoE status information.
+        """
+        connection = self._build_connection_dict()
+        return execute("poe.status", "read", target, {}, connection, dry_run)
+    
+    async def poe_port(self, target, params: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Set PoE port state (on/off/cycle).
+        """
+        connection = self._build_connection_dict()
+        return execute("poe.port", "set", target, params, connection, dry_run)
+    
+    async def poe_priority(self, target, params: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Set PoE port priority (low/high/critical).
+        """
+        connection = self._build_connection_dict()
+        return execute("poe.priority", "set", target, params, connection, dry_run)
+    
+    async def net_interface(self, target, params: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Set network interface admin state (up/down).
+        """
+        connection = self._build_connection_dict()
+        return execute("net.interface", "set", target, params, connection, dry_run)
+    
+    async def switch_config(self, target, params: Dict[str, Any] = None, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Save or backup switch configuration.
+        """
+        connection = self._build_connection_dict()
+        action = params.get("action", "save") if params else "save"
+        return execute("switch.config", action, target, params or {}, connection, dry_run)
+    
+    async def config_backup(self, target, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Backup switch configuration.
+        """
+        connection = self._build_connection_dict()
+        return execute("switch.config", "backup", target, {}, connection, dry_run)
+    
+    async def switch_reboot(self, target, params: Dict[str, Any], dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Reboot the switch.
+        """
+        connection = self._build_connection_dict()
+        return execute("switch.reboot", "exec", target, params, connection, dry_run)
+    
+    def _build_connection_dict(self) -> Dict[str, Any]:
+        """
+        Build connection dictionary from configuration and secrets.
+        """
+        return {
+            "hostname": self.config["hostname"],
+            "username": self.config["username"],
+            "password": self.config["password"],
+            "enable_password": self.config.get("enable_password"),
+            "ssh_port": self.config.get("ssh_port", 22),
+            "timeout_s": self.config.get("timeout_s", 30),
+            "device_type": self.config.get("device_type", "aruba_osswitch"),
+            "snmp_community": self.config["snmp_community"],
+            "snmp_port": self.config.get("snmp_port", 161)
+        }
+
