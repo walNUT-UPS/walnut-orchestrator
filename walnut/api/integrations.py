@@ -22,12 +22,12 @@ from typing import List, Dict, Any, Optional
 import yaml
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy import select, join
+from sqlalchemy import select, join, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from walnut.auth.deps import current_active_user, require_current_user
 from walnut.database.connection import get_db_session, get_db_session_dependency
-from walnut.database.models import IntegrationType, IntegrationInstance, IntegrationSecret
+from walnut.database.models import IntegrationType, IntegrationInstance, IntegrationSecret, InventoryCache
 from walnut.core.integration_registry import get_integration_registry
 from walnut.core.websocket_manager import get_websocket_manager  # noqa: F401  (kept for future WS broadcasts)
 from walnut.core.websocket_manager import websocket_manager
@@ -878,18 +878,7 @@ async def test_integration_instance(
     try:
         async with get_db_session() as session:
             result = await test_instance_connection(instance_id, session)
-
-            # Update instance state and test timestamp
-            query = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
-            db_result = session.execute(query)
-            instance = db_result.scalar_one_or_none()
-
-            if instance:
-                instance.state = result.status
-                instance.latency_ms = result.latency_ms
-                instance.last_test = datetime.now(timezone.utc)
-                await anyio.to_thread.run_sync(session.commit)
-
+            # test_instance_connection already updates last_test, latency_ms, and state
             return result
 
     except HTTPException:
@@ -931,62 +920,101 @@ async def delete_integration_instance(
 @router.get("/instances/{instance_id}/inventory")
 async def get_instance_inventory(
     instance_id: int,
-    type: Optional[str] = Query(None, description="Target type filter, e.g., 'vm' or 'host'"),
+    type: Optional[str] = Query(None, description="Target type: vm|stack-member|port"),
+    active_only: bool = Query(True, description="Only return active targets"),
+    refresh: bool = Query(False, description="Force refresh, bypass cache"),
+    page: Optional[int] = Query(None, description="Page number for pagination"),
+    page_size: Optional[int] = Query(None, description="Page size for pagination"),
     current_user=Depends(current_active_user)
 ):
     """
-    Return discovered targets for an integration instance via its driver's inventory capability.
+    List inventory targets for an integration instance with caching support.
+    
+    Returns paginated list of targets according to walNUT inventory contract.
+    Uses database caching with configurable TTL (default 30s).
+    """
+    # Set defaults
+    target_type = type or "vm"
+    page_size = min(page_size or 100, 500)  # Cap at 500 items per page
+    
+    async with get_db_session() as session:
+        # Load instance
+        instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+        instance_result = await session.execute(instance_stmt)
+        instance = instance_result.scalar_one_or_none()
+        if not instance:
+            raise HTTPException(status_code=404, detail="Integration instance not found")
+        
+        # Check instance status
+        if instance.state == "type_unavailable":
+            raise HTTPException(status_code=409, detail="Integration type is not available")
+        
+        # Get cached inventory with caching logic
+        items = await _get_cached_inventory(
+            session=session,
+            instance=instance,
+            target_type=target_type,
+            active_only=active_only,
+            force_refresh=refresh
+        )
+        
+        # Apply pagination if requested
+        if page is not None:
+            offset = (page - 1) * page_size
+            paginated_items = items[offset:offset + page_size]
+            
+            # Generate next page token if there are more items
+            next_page = None
+            if len(items) > offset + page_size:
+                next_page = page + 1
+            
+            return {
+                "items": paginated_items,
+                "next_page": next_page
+            }
+        
+        return {"items": items}
+
+
+@router.get("/instances/{instance_id}/inventory/summary")
+async def get_instance_inventory_summary(
+    instance_id: int,
+    refresh: bool = Query(False, description="Force refresh, bypass cache"),
+    current_user=Depends(current_active_user)
+):
+    """
+    Get inventory summary counts for an integration instance.
+    
+    Returns counts for each target type: vm, stack-member, port_active.
     """
     async with get_db_session() as session:
-        # Load instance and type
-        stmt = (
-            select(IntegrationInstance, IntegrationType)
-            .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
-            .where(IntegrationInstance.instance_id == instance_id)
-        )
-        result = session.execute(stmt)
-        row = result.first()
-        if not row:
+        # Load instance
+        instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+        instance_result = await session.execute(instance_stmt)
+        instance = instance_result.scalar_one_or_none()
+        if not instance:
             raise HTTPException(status_code=404, detail="Integration instance not found")
-        instance, integration_type = row
-
-        # Dynamically load driver
-        type_path = Path(integration_type.path)
-        driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
-        module_path = type_path / f"{driver_module}.py"
-        if not module_path.exists():
-            raise HTTPException(status_code=500, detail="Driver module not found")
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(f"driver_inv_{instance_id}", module_path)
-        if spec is None or spec.loader is None:
-            raise HTTPException(status_code=500, detail="Could not load driver module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[f"driver_inv_{instance_id}"] = module
-        spec.loader.exec_module(module)
-        driver_class = getattr(module, driver_class_name, None)
-        if driver_class is None:
-            raise HTTPException(status_code=500, detail="Driver class not found")
-
-        # Fetch secrets (unencrypted placeholder as in test_instance_connection)
-        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-        secrets_result = session.execute(secrets_query)
-        secrets_rows = secrets_result.fetchall()
-        secrets: Dict[str, str] = {}
-        for secret_row in secrets_rows:
-            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
-            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
-            secrets[field] = value.decode("utf-8")
-
-        from walnut.transports.manager import TransportManager
-        transports = TransportManager(instance.config)
-        try:
-            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
-            items = await driver.inventory_list(type or 'host', dry_run=False)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Inventory error: {e}")
-        finally:
-            await transports.close_all()
-        return {"items": items}
+        
+        # Check instance status
+        if instance.state == "type_unavailable":
+            raise HTTPException(status_code=409, detail="Integration type is not available")
+        
+        # Get counts for each target type
+        summary = {}
+        
+        # VM count
+        vms = await _get_cached_inventory(session, instance, "vm", active_only=False, force_refresh=refresh)
+        summary["vm"] = len(vms)
+        
+        # Stack member count
+        stack_members = await _get_cached_inventory(session, instance, "stack-member", active_only=False, force_refresh=refresh)
+        summary["stack_member"] = len(stack_members)
+        
+        # Active port count (ports where link=up OR poe=true)
+        ports_active = await _get_cached_inventory(session, instance, "port", active_only=True, force_refresh=refresh)
+        summary["port_active"] = len(ports_active)
+        
+        return summary
 
 
 @router.post("/instances/{instance_id}/vm/{vm_id}/lifecycle", response_model=VmLifecycleResponse)
@@ -1075,6 +1103,144 @@ async def vm_lifecycle_action(
 
 # --- Helper Functions ---
 
+async def _get_cached_inventory(
+    session: AsyncSession,
+    instance: IntegrationInstance,
+    target_type: str,
+    active_only: bool,
+    force_refresh: bool = False
+) -> List[Dict[str, Any]]:
+    """Get inventory with caching support.
+    
+    Args:
+        session: Database session
+        instance: Integration instance
+        target_type: Target type to fetch
+        active_only: Whether to filter to active targets only
+        force_refresh: Bypass cache and force fresh fetch
+        
+    Returns:
+        List of inventory targets
+    """
+    from walnut.database.models import InventoryCache
+    import time
+    
+    # Check cache first (unless force refresh)
+    if not force_refresh:
+        cache_stmt = select(InventoryCache).where(
+            InventoryCache.instance_id == instance.instance_id,
+            InventoryCache.target_type == target_type,
+            InventoryCache.active_only == active_only
+        )
+        cache_result = await anyio.to_thread.run_sync(session.execute, cache_stmt)
+        cache_entry = cache_result.scalar_one_or_none()
+        
+        if cache_entry:
+            # Check if cache is still valid
+            now = datetime.now(timezone.utc)
+            cache_age_seconds = (now - cache_entry.fetched_at).total_seconds()
+            
+            if cache_age_seconds < cache_entry.ttl_seconds:
+                # Cache hit - return cached data
+                return cache_entry.payload
+    
+    # Cache miss or force refresh - fetch from driver
+    start_time = time.time()
+    
+    try:
+        # Load integration type for driver info
+        type_stmt = select(IntegrationType).where(IntegrationType.id == instance.type_id)
+        type_result = await anyio.to_thread.run_sync(session.execute, type_stmt)
+        integration_type = type_result.scalar_one_or_none()
+        if not integration_type:
+            raise Exception("Integration type not found")
+        
+        # Dynamically load driver
+        type_path = Path(integration_type.path)
+        driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
+        module_path = type_path / f"{driver_module}.py"
+        if not module_path.exists():
+            raise Exception("Driver module not found")
+        
+        import importlib.util
+        module_name = f"driver_cache_{instance.instance_id}_{int(time.time())}"
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise Exception("Could not load driver module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        driver_class = getattr(module, driver_class_name, None)
+        if driver_class is None:
+            raise Exception("Driver class not found")
+
+        # Fetch secrets
+        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance.instance_id)
+        secrets_result = await anyio.to_thread.run_sync(session.execute, secrets_query)
+        secrets_rows = secrets_result.fetchall()
+        secrets: Dict[str, str] = {}
+        for secret_row in secrets_rows:
+            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
+            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
+            secrets[field] = value.decode("utf-8")
+
+        # Initialize driver and fetch inventory
+        from walnut.transports.manager import TransportManager
+        transports = TransportManager(instance.config)
+        try:
+            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
+            
+            # Check if driver has inventory_list method
+            if not hasattr(driver, 'inventory_list'):
+                raise AttributeError(f"Driver {driver_class_name} does not have inventory_list method")
+            
+            inventory_method = getattr(driver, 'inventory_list')
+            if not callable(inventory_method):
+                raise AttributeError(f"Driver {driver_class_name} inventory_list is not callable")
+            
+            items = await inventory_method(target_type=target_type, active_only=active_only, options={})
+        finally:
+            await transports.close_all()
+            # Clean up module
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+        
+        # Calculate fetch duration
+        fetch_duration_ms = int((time.time() - start_time) * 1000)
+        
+        # Update cache
+        cache_data = {
+            "instance_id": instance.instance_id,
+            "target_type": target_type,
+            "active_only": active_only,
+            "payload": items,
+            "fetched_at": datetime.now(timezone.utc),
+            "ttl_seconds": 30,  # Default 30 second TTL
+            "fetch_duration_ms": fetch_duration_ms,
+            "target_count": len(items)
+        }
+        
+        # Use upsert logic - delete existing then insert new
+        delete_stmt = delete(InventoryCache).where(
+            InventoryCache.instance_id == instance.instance_id,
+            InventoryCache.target_type == target_type,
+            InventoryCache.active_only == active_only
+        )
+        await anyio.to_thread.run_sync(session.execute, delete_stmt)
+        
+        new_cache = InventoryCache(**cache_data)
+        session.add(new_cache)
+        await anyio.to_thread.run_sync(session.commit)
+        
+        return items
+        
+    except Exception as e:
+        # Return empty list on error, but log it
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to fetch inventory for instance {instance.instance_id}, type {target_type}: {e}")
+        return []
+
 async def test_instance_connection(
     instance_id: int,
     session: Optional[AsyncSession] = None
@@ -1092,7 +1258,7 @@ async def test_instance_connection(
         .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
         .where(IntegrationInstance.instance_id == instance_id)
     )
-    result = session.execute(stmt)
+    result = await anyio.to_thread.run_sync(session.execute, stmt)
     row = result.first()
 
     if not row:
@@ -1134,7 +1300,7 @@ async def test_instance_connection(
 
         # Get secrets
         secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-        secrets_result = session.execute(secrets_query)
+        secrets_result = await anyio.to_thread.run_sync(session.execute, secrets_query)
         secrets_rows = secrets_result.fetchall()
 
         secrets: Dict[str, str] = {}
@@ -1152,10 +1318,28 @@ async def test_instance_connection(
 
             test_result = await driver.test_connection()
             status = test_result.get("status", "unknown")
+            latency_ms = test_result.get("latency_ms")
+            
+            # Update instance with real last_test timestamp and latency
+            instance.last_test = datetime.now(timezone.utc)
+            instance.latency_ms = latency_ms
+            
+            # Update instance state based on test result
+            if status == "connected":
+                instance.state = "connected"
+            elif status in ("degraded", "warning"):
+                instance.state = "degraded"
+            else:
+                instance.state = "error"
+            
+            # Commit the updates
+            session.add(instance)
+            await anyio.to_thread.run_sync(session.commit)
+            
             return InstanceTestResult(
                 success=(status == "connected"),
                 status=status,
-                latency_ms=test_result.get("latency_ms"),
+                latency_ms=latency_ms,
                 message=test_result.get("message"),
                 details=test_result,
             )
@@ -1164,6 +1348,17 @@ async def test_instance_connection(
 
     except Exception as e:
         import traceback
+        
+        # Update instance with failed test timestamp
+        try:
+            instance.last_test = datetime.now(timezone.utc)
+            instance.latency_ms = None
+            instance.state = "error"
+            session.add(instance)
+            await anyio.to_thread.run_sync(session.commit)
+        except Exception:
+            pass  # Don't let database update failures mask the original error
+        
         return InstanceTestResult(
             success=False,
             status="error",

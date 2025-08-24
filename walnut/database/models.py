@@ -257,6 +257,7 @@ class IntegrationInstance(Base):
     targets: Mapped[List["Target"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
     health_checks: Mapped[List["IntegrationHealth"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
     events: Mapped[List["IntegrationEvent"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
+    inventory_cache: Mapped[List["InventoryCache"]] = relationship(back_populates="instance", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index("idx_integration_instances_state", "state"),
@@ -905,4 +906,72 @@ class PolicyExecution(Base):
         Index("idx_policy_executions_ts", "ts"),
         Index("idx_policy_executions_severity", "severity"),
         Index("idx_policy_executions_policy_ts", "policy_id", "ts"),
+    )
+
+
+class InventoryCache(Base):
+    """
+    Cache layer for integration inventory data with TTL support.
+    
+    Stores inventory results per (instance_id, target_type, active_only) combination
+    with configurable TTL for performance optimization.
+    """
+    __tablename__ = "inventory_cache"
+    
+    # Composite primary key
+    instance_id: Mapped[int] = mapped_column(
+        ForeignKey("integration_instances.instance_id"),
+        primary_key=True,
+        comment="Integration instance reference"
+    )
+    target_type: Mapped[str] = mapped_column(
+        String(50),
+        primary_key=True,
+        comment="Target type: vm|stack-member|port"
+    )
+    active_only: Mapped[bool] = mapped_column(
+        Boolean,
+        primary_key=True,
+        comment="Whether only active targets are included"
+    )
+    
+    # Cache data and metadata
+    payload: Mapped[List[Dict[str, Any]]] = mapped_column(
+        SQLiteJSON,
+        nullable=False,
+        comment="Cached inventory targets as JSON array"
+    )
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+        comment="When this cache entry was created"
+    )
+    ttl_seconds: Mapped[int] = mapped_column(
+        Integer,
+        default=30,
+        nullable=False,
+        comment="Cache TTL in seconds"
+    )
+    
+    # Optional metadata
+    fetch_duration_ms: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="How long the fetch took in milliseconds"
+    )
+    target_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        comment="Number of targets in the cached result"
+    )
+    
+    # Relationships
+    instance: Mapped["IntegrationInstance"] = relationship(back_populates="inventory_cache")
+    
+    __table_args__ = (
+        Index("idx_inventory_cache_fetched_at", "fetched_at"),
+        Index("idx_inventory_cache_instance_type", "instance_id", "target_type"),
     )

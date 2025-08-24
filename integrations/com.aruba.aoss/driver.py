@@ -581,6 +581,49 @@ def _latency_probe(connection: dict) -> int:
     return int((time.time() - start) * 1000)
 
 
+def _get_stack_info(connection: dict) -> dict:
+    """Get stack member information via SNMP."""
+    try:
+        # For MVP, return empty members list - real implementation would query
+        # HP-ICF-STACKING MIB or similar to get actual stack information
+        return {"members": []}
+    except Exception as e:
+        return {"members": [], "error": str(e)}
+
+
+def _get_port_info(connection: dict) -> dict:
+    """Get port information via SNMP."""
+    try:
+        # For MVP, return basic port structure - real implementation would query
+        # IF-MIB and POE-MIB to get actual port status and PoE information
+        # This is a placeholder that provides expected structure
+        ports = []
+        
+        # Simulate basic port structure for development/testing
+        # In real implementation, this would query SNMP OIDs:
+        # - ifTable (1.3.6.1.2.1.2.2) for interface info
+        # - pethPsePortTable (1.3.6.1.2.1.105.1.1.1) for PoE info
+        
+        for i in range(1, 25):  # Simulate 24 ports
+            port = {
+                "port_id": str(i),
+                "description": f"Port {i}",
+                "alias": None,
+                "link_status": "down",  # Would be determined from ifOperStatus
+                "poe_enabled": False,   # Would be determined from PoE MIB
+                "speed": None,
+                "duplex": None,
+                "poe_power": None,
+                "poe_class": None
+            }
+            ports.append(port)
+        
+        return {"ports": ports}
+        
+    except Exception as e:
+        return {"ports": [], "error": str(e)}
+
+
 class ArubaOSSwitchDriver:
     """
     Aruba OS-S Switch Driver for walNUT Integration Framework.
@@ -705,6 +748,26 @@ class ArubaOSSwitchDriver:
                 "latency_ms": None
             }
     
+    async def inventory_list(self, target_type: str, active_only: bool = True, options: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """List inventory targets according to walNUT inventory contract.
+        
+        Args:
+            target_type: "vm"|"stack-member"|"port" - target type to list
+            active_only: If True, only return active targets
+            options: Additional options (currently unused)
+            
+        Returns:
+            List of targets in standardized format:
+            Stack: {type:"stack-member", id:"<member_id>", name:"Member <id>", attrs:{model:<str>}, labels:{}}
+            Port: {type:"port", id:"<port-id>", name:"<alias|description|id>", attrs:{poe:<bool>, link:"up|down", speed?:<str>}, labels:{}}
+        """
+        if target_type == "stack-member":
+            return await self._list_stack_members()
+        elif target_type == "port":
+            return await self._list_ports(active_only)
+        # Return empty list for unsupported types (vm, etc.) instead of raising error
+        return []
+    
     async def switch_inventory(self, target, dry_run: bool = False) -> Dict[str, Any]:
         """
         Get switch inventory information.
@@ -768,6 +831,112 @@ class ArubaOSSwitchDriver:
         """
         connection = self._build_connection_dict()
         return execute("switch.reboot", "exec", target, params, connection, dry_run)
+    
+    async def _list_stack_members(self) -> List[Dict[str, Any]]:
+        """List stack members according to walNUT inventory contract.
+        
+        Returns stack member targets in format:
+        {type:"stack-member", id:"<member_id>", name:"Member <id>", attrs:{model:<str>}, labels:{}}
+        """
+        connection = self._build_connection_dict()
+        
+        try:
+            # Check if switch is stacked by trying to get stack status
+            # For non-stacked switches, this should return empty list
+            result = _get_stack_info(connection)
+            
+            targets = []
+            for member in result.get("members", []):
+                member_id = str(member.get("id", ""))
+                if not member_id:
+                    continue
+                    
+                targets.append({
+                    "type": "stack-member",
+                    "id": member_id,
+                    "external_id": member_id,  # Keep for compatibility
+                    "name": f"Member {member_id}",
+                    "attrs": {
+                        "model": member.get("model", "Unknown"),
+                        "status": member.get("status", "unknown"),
+                        "priority": member.get("priority"),
+                        "role": member.get("role"),  # master/member
+                    },
+                    "labels": {},
+                })
+            
+            return targets
+            
+        except Exception as e:
+            self.logger.debug("Stack info not available (likely single switch): %s", e)
+            # Return empty list for non-stacked switches
+            return []
+    
+    async def _list_ports(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """List switch ports according to walNUT inventory contract.
+        
+        Active ports definition: link == "up" OR poe == true
+        
+        Returns port targets in format:
+        {type:"port", id:"<port-id>", name:"<alias|description|id>", attrs:{poe:<bool>, link:"up|down", speed?:<str>}, labels:{}}
+        """
+        connection = self._build_connection_dict()
+        
+        try:
+            # Get port information via SNMP
+            port_info = _get_port_info(connection)
+            
+            targets = []
+            for port in port_info.get("ports", []):
+                port_id = str(port.get("port_id", ""))
+                if not port_id:
+                    continue
+                
+                # Determine port name priority: alias > description > port_id
+                name = (port.get("alias") or 
+                       port.get("description") or 
+                       port_id)
+                
+                # Get port attributes
+                poe_enabled = port.get("poe_enabled", False)
+                link_status = port.get("link_status", "down")  # up|down
+                
+                # Apply active_only filter: active = link up OR poe enabled
+                is_active = link_status == "up" or poe_enabled
+                if active_only and not is_active:
+                    continue
+                
+                attrs = {
+                    "poe": poe_enabled,
+                    "link": link_status,
+                }
+                
+                # Add optional speed if available
+                if port.get("speed"):
+                    attrs["speed"] = port["speed"]
+                    
+                # Add other useful attributes
+                if port.get("duplex"):
+                    attrs["duplex"] = port["duplex"]
+                if port.get("poe_power"):
+                    attrs["poe_power"] = port["poe_power"]
+                if port.get("poe_class"):
+                    attrs["poe_class"] = port["poe_class"]
+                
+                targets.append({
+                    "type": "port",
+                    "id": port_id,
+                    "external_id": port_id,  # Keep for compatibility
+                    "name": name,
+                    "attrs": attrs,
+                    "labels": {},
+                })
+            
+            return targets
+            
+        except Exception as e:
+            self.logger.error("Failed to get port information: %s", e)
+            return []
     
     def _build_connection_dict(self) -> Dict[str, Any]:
         """

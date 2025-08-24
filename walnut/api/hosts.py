@@ -68,6 +68,31 @@ async def get_host_capabilities(host_id: str, _user: User = Depends(require_curr
 @router.get("/hosts/{host_id}/inventory", summary="Get host inventory")
 async def get_host_inventory(host_id: str, refresh: bool = False, _user: User = Depends(require_current_user)) -> Dict[str, Any]:
     """
-    Return discovered inventory for a host. Placeholder returns empty items list.
+    Return discovered inventory for a host via the integration inventory system.
     """
-    return {"items": []}
+    try:
+        instance_id = int(host_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid host ID")
+    
+    # Import and use the inventory function from the integrations API
+    from walnut.api.integrations import _get_cached_inventory
+    
+    async with get_db_session() as session:
+        # Load instance
+        instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+        instance_result = await anyio.to_thread.run_sync(session.execute, instance_stmt)
+        instance = instance_result.unique().scalar_one_or_none()
+        if not instance:
+            raise HTTPException(status_code=404, detail="Host not found")
+        
+        # Get VM inventory (most common target type)
+        items = await _get_cached_inventory(
+            session=session,
+            instance=instance,
+            target_type="vm",
+            active_only=False,
+            force_refresh=refresh
+        )
+        
+        return {"items": items}

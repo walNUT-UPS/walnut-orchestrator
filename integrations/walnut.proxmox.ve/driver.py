@@ -192,13 +192,22 @@ class ProxmoxVeDriver:
 
     # ---------- Capabilities ----------
 
-    async def inventory_list(self, target_type: str, dry_run: bool) -> List[Dict[str, Any]]:
-        """List inventory targets - dry_run parameter is ignored as this is always read-only."""
+    async def inventory_list(self, target_type: str, active_only: bool = True, options: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """List inventory targets according to walNUT inventory contract.
+        
+        Args:
+            target_type: "vm"|"stack-member"|"port" - target type to list
+            active_only: If True, only return active targets
+            options: Additional options (currently unused)
+            
+        Returns:
+            List of targets in standardized format:
+            VM: {type:"vm", id:"<vmid>", name:"<name>", status:"running|stopped|paused|unknown", attrs:{node:<str>}, labels:{}}
+        """
         if target_type == "vm":
-            return await self._list_vms()
-        if target_type == "host":
-            return await self._list_hosts()
-        raise ValueError(f"Unsupported target_type for inventory.list: {target_type}")
+            return await self._list_vms(active_only)
+        # Return empty list for unsupported types (stack-member, port, etc.) instead of raising error
+        return []
 
     async def _execute_plan(self, plan: dict, dry_run: bool = False):
         if dry_run:
@@ -1088,7 +1097,12 @@ class ProxmoxVeDriver:
             return {t: True for t in parts}
         return {}
 
-    async def _list_vms(self) -> List[Dict[str, Any]]:
+    async def _list_vms(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """List VMs according to walNUT inventory contract.
+        
+        Returns VM targets in format:
+        {type:"vm", id:"<vmid>", name:"<name>", status:"running|stopped|paused|unknown", attrs:{node:<str>}, labels:{}}
+        """
         node = self.config["node"]
         http = await self._http()
 
@@ -1102,7 +1116,6 @@ class ProxmoxVeDriver:
             vms_data = raw_data["data"]
         else:
             vms_data = raw_data
-
 
         targets: List[Dict[str, Any]] = []
         for vm in vms_data:
@@ -1126,33 +1139,66 @@ class ProxmoxVeDriver:
             vmid = str(vm.get("vmid", ""))
             if not vmid:
                 continue  # Skip entries without vmid
-                
+
+            # Map Proxmox status to standard format
+            proxmox_status = vm.get("status", "unknown")
+            if proxmox_status == "running":
+                standard_status = "running"
+            elif proxmox_status == "stopped":
+                standard_status = "stopped"
+            elif proxmox_status in ("suspended", "paused"):
+                standard_status = "paused"
+            else:
+                standard_status = "unknown"
+
+            # Filter by active_only - running VMs are considered "active"
+            if active_only and standard_status not in ("running",):
+                continue
+
+            # Build attrs dict with node and additional metadata
             attrs = {
-                "status": vm.get("status"),
+                "node": node,
                 "cpus": vm.get("cpus"),
                 "maxmem": vm.get("maxmem"),
             }
 
-            # Enrich with current status
+            # Enrich with current status if needed for more accurate state
             try:
                 status_resp = await http.call({"method": "GET", "path": f"/nodes/{node}/qemu/{vmid}/status/current"})
                 if status_resp.get("ok"):
                     sdata = status_resp.get("data", {}) or {}
+                    # Update status with more accurate current state if available
+                    current_status = sdata.get("status")
+                    qmp_status = sdata.get("qmpstatus")
+                    if current_status:
+                        if current_status == "running":
+                            standard_status = "running"
+                        elif current_status == "stopped":
+                            standard_status = "stopped"
+                        elif current_status in ("suspended", "paused") or qmp_status in ("suspended", "paused"):
+                            standard_status = "paused"
+                    
                     attrs.update({
                         "cpu_usage": sdata.get("cpu"),      # fraction 0.0–1.0
                         "mem_used": sdata.get("mem"),
                         "mem_total": sdata.get("maxmem"),
                         "disk_used": sdata.get("disk"),
                         "disk_total": sdata.get("maxdisk"),
-                        "qmpstatus": sdata.get("qmpstatus"),
+                        "qmpstatus": qmp_status,
                     })
             except Exception:
                 pass
 
+            # Apply active_only filter again after status enrichment
+            if active_only and standard_status not in ("running",):
+                continue
+
             targets.append({
                 "type": "vm",
-                "external_id": vmid,
-                "name": vm.get("name"),
+                "id": vmid,  # Add 'id' field per inventory contract
+                "external_id": vmid,  # Keep existing field for compatibility 
+                "name": vm.get("name") or f"VM-{vmid}",  # Ensure name is always present
+                "status": standard_status,
                 "attrs": attrs,
                 "labels": self._tags_to_labels(vm.get("tags")),
             })
