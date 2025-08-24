@@ -1,19 +1,27 @@
 from __future__ import annotations
 
 import time
+import logging
 from typing import Any, Dict, List, Optional
 
-from .utils.logging import get_logger
-from .utils.normalize import (
+# Use standard logging instead of relative imports for better compatibility
+log = logging.getLogger("com.aruba.aoss.driver")
+
+# Import helper modules with absolute paths to avoid relative import issues
+import os
+import sys
+integration_path = os.path.dirname(__file__)
+if integration_path not in sys.path:
+    sys.path.insert(0, integration_path)
+
+from utils.normalize import (
     PortKey,
     compress_to_cli,
     normalize_targets,
     is_protected_port,
 )
-from .parsers.interfaces import parse_show_modules, parse_show_version, parse_show_vsf
-from .parsers import snmp as snmp_helpers
-
-log = get_logger("driver")
+from parsers.interfaces import parse_show_modules, parse_show_version, parse_show_vsf
+from parsers import snmp as snmp_helpers
 
 
 class SSH:
@@ -597,11 +605,17 @@ class ArubaOSSwitchDriver:
         name = getattr(instance, "name", "unknown")
         self.logger = log  # Use the existing logger from the module
         
-        # Validate required configuration
-        required_fields = ['hostname', 'username', 'password', 'snmp_community']
-        for field in required_fields:
+        # Validate required configuration (config fields)
+        required_config_fields = ['hostname', 'username']
+        for field in required_config_fields:
             if not self.config.get(field):
                 raise ValueError(f"Required configuration field '{field}' is missing")
+        
+        # Validate required secrets
+        required_secret_fields = ['password', 'snmp_community']
+        for field in required_secret_fields:
+            if not self.secrets.get(field):
+                raise ValueError(f"Required secret field '{field}' is missing")
         
         self.logger.info(
             "Initialized ArubaOS-S driver for %s (%s)", 
@@ -762,12 +776,12 @@ class ArubaOSSwitchDriver:
         return {
             "hostname": self.config["hostname"],
             "username": self.config["username"],
-            "password": self.config["password"],
-            "enable_password": self.config.get("enable_password"),
+            "password": self.secrets["password"],  # Password comes from secrets
+            "enable_password": self.secrets.get("enable_password"),  # Enable password also from secrets
             "ssh_port": self.config.get("ssh_port", 22),
             "timeout_s": self.config.get("timeout_s", 30),
             "device_type": self.config.get("device_type", "aruba_osswitch"),
-            "snmp_community": self.config["snmp_community"],
+            "snmp_community": self.secrets["snmp_community"],  # SNMP community from secrets
             "snmp_port": self.config.get("snmp_port", 161)
         }
 

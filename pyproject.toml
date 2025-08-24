@@ -68,6 +68,7 @@ dependencies = [
     # SSH connections
     "asyncssh>=2.14.0",
     "paramiko>=3.4.0",
+    "netmiko>=4.6.0",
 
     # MQTT
     "paho-mqtt>=2.1.0",
