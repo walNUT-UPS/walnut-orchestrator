@@ -53,7 +53,8 @@
     "react-router-dom": "^6.20.0",
     "recharts": "^2.8.0",
     "sonner": "^1.2.0",
-    "tailwind-merge": "^2.0.0"
+    "tailwind-merge": "^2.0.0",
+    "@react-buddy/ide-toolbox": "^2.4.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
