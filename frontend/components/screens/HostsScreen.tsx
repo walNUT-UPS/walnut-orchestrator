@@ -16,7 +16,8 @@ import {
   RefreshCw,
   Calendar,
   Clock,
-  Zap
+  Zap,
+  Eye
 } from 'lucide-react';
 import {
   Table,
@@ -56,6 +57,7 @@ import { Textarea } from '../ui/textarea';
 import { apiService, IntegrationType, IntegrationInstance } from '../../services/api';
 import { toast } from 'sonner';
 import { useConfirm } from '../ui/confirm';
+import { DetailsDrawer } from '../hosts/DetailsDrawer';
 
 // Schema field component for rendering form fields from JSON Schema
 interface SchemaFieldProps {
@@ -181,6 +183,10 @@ export function HostsScreen() {
     config: {} as Record<string, any>,
     secrets: {} as Record<string, string>
   });
+
+  // Details drawer state
+  const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
+  const [detailsInstance, setDetailsInstance] = useState<IntegrationInstance | null>(null);
 
   const availableFilters = ['Connected', 'Disconnected', 'Error', 'Degraded'];
 
@@ -358,6 +364,11 @@ export function HostsScreen() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete host');
     }
+  };
+
+  const handleShowDetails = (instance: IntegrationInstance) => {
+    setDetailsInstance(instance);
+    setDetailsDrawerOpen(true);
   };
 
   const openEditConfig = (instance: IntegrationInstance) => {
@@ -641,6 +652,14 @@ export function HostsScreen() {
                                 <TestTube className="w-3 h-3" />
                               )}
                             </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleShowDetails(instance)}
+                              title="View details"
+                            >
+                              <Eye className="w-3 h-3" />
+                            </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button data-testid="instance-actions-trigger" variant="ghost" size="sm">
@@ -876,6 +895,12 @@ export function HostsScreen() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        
+        <DetailsDrawer
+          instance={detailsInstance}
+          open={detailsDrawerOpen}
+          onClose={() => setDetailsDrawerOpen(false)}
+        />
       </div>
     </div>
   );

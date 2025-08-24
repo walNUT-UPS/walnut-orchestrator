@@ -879,6 +879,19 @@ async def test_integration_instance(
         async with get_db_session() as session:
             result = await test_instance_connection(instance_id, session)
             # test_instance_connection already updates last_test, latency_ms, and state
+            
+            # Debug: Check if the update actually worked
+            debug_query = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+            debug_result = await anyio.to_thread.run_sync(session.execute, debug_query)
+            debug_instance = debug_result.scalar_one_or_none()
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            if debug_instance:
+                logger.info(f"DEBUG: Instance {instance_id} last_test after update: {debug_instance.last_test}")
+                logger.info(f"DEBUG: Instance {instance_id} latency_ms after update: {debug_instance.latency_ms}")
+                logger.info(f"DEBUG: Instance {instance_id} state after update: {debug_instance.state}")
+            
             return result
 
     except HTTPException:
@@ -990,7 +1003,7 @@ async def get_instance_inventory_summary(
     async with get_db_session() as session:
         # Load instance
         instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
-        instance_result = await session.execute(instance_stmt)
+        instance_result = await anyio.to_thread.run_sync(session.execute, instance_stmt)
         instance = instance_result.scalar_one_or_none()
         if not instance:
             raise HTTPException(status_code=404, detail="Integration instance not found")

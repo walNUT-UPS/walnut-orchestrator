@@ -305,9 +305,20 @@ class ApiService {
     return this.request<IntegrationInstance[]>('/integrations/instances');
   }
 
-  async getInstanceInventory(instanceId: number, type?: string): Promise<{ items: Array<{ type: string; external_id: string; name: string; attrs?: any; labels?: any }> }> {
-    const q = type ? `?type=${encodeURIComponent(type)}` : '';
-    return this.request(`/integrations/instances/${instanceId}/inventory${q}`);
+  async getInstanceInventory(instanceId: number, type?: string, activeOnly?: boolean, page?: number, pageSize?: number, refresh?: boolean): Promise<{ items: Array<{ type: string; external_id: string; name: string; attrs?: any; labels?: any }>; next_page?: number }> {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    if (activeOnly !== undefined) params.set('active_only', activeOnly.toString());
+    if (page) params.set('page', page.toString());
+    if (pageSize) params.set('page_size', pageSize.toString());
+    if (refresh) params.set('refresh', '1');
+    
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/integrations/instances/${instanceId}/inventory${queryString}`);
+  }
+
+  async getInstanceInventorySummary(instanceId: number): Promise<{ vm?: number; stack_member?: number; port?: number; [key: string]: number | undefined }> {
+    return this.request(`/integrations/instances/${instanceId}/inventory/summary`);
   }
 
   async getIntegrationManifest(typeId: string): Promise<{ type_id: string; path: string; manifest_yaml: string }>{
