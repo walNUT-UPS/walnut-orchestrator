@@ -2,7 +2,7 @@ import React from 'react';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../ui/command';
+import { Input } from '../ui/input';
 import type { TargetSelector as TSel } from './types';
 import { apiService } from '../../services/api';
 
@@ -66,22 +66,26 @@ export function TargetSelector({ hostId, targetTypes, value, onChange }: Props) 
         <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>{loading ? '...' : 'Refresh'}</Button>
       </div>
       <div>
-        <Command className="border rounded-md">
-          <CommandInput placeholder="Type to search by name or ID..." value={q} onValueChange={setQ} />
-          <CommandList>
-            <CommandEmpty>{loading ? 'Loading…' : 'No results'}</CommandEmpty>
-            <CommandGroup heading="Results">
-              {filtered.map((it) => (
-                <CommandItem key={`${it.external_id}:${it.name || ''}`} onSelect={() => add(it.external_id, it.name)}>
-                  <div className="flex items-center justify-between w-full">
-                    <span className="truncate max-w-[320px]">{it.name || it.external_id}</span>
-                    <span className="text-xs text-muted-foreground ml-2">ID: {it.external_id}</span>
-                  </div>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+        <Input placeholder="Type to search by name or ID..." value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="mt-2 border rounded-md max-h-56 overflow-auto divide-y">
+          {loading ? (
+            <div className="p-2 text-sm text-muted-foreground">Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div className="p-2 text-sm text-muted-foreground">No results</div>
+          ) : (
+            filtered.map((it) => (
+              <button
+                key={`${it.external_id}:${it.name || ''}`}
+                type="button"
+                onClick={() => add(it.external_id, it.name)}
+                className="w-full text-left p-2 hover:bg-accent hover:text-accent-foreground flex items-center justify-between"
+              >
+                <span className="truncate max-w-[320px]">{it.name || it.external_id}</span>
+                <span className="text-xs text-muted-foreground ml-2">ID: {it.external_id}</span>
+              </button>
+            ))
+          )}
+        </div>
         {selected.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {selected.map((s) => (
