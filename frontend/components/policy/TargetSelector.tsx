@@ -2,77 +2,96 @@ import React from 'react';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { Textarea } from '../ui/textarea';
-import type { TargetSelector } from './types';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '../ui/command';
+import type { TargetSelector as TSel } from './types';
+import { apiService } from '../../services/api';
 
-export function TargetSelector({ value, onChange }: { value: TargetSelector; onChange: (sel: TargetSelector) => void }) {
-  const [labelKey, setLabelKey] = React.useState('');
-  const [labelVal, setLabelVal] = React.useState('');
+type Props = {
+  hostId: string;
+  targetTypes: string[];
+  value: TSel;
+  onChange: (sel: TSel) => void;
+};
 
-  const labels = value.labels || {};
-  const identifiers = React.useMemo(() => (value.names || value.external_ids || []), [value.names, value.external_ids]);
+export function TargetSelector({ hostId, targetTypes, value, onChange }: Props) {
+  const [type, setType] = React.useState<string>(() => targetTypes[0] || 'vm');
+  const [items, setItems] = React.useState<Array<{ external_id: string; name?: string }>>([]);
+  const [q, setQ] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
 
-  const addLabel = () => {
-    if (!labelKey) return;
-    onChange({ ...value, labels: { ...(value.labels || {}), [labelKey]: labelVal } });
-    setLabelKey('');
-    setLabelVal('');
+  const selected = React.useMemo(() => {
+    const ids = new Set([...(value.external_ids || []), ...(value.names || [])]);
+    return Array.from(ids);
+  }, [value.external_ids, value.names]);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await apiService.getInstanceInventory(Number(hostId), type);
+      const arr = (res.items || []).map((i: any) => ({ external_id: String(i.external_id), name: i.name }));
+      setItems(arr);
+    } catch (_) {
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [hostId, type]);
+
+  React.useEffect(() => { refresh(); }, [refresh]);
+
+  const filtered = React.useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    if (!qq) return items;
+    return items.filter(i => (i.name || '').toLowerCase().includes(qq) || i.external_id.toLowerCase().includes(qq));
+  }, [items, q]);
+
+  const add = (id: string, name?: string) => {
+    const nextIds = Array.from(new Set([...(value.external_ids || []), id]));
+    const nextNames = name ? Array.from(new Set([...(value.names || []), name])) : (value.names || []);
+    onChange({ ...value, external_ids: nextIds, names: nextNames });
   };
-
-  const removeLabel = (k: string) => {
-    const clone = { ...(value.labels || {}) };
-    delete clone[k];
-    onChange({ ...value, labels: clone });
+  const remove = (idOrName: string) => {
+    const nextIds = (value.external_ids || []).filter(x => x !== idOrName);
+    const nextNames = (value.names || []).filter(x => x !== idOrName);
+    onChange({ ...value, external_ids: nextIds, names: nextNames });
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Label className="shrink-0">Type</Label>
+        <select value={type} onChange={(e) => setType(e.target.value)} className="p-2 border rounded text-sm w-40">
+          {targetTypes.map(t => (<option key={t} value={t}>{t}</option>))}
+        </select>
+        <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>{loading ? '...' : 'Refresh'}</Button>
+      </div>
       <div>
-        <Label>Labels</Label>
-        <div className="flex gap-2 mt-1">
-          <Input placeholder="key" value={labelKey} onChange={(e) => setLabelKey(e.target.value)} className="w-40" />
-          <Input placeholder="value" value={labelVal} onChange={(e) => setLabelVal(e.target.value)} className="w-60" />
-          <Button variant="outline" onClick={addLabel}>Add</Button>
-        </div>
-        {Object.keys(labels).length > 0 && (
+        <Command className="border rounded-md">
+          <CommandInput placeholder="Type to search by name or ID..." value={q} onValueChange={setQ} />
+          <CommandList>
+            <CommandEmpty>{loading ? 'Loading…' : 'No results'}</CommandEmpty>
+            <CommandGroup heading="Results">
+              {filtered.map((it) => (
+                <CommandItem key={`${it.external_id}:${it.name || ''}`} onSelect={() => add(it.external_id, it.name)}>
+                  <div className="flex items-center justify-between w-full">
+                    <span className="truncate max-w-[320px]">{it.name || it.external_id}</span>
+                    <span className="text-xs text-muted-foreground ml-2">ID: {it.external_id}</span>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+        {selected.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {Object.entries(labels).map(([k, v]) => (
-              <span key={k} className="px-2 py-1 border rounded">
-                {k}:{String(v)}
-                <button className="ml-2 text-muted-foreground" onClick={() => removeLabel(k)}>×</button>
+            {selected.map((s) => (
+              <span key={s} className="px-2 py-1 border rounded bg-muted/30">
+                {s}
+                <button className="ml-2 text-muted-foreground" onClick={() => remove(s)}>×</button>
               </span>
             ))}
           </div>
         )}
-      </div>
-
-      <div>
-        <Label>Identifiers (names or IDs, comma-separated)</Label>
-        <Input
-          value={(identifiers || []).join(',')}
-          onChange={(e) => {
-            const arr = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
-            onChange({ ...value, names: arr, external_ids: arr });
-          }}
-          placeholder="vm-01,104,vm-02"
-        />
-      </div>
-
-      <div>
-        <Label>Attributes (JSON, optional)</Label>
-        <Textarea
-          rows={4}
-          value={JSON.stringify(value.attrs || {}, null, 2)}
-          onChange={(e) => {
-            try {
-              const obj = JSON.parse(e.target.value || '{}');
-              onChange({ ...value, attrs: obj });
-            } catch {
-              // ignore invalid JSON
-            }
-          }}
-          className="font-mono"
-        />
       </div>
     </div>
   );

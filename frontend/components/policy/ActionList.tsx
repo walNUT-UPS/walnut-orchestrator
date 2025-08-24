@@ -9,6 +9,8 @@ import type { Host } from './types';
 import { toast } from 'sonner';
 import { apiService } from '../../services/api';
 import { TargetSelector } from './TargetSelector';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+import { Info } from 'lucide-react';
 import { GripVertical } from 'lucide-react';
 // Drag-and-drop support can be enabled by installing react-dnd + backend and wiring here.
 const DndProvider: any = null;
@@ -102,7 +104,15 @@ export function ActionList({ value, onChange }: { value: CapabilityAction[]; onC
                 {(a as any).host_id && (
                   <>
                     <div>
-                      <Label>Capability</Label>
+                      <div className="flex items-center gap-1">
+                        <Label>Capability</Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="text-muted-foreground inline-flex items-center"><Info className="w-3.5 h-3.5" /></span>
+                          </TooltipTrigger>
+                          <TooltipContent>Choose what action family to run (e.g., VM Lifecycle, Host Power Control)</TooltipContent>
+                        </Tooltip>
+                      </div>
                       <select
                         value={a.capability || ''}
                         onChange={(e) => update(idx, { capability: e.target.value, verb: '' })}
@@ -110,12 +120,20 @@ export function ActionList({ value, onChange }: { value: CapabilityAction[]; onC
                       >
                         <option value="">Select capability</option>
                         {(capsByHost[(a as any).host_id || ''] || []).filter(c => c.id !== 'inventory.list').map((c) => (
-                          <option key={c.id} value={c.id}>{c.id}</option>
+                          <option key={c.id} value={c.id}>{friendlyCapLabel(c.id)}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <Label>Verb</Label>
+                      <div className="flex items-center gap-1">
+                        <Label>Verb</Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="text-muted-foreground inline-flex items-center"><Info className="w-3.5 h-3.5" /></span>
+                          </TooltipTrigger>
+                          <TooltipContent>Specific action to perform (e.g., start, shutdown, cycle)</TooltipContent>
+                        </Tooltip>
+                      </div>
                       <select
                         value={a.verb || ''}
                         onChange={(e) => update(idx, { verb: e.target.value })}
@@ -134,7 +152,17 @@ export function ActionList({ value, onChange }: { value: CapabilityAction[]; onC
 
                 {(a as any).host_id && a.capability && (
                 <div>
-                  <Label>Target Selector</Label>
+                  <div className="flex items-center gap-1">
+                    <Label>Target Selector</Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-muted-foreground inline-flex items-center"><Info className="w-3.5 h-3.5" /></span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Filter by type, then type to search by name or ID. Select one or more targets.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                   {(() => {
                     const cap = (capsByHost[(a as any).host_id || ''] || []).find(c => c.id === a.capability);
                     const targets = cap?.targets || [];
@@ -142,7 +170,7 @@ export function ActionList({ value, onChange }: { value: CapabilityAction[]; onC
                     if (hostOnly) {
                       return <div className="text-xs text-muted-foreground">Operates on host. No target selection required.</div>;
                     }
-                    return <TargetSelector value={a.selector || {}} onChange={(sel) => update(idx, { selector: sel })} />;
+                    return <TargetSelector hostId={(a as any).host_id!} targetTypes={targets} value={a.selector || {}} onChange={(sel) => update(idx, { selector: sel })} />;
                   })()}
                 </div>
               )}
@@ -191,4 +219,13 @@ export function ActionList({ value, onChange }: { value: CapabilityAction[]; onC
   ) : (
     ListBody
   );
+}
+
+function friendlyCapLabel(id: string): string {
+  switch (id) {
+    case 'vm.lifecycle': return 'VM Lifecycle';
+    case 'power.control': return 'Host Power Control';
+    default:
+      return id.split('.').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ');
+  }
 }
