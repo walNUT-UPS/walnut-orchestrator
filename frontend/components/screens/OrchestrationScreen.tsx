@@ -165,7 +165,24 @@ export function OrchestrationScreen() {
                 policies.map((policy) => (
                   <TableRow key={policy.id} className="hover:bg-muted/20">
                     <TableCell>
-                      <div className="font-medium">{policy.name}</div>
+                      {(() => {
+                        const s = (policy as any).last_status as string | undefined;
+                        const c = s === 'error' || s === 'failed'
+                          ? 'bg-status-error'
+                          : s === 'warn'
+                          ? 'bg-status-warn'
+                          : s === 'info' || s === 'ok' || s === 'success'
+                          ? 'bg-status-ok'
+                          : (policy as any).enabled === true
+                          ? 'bg-status-ok'
+                          : 'bg-muted';
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-block w-1.5 h-4 rounded ${c}`} aria-hidden />
+                            <div className="font-medium">{policy.name}</div>
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       {(() => {
