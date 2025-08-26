@@ -595,8 +595,8 @@ function DirectPortsView({ instanceId }: { instanceId: number }) {
                 <TableRow key={port.external_id} className="py-2">
                   <TableCell>{port.name || port.attrs?.alias || port.attrs?.description || '-'}</TableCell>
                   <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
-                  <TableCell>{formatAdmin(port.attrs?.if_admin)}</TableCell>
-                  <TableCell>{formatOper(port.attrs?.if_oper)}</TableCell>
+                  <TableCell>{formatAdmin(port.attrs?.if_admin, port.attrs)}</TableCell>
+                  <TableCell>{formatOper(port.attrs?.if_oper, port.attrs)}</TableCell>
                   <TableCell>{formatSpeed(port.attrs)}</TableCell>
                   <TableCell>{formatPoePower(port.attrs)}</TableCell>
                   <TableCell>{port.attrs?.poe_class || '-'}</TableCell>
@@ -635,21 +635,24 @@ function extractVmStatus(vm: any): string {
   return s;
 }
 
-function formatAdmin(v: any): string {
+function formatAdmin(v: any, attrs?: any): string {
+  // Prefer explicit admin; fall back to link if that's all we have
   if (v === 1 || String(v).toLowerCase() === 'up') return 'up';
   if (v === 2 || String(v).toLowerCase() === 'down') return 'down';
-  return String(v || '-');
+  if (attrs && typeof attrs.link === 'string') return String(attrs.link);
+  return String(v ?? '-');
 }
 
-function formatOper(v: any): string {
+function formatOper(v: any, attrs?: any): string {
   if (v === 1 || String(v).toLowerCase() === 'up') return 'up';
   if (v === 2 || String(v).toLowerCase() === 'down') return 'down';
-  return String(v || '-');
+  if (attrs && typeof attrs.link === 'string') return String(attrs.link);
+  return String(v ?? '-');
 }
 
 function formatSpeed(attrs: any): string {
   if (!attrs) return '-';
-  const hs = attrs.if_high_speed;
+  const hs = attrs.if_high_speed ?? attrs.speed_mbps;
   const s = attrs.speed;
   if (hs) return `${hs} Mbps`;
   if (s) {
