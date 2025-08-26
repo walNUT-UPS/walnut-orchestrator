@@ -24,8 +24,13 @@ from walnut.database.connection import get_db_session
 from walnut.database.models import IntegrationType
 import anyio
 from walnut.utils.logging import setup_logging
+from walnut.api.integrations import warm_inventory_cache
+from walnut.core.nut_service import NUTService
 
 logger = logging.getLogger("walnut.app")
+
+# Global NUT service instance
+nut_service = None
 
 
 @asynccontextmanager
@@ -62,10 +67,57 @@ async def lifespan(app: FastAPI):
             logger.info("Integration types present in DB: %d — skipping first-boot scan", types_count)
     except Exception:
         logger.exception("Failed to run first-boot integration scan check")
-    # TODO: Add other startup logic here (e.g., DB connection pool, discovery)
+    # Warm inventory cache for instances (best-effort, async)
+    try:
+        asyncio.create_task(warm_inventory_cache())
+        logger.info("Scheduled inventory cache warmup task")
+    except Exception:
+        logger.exception("Failed to schedule inventory cache warmup")
+    # Periodic cache warmer: refresh all instances/types every ~3 minutes
+    async def _periodic_cache_warmer():
+        interval = 180
+        try:
+            # Prefer configured poll interval if present
+            interval = int(getattr(settings, 'POLL_INTERVAL', interval) or interval)
+        except Exception:
+            interval = 180
+        interval = max(60, interval)
+        logger.info("Starting periodic inventory cache warmer (interval=%ss)", interval)
+        while True:
+            try:
+                await warm_inventory_cache()
+            except Exception:
+                logger.exception("Periodic inventory cache warm failed")
+            try:
+                await asyncio.sleep(interval)
+            except Exception:
+                # if event loop is closing
+                break
+    try:
+        asyncio.create_task(_periodic_cache_warmer())
+        logger.info("Scheduled periodic inventory cache warmer task")
+    except Exception:
+        logger.exception("Failed to schedule periodic cache warmer")
+    
+    # Start NUT service for real UPS monitoring
+    global nut_service
+    try:
+        nut_service = NUTService()
+        asyncio.create_task(nut_service.start())
+        logger.info("NUT service started for real UPS monitoring")
+    except Exception:
+        logger.exception("Failed to start NUT service")
+    
     yield
+    
     # On shutdown
     logger.info("Shutting down walNUT services...")
+    if nut_service:
+        try:
+            await nut_service.stop()
+            logger.info("NUT service stopped")
+        except Exception:
+            logger.exception("Error stopping NUT service")
 
 
 app = FastAPI(

@@ -30,15 +30,19 @@ class NUTPoller:
     A service that polls a NUT server for UPS data.
     """
 
-    def __init__(self, ups_name: str):
+    def __init__(self, ups_name: str, host: str = None, port: int = None, username: str = None, password: str = None):
         """
         Initialize the NUT poller.
 
         Args:
             ups_name: The name of the UPS to poll.
+            host: NUT server hostname/IP address
+            port: NUT server port
+            username: NUT server username
+            password: NUT server password
         """
         self.ups_name = ups_name
-        self.client = NUTClient()
+        self.client = NUTClient(host=host, port=port, username=username, password=password)
         self._task: asyncio.Task | None = None
         self._should_stop = asyncio.Event()
         self.last_heartbeat: float = 0.0

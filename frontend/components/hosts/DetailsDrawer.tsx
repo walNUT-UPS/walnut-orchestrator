@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
@@ -64,7 +64,18 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
   // Load available targets when drawer opens
   useEffect(() => {
     if (open && instance) {
-      loadAvailableTargets();
+      (async () => {
+        await loadAvailableTargets();
+        // Preload data for all tabs on open
+        const tabsToLoad: string[] = [];
+        tabsToLoad.push('system');
+        if (availableTargets.includes('vm')) tabsToLoad.push('vms');
+        if (availableTargets.includes('stack-member') || availableTargets.includes('stack_member')) tabsToLoad.push('stack');
+        if (availableTargets.includes('port')) tabsToLoad.push('ports');
+        for (const t of tabsToLoad) {
+          await loadTabData(t, 1, false);
+        }
+      })();
     }
   }, [open, instance?.instance_id]);
 
@@ -174,9 +185,10 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
     try {
       if (page === 1) setLoading(true);
       
+      const queryType = type === 'vms' ? 'vm' : type === 'stack' ? 'stack-member' : (type === 'system' ? 'system' : 'port');
       const response = await apiService.getInstanceInventory(
         instance.instance_id,
-        type === 'vms' ? 'vm' : type === 'stack' ? 'stack-member' : 'port',
+        queryType,
         activeOnly,
         page,
         50, // page_size
@@ -256,6 +268,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
     
     const cached = getCachedData(type, activeOnly);
     const data = cached?.data || [];
+    if (type === 'system') return data;
     
     if (!filter.trim()) return data;
     
@@ -269,12 +282,13 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
   // Determine which tabs to show based on available targets
   const availableTabs = useMemo(() => {
     const tabs = [];
-    
+    // Always include System tab
+    tabs.push('system');
     // Map targets to tab names
     if (availableTargets.includes('vm')) {
       tabs.push('vms');
     }
-    if (availableTargets.includes('stack-member')) {
+    if (availableTargets.includes('stack-member') || availableTargets.includes('stack_member')) {
       tabs.push('stack');
     }
     if (availableTargets.includes('port')) {
@@ -291,20 +305,12 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] overflow-hidden flex flex-col">
+      <SheetContent className="w-[55%] min-w-[720px] max-w-[1200px] flex flex-col">
         <SheetHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg font-semibold">
               {instance.name} — Details
             </SheetTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onClose}
-              className="h-8 w-8 p-0"
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
         </SheetHeader>
 
@@ -321,6 +327,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
               <div className="flex-shrink-0 space-y-4 pb-4">
                 <TabsList className={`grid w-full grid-cols-${availableTabs.length}`}>
+                  <TabsTrigger value="system">System</TabsTrigger>
                   {availableTabs.includes('vms') && (
                     <TabsTrigger value="vms">VMs</TabsTrigger>
                   )}
@@ -332,42 +339,71 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
                   )}
                 </TabsList>
 
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <Input
-                      placeholder="Filter by ID or name..."
-                      value={filter}
-                      onChange={(e) => setFilter(e.target.value)}
-                      className="pl-9 h-8"
-                    />
+                {activeTab !== 'system' ? (
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                      <Input
+                        placeholder="Filter by ID or name..."
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                        className="pl-9 h-8"
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      className="h-8"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                    </Button>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRefresh}
-                    disabled={refreshing}
-                    className="h-8"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                  </Button>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefresh}
+                      disabled={refreshing}
+                      className="h-8"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                )}
 
                 {activeTab === 'ports' && (
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id="active-only"
-                      checked={activeOnly}
-                      onCheckedChange={setActiveOnly}
-                    />
-                    <Label htmlFor="active-only" className="text-sm">
-                      Active only
-                    </Label>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="active-only"
+                        checked={activeOnly}
+                        onCheckedChange={setActiveOnly}
+                      />
+                      <Label htmlFor="active-only" className="text-sm">
+                        Active only
+                      </Label>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={handleLoadMore} disabled={!cachedInfo?.hasMore}>
+                      View more
+                    </Button>
                   </div>
                 )}
               </div>
 
-              <div className="flex-1 min-h-0 overflow-hidden">
+              <div className="flex-1 min-h-0">
+                {availableTabs.includes('system') && (
+                  <TabsContent value="system" className="h-full">
+                    <SystemTab
+                      data={currentData}
+                      loading={loading}
+                      onRefresh={handleRefresh}
+                    />
+                  </TabsContent>
+                )}
+
                 {availableTabs.includes('vms') && (
                   <TabsContent value="vms" className="h-full">
                     <VMsTab
@@ -473,6 +509,90 @@ function VMsTab({ data, loading, hasMore, onLoadMore }: {
   );
 }
 
+// System Tab Component
+function SystemTab({ data, loading, onRefresh }: { data: InventoryItem[]; loading: boolean; onRefresh: () => void }) {
+  if (loading && data.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">Loading system info…</CardContent>
+      </Card>
+    );
+  }
+  const item = data[0];
+  const a = item?.attrs || {};
+  const members: any[] = a.members || [];
+  return (
+    <div className="flex flex-col h-full gap-3">
+      <Card>
+        <CardContent className="py-4 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <div className="text-muted-foreground">System</div>
+              <div className="font-medium">{item?.name || a.name || '—'}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Software</div>
+              <div className="font-medium">{a.software || a.sw_version || '—'}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Base MAC</div>
+              <div className="font-mono text-xs">{a.base_mac || '—'}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      {Array.isArray(a.power) && a.power.length > 0 && (
+        <Card>
+          <CardContent className="py-4 text-sm">
+            <div className="text-muted-foreground mb-2">Power</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {a.power.map((p: any, idx: number) => (
+                <div key={idx} className="border rounded p-2">
+                  <div className="text-xs text-muted-foreground">Member {p.member}</div>
+                  <div className="text-xs">Available: {p.available_w} W</div>
+                  <div className="text-xs">Used: {p.used_w} W</div>
+                  <div className="text-xs">Remaining: {p.remaining_w} W</div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      <div className="flex-1 min-h-0">
+        <div className="h-[40vh] overflow-auto">
+          <Table>
+            <TableHeader className="sticky top-0 bg-background">
+              <TableRow>
+                <TableHead>Member</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Uptime</TableHead>
+                <TableHead>CPU</TableHead>
+                <TableHead>Memory</TableHead>
+                <TableHead>Serial</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.map((m: any) => (
+                <TableRow key={m.id}>
+                  <TableCell>{m.id}</TableCell>
+                  <TableCell className="capitalize">{m.role || '—'}</TableCell>
+                  <TableCell>{m.uptime || m.uptime_s || '—'}</TableCell>
+                  <TableCell>{typeof m.cpu_util_pct === 'number' ? `${m.cpu_util_pct}%` : (m.cpu || '—')}</TableCell>
+                  <TableCell>
+                    {typeof m.mem_total === 'number' && typeof m.mem_free === 'number'
+                      ? `${Math.round((m.mem_total - m.mem_free)/1024/1024)}MB / ${Math.round(m.mem_total/1024/1024)}MB`
+                      : (m.memory || '—')}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{m.serial || '—'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+}
 // Stack Tab Component
 function StackTab({ data, loading, hasMore, onLoadMore }: {
   data: InventoryItem[];
@@ -508,6 +628,8 @@ function StackTab({ data, loading, hasMore, onLoadMore }: {
             <TableRow>
               <TableHead>Member ID</TableHead>
               <TableHead>Model</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -515,6 +637,8 @@ function StackTab({ data, loading, hasMore, onLoadMore }: {
               <TableRow key={member.external_id} className="py-2">
                 <TableCell className="font-mono text-sm">{member.external_id}</TableCell>
                 <TableCell>{member.attrs?.model || 'Unknown'}</TableCell>
+                <TableCell className="capitalize">{member.attrs?.role || '—'}</TableCell>
+                <TableCell className="capitalize">{member.attrs?.status || '—'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -560,8 +684,8 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
 
   return (
     <div className="flex flex-col h-full">
-      <ScrollArea className="flex-1">
-        <div className="min-w-full">
+      <div className="flex-1 min-h-0">
+        <div className="h-[90vh] overflow-auto min-w-full">
           <Table>
             <TableHeader className="sticky top-0 bg-background">
               <TableRow>
@@ -570,7 +694,7 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
                 <TableHead>Speed</TableHead>
                 <TableHead>Media</TableHead>
                 <TableHead>PoE</TableHead>
-                <TableHead>LLDP</TableHead>
+                <TableHead>LLDP (port / host)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -578,11 +702,14 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
                 const a = port.attrs || {};
                 const link = (a.link || '').toLowerCase();
                 const speed = typeof a.speed_mbps === 'number' ? `${a.speed_mbps} Mbps` : '';
-                const media = a.media && a.media !== 'unknown' ? a.media : '';
+                const media = a.media && a.media !== 'unknown' ? a.media : (a._media_hint && a._media_hint !== 'unknown' ? a._media_hint : '');
                 const poeW = (typeof a.poe_power_w === 'number' && a.poe_power_w > 0) ? `${a.poe_power_w.toFixed(1)} W` : '';
                 const poeClass = a.poe_class ? `Class ${a.poe_class}` : '';
-                const poe = poeW ? `${poeW}${poeClass ? ` (${poeClass})` : ''}` : '';
-                const lldp = a.lldp ? (a.lldp.sys_name || a.lldp.port_id || '') : '';
+                const poeStatus = a.poe_status || '';
+                const poe = poeW ? `${poeW}${poeClass ? ` (${poeClass})` : ''}` : (poeStatus ? poeStatus : '');
+                const lldpPort = a.lldp?.port_id || a.lldp?.port_descr || '';
+                const lldpHost = a.lldp?.sys_name || a.lldp?.chassis_id || '';
+                const lldp = (lldpPort || lldpHost) ? `${lldpPort}${lldpHost ? ` / ${lldpHost}` : ''}` : '';
                 return (
                   <TableRow key={port.external_id} className="py-2">
                     <TableCell>
@@ -600,14 +727,14 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
                     <TableCell className="text-xs">{speed}</TableCell>
                     <TableCell className="text-xs capitalize">{media}</TableCell>
                     <TableCell className="text-xs">{poe}</TableCell>
-                    <TableCell className="text-xs truncate max-w-[220px]">{lldp}</TableCell>
-                  </TableRow>
+                    <TableCell className="text-xs truncate max-w-[220px]" title={lldp}>{lldp}</TableCell>
+                </TableRow>
                 );
               })}
             </TableBody>
           </Table>
         </div>
-      </ScrollArea>
+      </div>
       {hasMore && (
         <div className="flex-shrink-0 p-4 border-t">
           <Button onClick={onLoadMore} variant="outline" size="sm" className="w-full">

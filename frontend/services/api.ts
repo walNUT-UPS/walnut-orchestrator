@@ -312,6 +312,8 @@ class ApiService {
     if (page) params.set('page', page.toString());
     if (pageSize) params.set('page_size', pageSize.toString());
     if (refresh) params.set('refresh', '1');
+    // Details panes should never poll live; ask API to serve cached data only
+    params.set('cached_only', '1');
     
     const queryString = params.toString() ? `?${params.toString()}` : '';
     return this.request(`/integrations/instances/${instanceId}/inventory${queryString}`);

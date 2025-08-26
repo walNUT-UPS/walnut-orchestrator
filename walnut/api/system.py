@@ -10,6 +10,7 @@ import logging
 import logging
 import io
 import json
+import time
 import zipfile
 from pathlib import Path
 from fastapi.responses import StreamingResponse
@@ -55,6 +56,22 @@ class TestResponse(BaseModel):
     """Response model for component test endpoints."""
     status: str
     details: Dict[str, Any]
+
+
+class NUTConfigIn(BaseModel):
+    """Input model for NUT server configuration."""
+    host: str
+    port: int = 3493
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+class NUTConfigOut(BaseModel):
+    """Output model for NUT server configuration."""
+    host: str
+    port: int
+    username: Optional[str] = None
+    password_configured: bool = False
 
 
 class OIDCConfigIn(BaseModel):
@@ -209,6 +226,108 @@ async def test_oidc_config(payload: Optional[OIDCConfigIn] = None, _user: User =
         raise HTTPException(status_code=500, detail=f"OIDC test failed: {e}")
 
 
+@router.get("/system/nut/config", response_model=NUTConfigOut)
+async def get_nut_config(_user: User = Depends(current_active_user)) -> NUTConfigOut:
+    """Return stored NUT configuration merged with runtime defaults."""
+    current = get_setting("nut_config") or {}
+    return NUTConfigOut(
+        host=current.get("host") or runtime_settings.NUT_HOST,
+        port=current.get("port") or runtime_settings.NUT_PORT,
+        username=current.get("username") or runtime_settings.NUT_USERNAME,
+        password_configured=bool(current.get("password") or runtime_settings.NUT_PASSWORD),
+    )
+
+
+@router.put("/system/nut/config", response_model=NUTConfigOut)
+async def update_nut_config(payload: NUTConfigIn, _user: User = Depends(current_active_user)) -> NUTConfigOut:
+    """Persist NUT configuration to the app settings store."""
+    # Store all values; keep existing password if omitted  
+    current = get_setting("nut_config") or {}
+    new_cfg: Dict[str, Any] = {
+        "host": payload.host,
+        "port": payload.port,
+        "username": payload.username or current.get("username"),
+        "password": payload.password or current.get("password"),
+    }
+    set_setting("nut_config", new_cfg)
+    
+    # Restart NUT service with new configuration
+    try:
+        from walnut.app import nut_service
+        if nut_service:
+            import asyncio
+            asyncio.create_task(nut_service.restart_with_new_config())
+            logger.info("Scheduled NUT service restart with new configuration")
+    except Exception as e:
+        logger.exception(f"Failed to restart NUT service with new config: {e}")
+    
+    return await get_nut_config(_user)
+
+
+@router.post("/system/nut/test")
+async def test_nut_config(payload: Optional[NUTConfigIn] = None, _user: User = Depends(current_active_user)) -> Dict[str, Any]:
+    """Test NUT server connection with specified or stored configuration."""
+    try:
+        cfg = (payload.model_dump() if payload else None) or get_setting("nut_config") or {}
+        host = cfg.get("host") or runtime_settings.NUT_HOST
+        port = cfg.get("port") or runtime_settings.NUT_PORT  
+        username = cfg.get("username") or runtime_settings.NUT_USERNAME
+        password = cfg.get("password") or runtime_settings.NUT_PASSWORD
+        
+        from walnut.nut.client import NUTClient
+        import asyncio
+        
+        client = NUTClient(host=host, port=port, username=username, password=password)
+        
+        # Test connection
+        start_time = time.time()
+        ups_list = await asyncio.wait_for(client.list_ups(), timeout=10.0)
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+        
+        if not ups_list:
+            return {
+                "status": "warning",
+                "details": {
+                    "message": "Connected to NUT server but no UPS devices found",
+                    "host": host,
+                    "port": port,
+                    "latency_ms": latency_ms,
+                    "ups_devices": []
+                }
+            }
+        
+        # Test getting variables from first UPS
+        ups_details = {}
+        first_ups = list(ups_list.keys())[0]
+        try:
+            ups_vars = await asyncio.wait_for(client.get_vars(first_ups), timeout=10.0)
+            ups_details = {
+                var: ups_vars.get(var) 
+                for var in ["battery.charge", "ups.status", "ups.load", "battery.runtime", "ups.model"]
+                if var in ups_vars
+            }
+        except Exception as e:
+            logger.warning(f"Could not get variables from UPS {first_ups}: {e}")
+        
+        return {
+            "status": "success",
+            "details": {
+                "message": f"Successfully connected to NUT server with {len(ups_list)} UPS device(s)",
+                "host": host,
+                "port": port,
+                "latency_ms": latency_ms,
+                "ups_devices": list(ups_list.keys()),
+                "ups_descriptions": ups_list,
+                "sample_ups_data": ups_details
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("NUT test failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"NUT connection test failed: {str(e)}")
+
+
 @router.post("/system/restart")
 async def restart_backend(_user: User = Depends(current_admin)) -> Dict[str, Any]:
     """Trigger a backend restart. Process will exit; supervisor or dev reload restarts it.
@@ -332,6 +451,55 @@ async def get_basic_status(
             "status": "error",
             "timestamp": health_checker._get_current_timestamp(),
             "service": "walNUT"
+        }
+
+
+@router.get("/system/nut/status")
+async def get_nut_service_status(
+    _user: User = Depends(current_active_user)
+) -> Dict[str, Any]:
+    """
+    Get NUT service status and monitored UPS devices.
+    
+    Returns information about the NUT polling service including:
+    - Active UPS devices being monitored
+    - Poller status for each device
+    - Service health information
+    
+    Requires authentication.
+    """
+    try:
+        from walnut.app import nut_service
+        
+        if not nut_service:
+            return {
+                "status": "not_started",
+                "message": "NUT service has not been initialized",
+                "active_devices": [],
+                "pollers": {}
+            }
+        
+        active_devices = nut_service.get_active_ups_devices()
+        poller_status = nut_service.get_poller_status()
+        
+        return {
+            "status": "running" if active_devices else "no_devices",
+            "message": f"Monitoring {len(active_devices)} UPS device(s)" if active_devices else "No UPS devices found",
+            "active_devices": active_devices,
+            "pollers": poller_status,
+            "nut_server": {
+                "host": runtime_settings.NUT_HOST,
+                "port": runtime_settings.NUT_PORT,
+                "username": runtime_settings.NUT_USERNAME or "anonymous"
+            }
+        }
+    except Exception as e:
+        logger.exception("GET /system/nut/status failed: %s", e)
+        return {
+            "status": "error",
+            "message": f"Failed to get NUT service status: {str(e)}",
+            "active_devices": [],
+            "pollers": {}
         }
 
 

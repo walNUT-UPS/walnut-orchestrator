@@ -851,8 +851,10 @@ def _ssh_lldp_neighbors_throttled(instance_id: int, connection: dict, min_interv
     now = time.time()
     cache = _SSH_PORTS_CACHE.get(instance_id)
     if cache and (now - cache.get("ts_lldp", 0) < max(60, min_interval_s)):
+        log.info("AOSS LLDP neighbors from cache: %d entries", len(cache.get("lldp", {}) or {}))
         return cache.get("lldp", {})
     data = _ssh_lldp_neighbors(connection)
+    log.info("AOSS LLDP neighbors polled: %d entries", len(data or {}))
     if cache is None:
         _SSH_PORTS_CACHE[instance_id] = {"ts_lldp": now, "lldp": data}
     else:
@@ -869,6 +871,10 @@ def _ssh_lldp_neighbors(connection: dict) -> Dict[str, Dict[str, Any]]:
     out = ""
     with SSH(**_ssh_ctx(connection)) as conn:
         out = conn.send_command("show lldp info remote-device", expect_string=None)
+    try:
+        log.info("AOSS LLDP raw output head: %s", (out or "").splitlines()[:2])
+    except Exception:
+        pass
 
     nbrs: Dict[str, Dict[str, Any]] = {}
     in_table = False
@@ -876,7 +882,7 @@ def _ssh_lldp_neighbors(connection: dict) -> Dict[str, Dict[str, Any]]:
         line = line.rstrip()
         if not line:
             continue
-        if line.startswith("LLDP Remote Devices Information"):
+        if line.strip().startswith("LLDP Remote Devices Information"):
             in_table = True
             continue
         if not in_table:
@@ -898,6 +904,12 @@ def _ssh_lldp_neighbors(connection: dict) -> Dict[str, Dict[str, Any]]:
         port_id = cols[1] if len(cols) > 1 else None
         port_descr = cols[2] if len(cols) > 2 else None
         sys_name = cols[3] if len(cols) > 3 else None
+        # Fallback: if sys_name missing, try to split last token off the tail
+        if sys_name is None and len(cols) >= 2:
+            tail = cols[-1]
+            # Heuristic: take last word as sys_name if no spaces in it (e.g. hostname)
+            if ' ' not in tail and len(tail) >= 2:
+                sys_name = tail
         # Normalize local port to match inventory
         local_norm = re.sub(r"-.*$", "", local).rstrip('*')
         nbrs[local_norm] = {
@@ -913,8 +925,10 @@ def _ssh_poe_brief_throttled(instance_id: int, connection: dict, min_interval_s:
     now = time.time()
     cache = _SSH_PORTS_CACHE.get(instance_id)
     if cache and (now - cache.get("ts_poe", 0) < max(60, min_interval_s)):
+        log.info("AOSS PoE brief from cache: %d entries", len(cache.get("poe", {}) or {}))
         return cache.get("poe", {})
     data = _ssh_poe_brief(connection)
+    log.info("AOSS PoE brief polled: %d entries", len(data or {}))
     if cache is None:
         _SSH_PORTS_CACHE[instance_id] = {"ts_poe": now, "poe": data}
     else:
@@ -932,13 +946,20 @@ def _ssh_poe_brief(connection: dict) -> Dict[str, Dict[str, Any]]:
     poe: Dict[str, Dict[str, Any]] = {}
     with SSH(**_ssh_ctx(connection)) as conn:
         out = conn.send_command("show power-over-ethernet brief", expect_string=None)
+    try:
+        log.info("AOSS PoE brief raw head: %s", (out or "").splitlines()[:4])
+    except Exception:
+        pass
     in_table = False
+    header_seen = False
     for line in out.splitlines():
         line = line.rstrip()
         if not line:
             continue
-        if line.startswith("PoE") and "Port" in line and "Status" in line:
+        # Detect the column header line for PoE ports table
+        if line.strip().startswith("Port") and "Priority" in line and "Status" in line:
             in_table = True
+            header_seen = True
             continue
         if not in_table:
             continue
@@ -976,6 +997,134 @@ def _infer_media_from_type(type_str: str) -> str:
         return "copper"
     return "unknown"
 
+
+
+def _ssh_system_info_throttled(instance_id: int, connection: dict, min_interval_s: int) -> dict:
+    now = time.time()
+    cache = _SSH_PORTS_CACHE.get(instance_id)
+    if cache and (now - cache.get("ts_system", 0) < max(60, min_interval_s)):
+        return cache.get("system", {})
+    data = _get_system_info(connection)
+    if cache is None:
+        _SSH_PORTS_CACHE[instance_id] = {"ts_system": now, "system": data}
+    else:
+        cache["ts_system"] = now
+        cache["system"] = data
+    return data
+
+
+def _get_system_info(connection: dict) -> Dict[str, Any]:
+    """Collect system info via SSH: show system, show cpu, show modules, show stack/vsf, poe summary."""
+    summary: Dict[str, Any] = {}
+    members: List[Dict[str, Any]] = []
+    modules: List[Dict[str, Any]] = []
+    with SSH(**_ssh_ctx(connection)) as conn:
+        # show system
+        try:
+            out = conn.send_command("show system", expect_string=None)
+            m = re.search(r"System Name\s*:\s*(.+)", out)
+            if m:
+                summary["name"] = m.group(1).strip()
+            m = re.search(r"Software revision\s*:\s*(.+)", out)
+            if m:
+                summary["sw_version"] = m.group(1).strip()
+            m = re.search(r"Base MAC Addr\s*:\s*([\w\-:]+)", out)
+            if m:
+                summary["base_mac"] = m.group(1).strip()
+            # Per-member blocks
+            parts = re.split(r"\n\s*Member\s*:\s*", out)
+            for blk in parts[1:]:
+                lines = blk.splitlines()
+                if not lines:
+                    continue
+                mem_id = lines[0].strip()
+                mem: Dict[str, Any] = {"id": mem_id}
+                for ln in lines[1:]:
+                    ln = ln.strip()
+                    if ln.lower().startswith("up time"):
+                        mem["uptime"] = ln.split(":", 1)[1].strip()
+                    elif ln.lower().startswith("cpu util"):
+                        try:
+                            mem["cpu_util_pct"] = int(re.findall(r"(\d+)", ln)[0])
+                        except Exception:
+                            pass
+                    elif ln.lower().startswith("mac addr"):
+                        mem["mac"] = ln.split(":", 1)[1].strip()
+                    elif ln.lower().startswith("serial number"):
+                        mem["serial"] = ln.split(":", 1)[1].strip()
+                    elif ln.lower().startswith("memory") or ln.lower().startswith("free"):
+                        tmatch = re.search(r"Total\s*:\s*([\d,]+)", ln)
+                        fmatch = re.search(r"Free\s*:\s*([\d,]+)", ln)
+                        if tmatch:
+                            mem["mem_total"] = int(tmatch.group(1).replace(",", ""))
+                        if fmatch:
+                            mem["mem_free"] = int(fmatch.group(1).replace(",", ""))
+                members.append(mem)
+        except Exception:
+            pass
+        # show cpu (optional averages)
+        try:
+            out_cpu = conn.send_command("show cpu", expect_string=None)
+            m1 = re.search(r"1 min ave:\s*(\d+) percent busy", out_cpu)
+            if m1:
+                summary["cpu_1min"] = int(m1.group(1))
+        except Exception:
+            pass
+        # show modules
+        try:
+            out_mod = conn.send_command("show modules", expect_string=None)
+            for ln in out_mod.splitlines():
+                mm = re.search(r"^\s*(\d+)\s+([A-Z]+)\s+(.+?)\s{2,}([\w\d]+)\s+(Up|Down)", ln)
+                if mm:
+                    modules.append({
+                        "member": mm.group(1),
+                        "slot": mm.group(2),
+                        "description": mm.group(3).strip(),
+                        "serial": mm.group(4),
+                        "status": mm.group(5),
+                    })
+        except Exception:
+            pass
+        # Determine roles: prefer show stack
+        try:
+            stack = _get_stack_info(connection)
+            details = stack.get('member_details') or []
+            if details:
+                role_map = {str(d.get('id')): d.get('role') for d in details if d.get('id') is not None}
+                for m in members:
+                    rid = str(m.get('id'))
+                    if rid in role_map:
+                        m['role'] = role_map[rid]
+            else:
+                out_vsf = conn.send_command("show vsf", expect_string=None)
+                roles: List[str] = []
+                for ln in out_vsf.splitlines():
+                    mv = re.search(r"^\s*(\d+)\s+\S+\s+\S+\s+\S+\s+(Commander|Standby|Member)\b", ln, re.I)
+                    if mv:
+                        roles.append(mv.group(2).lower())
+                if roles and len(roles) == len(members):
+                    for i, r in enumerate(roles):
+                        members[i]['role'] = r
+        except Exception:
+            pass
+        # PoE power summary by member
+        try:
+            out_poe = conn.send_command("show power-over-ethernet brief", expect_string=None)
+            power: List[Dict[str, Any]] = []
+            for mm in re.finditer(r"Member\s*:(\d+).*?Available:\s*(\d+) W\s*Used:\s*(\d+) W\s*Remaining:\s*(\d+) W", out_poe, re.S):
+                power.append({
+                    "member": int(mm.group(1)),
+                    "available_w": int(mm.group(2)),
+                    "used_w": int(mm.group(3)),
+                    "remaining_w": int(mm.group(4)),
+                })
+            if power:
+                summary["power"] = power
+        except Exception:
+            pass
+    summary["members"] = members
+    summary["modules"] = modules
+    return summary
 
 class ArubaOSSwitchDriver:
     """
@@ -1121,6 +1270,16 @@ class ArubaOSSwitchDriver:
             poll_mode = (self.config.get("poll_mode") or "snmp").lower()
             force_ssh = poll_mode == "ssh"
             return await self._list_ports(active_only, force_ssh=force_ssh)
+        elif target_type in ("system",):
+            sysinfo = _ssh_system_info_throttled(getattr(self.instance, 'instance_id', 0), self._build_connection_dict(), int(self.config.get("ssh_min_poll_seconds", 180)))
+            name = sysinfo.get('name') or self.config.get('hostname')
+            return [{
+                "type": "system",
+                "external_id": self.config.get("hostname"),
+                "name": name,
+                "attrs": sysinfo,
+                "labels": {},
+            }]
         # Return empty list for unsupported types (vm, etc.) instead of raising error
         return []
     
@@ -1247,11 +1406,13 @@ class ArubaOSSwitchDriver:
             poe_map = {}
             try:
                 neighbors = _ssh_lldp_neighbors_throttled(getattr(self.instance, 'instance_id', 0), connection, int(self.config.get("ssh_min_poll_seconds", 180)))
-            except Exception:
+            except Exception as e:
+                self.logger.info("AOSS LLDP SSH poll failed: %s", e)
                 neighbors = {}
             try:
                 poe_map = _ssh_poe_brief_throttled(getattr(self.instance, 'instance_id', 0), connection, int(self.config.get("ssh_min_poll_seconds", 180)))
-            except Exception:
+            except Exception as e:
+                self.logger.info("AOSS PoE SSH poll failed: %s", e)
                 poe_map = {}
             for port in raw_ports:
                 port_id = str(port.get("port_id", ""))
@@ -1306,6 +1467,8 @@ class ArubaOSSwitchDriver:
                         attrs['poe_power_w'] = p['poe_power_w']
                     if p.get('poe_class') is not None:
                         attrs['poe_class'] = p['poe_class']
+                    if p.get('poe_status') is not None:
+                        attrs['poe_status'] = p['poe_status']
 
                 targets.append(
                     {
@@ -1318,7 +1481,10 @@ class ArubaOSSwitchDriver:
                     }
                 )
             try:
-                self.logger.info("AOSS inventory_list ports returned=%d (active_only=%s)", len(targets), str(active_only))
+                self.logger.info(
+                    "AOSS inventory_list ports returned=%d (active_only=%s) lldp_neighbors=%d poe_brief=%d",
+                    len(targets), str(active_only), len(neighbors or {}), len(poe_map or {})
+                )
             except Exception:
                 pass
             return targets

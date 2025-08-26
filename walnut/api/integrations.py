@@ -937,6 +937,7 @@ async def get_instance_inventory(
     type: Optional[str] = Query(None, description="Target type: vm|stack-member|port"),
     active_only: bool = Query(True, description="Only return active targets"),
     refresh: bool = Query(False, description="Force refresh, bypass cache"),
+    cached_only: bool = Query(True, description="Serve only cached data; never poll drivers on this request"),
     page: Optional[int] = Query(None, description="Page number for pagination"),
     page_size: Optional[int] = Query(None, description="Page size for pagination"),
     current_user=Depends(current_active_user),
@@ -969,7 +970,8 @@ async def get_instance_inventory(
         instance=instance,
         target_type=target_type,
         active_only=active_only,
-        force_refresh=refresh
+        force_refresh=refresh,
+        cached_only=cached_only,
     )
     
     # Apply pagination if requested
@@ -994,6 +996,7 @@ async def get_instance_inventory(
 async def get_instance_inventory_summary(
     instance_id: int,
     refresh: bool = Query(False, description="Force refresh, bypass cache"),
+    cached_only: bool = Query(True, description="Serve only cached data; never poll drivers on this request"),
     current_user=Depends(current_active_user),
     db: Session = Depends(get_db_session_dependency)
 ):
@@ -1017,15 +1020,15 @@ async def get_instance_inventory_summary(
     summary = {}
     
     # VM count
-    vms = await _get_cached_inventory(db, instance, "vm", active_only=False, force_refresh=refresh)
+    vms = await _get_cached_inventory(db, instance, "vm", active_only=False, force_refresh=refresh, cached_only=cached_only)
     summary["vm"] = len(vms)
     
     # Stack member count
-    stack_members = await _get_cached_inventory(db, instance, "stack-member", active_only=False, force_refresh=refresh)
+    stack_members = await _get_cached_inventory(db, instance, "stack-member", active_only=False, force_refresh=refresh, cached_only=cached_only)
     summary["stack_member"] = len(stack_members)
     
     # Active port count (ports where link=up OR poe=true)
-    ports_active = await _get_cached_inventory(db, instance, "port", active_only=True, force_refresh=refresh)
+    ports_active = await _get_cached_inventory(db, instance, "port", active_only=True, force_refresh=refresh, cached_only=cached_only)
     summary["port_active"] = len(ports_active)
     
     return summary
@@ -1117,12 +1120,26 @@ async def vm_lifecycle_action(
 
 # --- Helper Functions ---
 
+def _normalize_target_type(t: str) -> str:
+    """Normalize target type to the underscore style used by drivers/cache.
+    Accepts hyphenated aliases from the UI.
+    """
+    if not t:
+        return t
+    t = t.strip()
+    if t == "stack-member":
+        return "stack_member"
+    if t == "poe-port":
+        return "port"
+    return t
+
 async def _get_cached_inventory(
     session: Session,
     instance: IntegrationInstance,
     target_type: str,
     active_only: bool,
-    force_refresh: bool = False
+    force_refresh: bool = False,
+    cached_only: bool = False,
 ) -> List[Dict[str, Any]]:
     """Get inventory with caching support.
     
@@ -1138,30 +1155,89 @@ async def _get_cached_inventory(
     """
     from walnut.database.models import InventoryCache
     import time
-    
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Normalize target type for cache and driver
+    requested_type = target_type
+    norm_type = _normalize_target_type(target_type)
+
     # Check cache first (unless force refresh)
+    stale_entry = None
     if not force_refresh:
-        cache_stmt = select(InventoryCache).where(
-            InventoryCache.instance_id == instance.instance_id,
-            InventoryCache.target_type == target_type,
-            InventoryCache.active_only == active_only
-        )
-        cache_result = session.execute(cache_stmt)
-        cache_entry = cache_result.scalar_one_or_none()
-        
-        if cache_entry:
-            # Check if cache is still valid
-            now = datetime.now(timezone.utc)
-            # Ensure both datetimes are timezone-aware
-            fetched_at = cache_entry.fetched_at
-            if fetched_at.tzinfo is None:
-                # If database returned naive datetime, assume UTC
-                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
-            cache_age_seconds = (now - fetched_at).total_seconds()
-            
-            if cache_age_seconds < cache_entry.ttl_seconds:
-                # Cache hit - return cached data
-                return cache_entry.payload
+        # Try both normalized and requested types for compatibility
+        for t_try in (norm_type, requested_type):
+            cache_stmt = select(InventoryCache).where(
+                InventoryCache.instance_id == instance.instance_id,
+                InventoryCache.target_type == t_try,
+                InventoryCache.active_only == active_only
+            )
+            cache_result = session.execute(cache_stmt)
+            cache_entry = cache_result.scalar_one_or_none()
+
+            if cache_entry:
+                # Check if cache is still valid
+                now = datetime.now(timezone.utc)
+                fetched_at = cache_entry.fetched_at
+                if fetched_at.tzinfo is None:
+                    fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+                cache_age_seconds = (now - fetched_at).total_seconds()
+
+                if cache_age_seconds < cache_entry.ttl_seconds:
+                    return cache_entry.payload
+                # Keep stale reference for potential return below
+                stale_entry = cache_entry
+
+        # If requesting active-only, fall back to cached inactive data and filter in API
+        if active_only:
+            for t_try in (norm_type, requested_type):
+                cache_stmt2 = select(InventoryCache).where(
+                    InventoryCache.instance_id == instance.instance_id,
+                    InventoryCache.target_type == t_try,
+                    InventoryCache.active_only == False
+                )
+                cache_result2 = session.execute(cache_stmt2)
+                cache_entry2 = cache_result2.scalar_one_or_none()
+                if cache_entry2:
+                    now = datetime.now(timezone.utc)
+                    fetched_at2 = cache_entry2.fetched_at
+                    if fetched_at2.tzinfo is None:
+                        fetched_at2 = fetched_at2.replace(tzinfo=timezone.utc)
+                    cache_age_seconds2 = (now - fetched_at2).total_seconds()
+                    if cache_age_seconds2 >= cache_entry2.ttl_seconds and not cached_only:
+                        # Stale and not allowed to serve; continue to driver fetch
+                        continue
+                    items = cache_entry2.payload or []
+                    # Active filter only needed for certain types (ports)
+                    if norm_type == "port":
+                        def _is_active_port(it: dict) -> bool:
+                            a = (it or {}).get("attrs") or {}
+                            link = str(a.get("link", "")).lower()
+                            poe_draw = a.get("poe_power_w")
+                            poe_status = str(a.get("poe_status", "")).lower()
+                            return (link == "up") or (isinstance(poe_draw, (int, float)) and poe_draw > 0) or (poe_status == "delivering")
+                        items = [it for it in items if _is_active_port(it)]
+                    logger.info("Inventory cache hit via inactive fallback%s: type=%s count=%d",
+                                " (stale)" if cache_age_seconds2 >= cache_entry2.ttl_seconds else "",
+                                norm_type, len(items))
+                    # If stale, schedule refresh
+                    if cache_age_seconds2 >= cache_entry2.ttl_seconds:
+                        try:
+                            import asyncio
+                            asyncio.create_task(_refresh_inventory_cache_async(instance.instance_id, norm_type, active_only))
+                        except Exception:
+                            pass
+                    return items
+
+    # If cached_only is requested, return stale cache if available, otherwise empty, and schedule background refresh
+    if cached_only:
+        if stale_entry is not None:
+            logger.info("Serving stale inventory cache: type=%s active_only=%s", norm_type, active_only)
+            return stale_entry.payload or []
+        else:
+            # No cache exists; return empty immediately (no live fetch on request path)
+            logger.info("No inventory cache present; returning empty (cached_only) for type=%s active_only=%s", norm_type, active_only)
+            return []
     
     # Cache miss or force refresh - fetch from driver
     start_time = time.time()
@@ -1217,7 +1293,7 @@ async def _get_cached_inventory(
             if not callable(inventory_method):
                 raise AttributeError(f"Driver {driver_class_name} inventory_list is not callable")
             
-            items = await inventory_method(target_type=target_type, active_only=active_only, options={})
+            items = await inventory_method(target_type=norm_type, active_only=active_only, options={})
         finally:
             await transports.close_all()
             # Clean up module
@@ -1230,11 +1306,11 @@ async def _get_cached_inventory(
         # Update cache
         cache_data = {
             "instance_id": instance.instance_id,
-            "target_type": target_type,
+            "target_type": norm_type,
             "active_only": active_only,
             "payload": items,
             "fetched_at": datetime.now(timezone.utc),
-            "ttl_seconds": 30,  # Default 30 second TTL
+            "ttl_seconds": 180,  # 3 minutes TTL
             "fetch_duration_ms": fetch_duration_ms,
             "target_count": len(items)
         }
@@ -1242,7 +1318,7 @@ async def _get_cached_inventory(
         # Use upsert logic - delete existing then insert new
         delete_stmt = delete(InventoryCache).where(
             InventoryCache.instance_id == instance.instance_id,
-            InventoryCache.target_type == target_type,
+            InventoryCache.target_type == norm_type,
             InventoryCache.active_only == active_only
         )
         session.execute(delete_stmt)
@@ -1259,6 +1335,35 @@ async def _get_cached_inventory(
         logger = logging.getLogger(__name__)
         logger.error(f"Failed to fetch inventory for instance {instance.instance_id}, type {target_type}: {e}")
         return []
+
+
+async def _refresh_inventory_cache_async(instance_id: int, target_type: str, active_only: bool) -> None:
+    """Background refresh of inventory cache without blocking the request thread."""
+    try:
+        async with get_db_session() as session:
+            # Load instance
+            stmt = (
+                select(IntegrationInstance, IntegrationType)
+                .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
+                .where(IntegrationInstance.instance_id == instance_id)
+            )
+            result = await anyio.to_thread.run_sync(session.execute, stmt)
+            row = result.first()
+            if not row:
+                return
+            instance, _ = row
+            # Force refresh
+            await _get_cached_inventory(
+                session=session,
+                instance=instance,
+                target_type=target_type,
+                active_only=active_only,
+                force_refresh=True,
+                cached_only=False,
+            )
+    except Exception:
+        # best-effort
+        pass
 
 async def test_instance_connection(
     instance_id: int,
@@ -1388,3 +1493,59 @@ async def test_instance_connection(
         # Clean up imported module
         if module_name in sys.modules:
             del sys.modules[module_name]
+
+
+# --- Warm Cache Utilities ---
+
+async def warm_inventory_cache():
+    """Warm the inventory cache for all instances on startup.
+
+    For each instance, determine supported target types and fetch them with force_refresh=True
+    to populate InventoryCache, so the UI can read cached data immediately.
+    """
+    try:
+        async with get_db_session() as session:
+            # Load all instances with type capabilities
+            stmt = (
+                select(IntegrationInstance, IntegrationType)
+                .join(IntegrationType, IntegrationInstance.type_id == IntegrationType.id)
+            )
+            result = await anyio.to_thread.run_sync(session.execute, stmt)
+            rows = result.all()
+            for instance, type_info in rows:
+                try:
+                    # Determine target types to warm
+                    targets = set()
+                    caps = type_info.capabilities or []
+                    for c in caps:
+                        if isinstance(c, dict) and c.get('id') == 'inventory.list':
+                            for t in (c.get('targets') or []):
+                                targets.add(_normalize_target_type(t))
+                    # Always try 'system' where drivers support it
+                    targets.add('system')
+                    # Warm each target type (non-active only to cover most cases)
+                    for t in targets:
+                        try:
+                            await _get_cached_inventory(
+                                session=session,
+                                instance=instance,
+                                target_type=t,
+                                active_only=False,
+                                force_refresh=True,
+                            )
+                            # For ports, also warm active_only=True to eliminate UI waits
+                            if t == 'port':
+                                await _get_cached_inventory(
+                                    session=session,
+                                    instance=instance,
+                                    target_type=t,
+                                    active_only=True,
+                                    force_refresh=True,
+                                )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+    except Exception:
+        # Best-effort warmup; do not crash startup
+        pass

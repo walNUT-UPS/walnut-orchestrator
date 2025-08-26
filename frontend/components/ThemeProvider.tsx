@@ -69,20 +69,33 @@ export function ThemeProvider({
   }, [theme, storageKey]);
 
   useEffect(() => {
-    // Listen for system theme changes
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
-    const handleChange = () => {
+    // Listen for system theme changes (browser-compatible)
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+
+    const onChange = () => {
       if (theme === 'system') {
-        const newTheme = mediaQuery.matches ? 'dark' : 'light';
+        const newTheme = mql.matches ? 'dark' : 'light';
         setResolvedTheme(newTheme);
-        document.documentElement.classList.remove('light', 'dark');
-        document.documentElement.classList.add(newTheme);
+        const root = document.documentElement;
+        root.classList.remove('light', 'dark');
+        root.classList.add(newTheme);
       }
     };
-    
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+
+    try {
+      // Modern browsers
+      if (typeof mql.addEventListener === 'function') {
+        mql.addEventListener('change', onChange);
+        return () => mql.removeEventListener('change', onChange);
+      }
+      // Fallback for older Safari/Firefox
+      if (typeof (mql as any).addListener === 'function') {
+        (mql as any).addListener(onChange);
+        return () => (mql as any).removeListener(onChange);
+      }
+    } catch {}
+
+    return () => {};
   }, [theme]);
 
   return (

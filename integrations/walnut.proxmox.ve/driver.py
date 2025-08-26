@@ -206,6 +206,17 @@ class ProxmoxVeDriver:
         """
         if target_type == "vm":
             return await self._list_vms(active_only)
+        if target_type == "system":
+            hb = await self.heartbeat()
+            attrs = hb.get("metrics", {}) if hb.get("state") == "connected" else {}
+            node = self.config.get("node") or self.config.get("host") or "proxmox"
+            return [{
+                "type": "system",
+                "external_id": node,
+                "name": node,
+                "attrs": attrs,
+                "labels": {},
+            }]
         # Return empty list for unsupported types (stack-member, port, etc.) instead of raising error
         return []
 
