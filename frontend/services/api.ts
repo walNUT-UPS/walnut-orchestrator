@@ -415,6 +415,39 @@ class ApiService {
     return this.request('/system/config');
   }
 
+  // NUT configuration endpoints
+  async getNutConfig(): Promise<{
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+  }> {
+    return this.request('/system/nut/config');
+  }
+
+  async updateNutConfig(config: {
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+  }): Promise<{success: boolean; message: string}> {
+    return this.request('/system/nut/config', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    });
+  }
+
+  async testNutConnection(config: {
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+  }): Promise<{success: boolean; message: string; details?: any}> {
+    return this.request('/system/nut/config/test', {
+      method: 'POST',
+      body: JSON.stringify(config)
+    });
+  }
 
   // OIDC config endpoints
   async getOidcConfig(): Promise<{

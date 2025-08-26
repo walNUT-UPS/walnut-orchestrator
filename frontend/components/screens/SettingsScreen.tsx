@@ -82,6 +82,43 @@ const useSystemConfig = () => {
   return { config, health };
 };
 
+const useNutConfig = () => {
+  const [nutConfig, setNutConfig] = React.useState<{
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+  } | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const loadConfig = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const config = await apiService.getNutConfig();
+      setNutConfig(config);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load NUT configuration');
+      // Set default values if loading fails
+      setNutConfig({
+        host: 'ups.local',
+        port: 3493,
+        username: 'upsmon',
+        password: ''
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  return { nutConfig, setNutConfig, loading, error, reload: loadConfig };
+};
+
 const mockHealthChecks = [
   { name: 'Database Connection', status: 'healthy', lastCheck: '2024-01-15T15:42:00Z' },
   { name: 'UPS Communication', status: 'healthy', lastCheck: '2024-01-15T15:42:00Z' },
@@ -114,24 +151,59 @@ export function SettingsScreen() {
   const [testResult, setTestResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [saveResult, setSaveResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   const { users, setUsers, loading: usersLoading, error: usersError, reload: reloadUsers } = useUsers();
+  const { nutConfig, setNutConfig, loading: nutLoading, error: nutError, reload: reloadNutConfig } = useNutConfig();
   const singleUser = users.length <= 1;
+
+  // Form state for NUT configuration
+  const [formConfig, setFormConfig] = useState({
+    host: '',
+    port: 3493,
+    username: '',
+    password: ''
+  });
+
+  // Update form when nutConfig loads
+  React.useEffect(() => {
+    if (nutConfig) {
+      setFormConfig({
+        host: nutConfig.host || '',
+        port: nutConfig.port || 3493,
+        username: nutConfig.username || '',
+        password: nutConfig.password || ''
+      });
+    }
+  }, [nutConfig]);
 
   const testConnection = async () => {
     setTestResult(null);
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    setIsTesting(true);
     
-    const success = Math.random() > 0.2; // 80% success rate
-    setTestResult({
-      status: success ? 'success' : 'error',
-      message: success 
-        ? 'Successfully connected to UPS device' 
-        : 'Connection failed: Device not responding'
-    });
+    try {
+      const result = await apiService.testNutConnection(formConfig);
+      setTestResult({
+        status: result.success ? 'success' : 'error',
+        message: result.message || (result.success 
+          ? 'Successfully connected to UPS device' 
+          : 'Connection failed')
+      });
+    } catch (e: any) {
+      setTestResult({
+        status: 'error',
+        message: e?.message || 'Connection test failed'
+      });
+    } finally {
+      setIsTesting(false);
+    }
   };
 
-  const handleInputChange = () => {
+  const handleInputChange = (field: keyof typeof formConfig, value: string | number) => {
+    setFormConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
     setIsDirty(true);
     setSaveResult(null);
   };
@@ -140,20 +212,33 @@ export function SettingsScreen() {
     setIsSaving(true);
     setSaveResult(null);
     
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const success = Math.random() > 0.1; // 90% success rate
-    setSaveResult({
-      status: success ? 'success' : 'error',
-      message: success 
-        ? 'Configuration saved successfully' 
-        : 'Failed to save configuration. Please try again.'
-    });
-    
-    if (success) {
-      setIsDirty(false);
+    try {
+      const result = await apiService.updateNutConfig(formConfig);
+      setSaveResult({
+        status: result.success ? 'success' : 'error',
+        message: result.message || (result.success 
+          ? 'Configuration saved successfully' 
+          : 'Failed to save configuration')
+      });
+      
+      if (result.success) {
+        setIsDirty(false);
+        // Reload the configuration to reflect any backend changes
+        await reloadNutConfig();
+        toast.success('NUT configuration saved successfully');
+      } else {
+        toast.error(result.message || 'Failed to save configuration');
+      }
+    } catch (e: any) {
+      const errorMessage = e?.message || 'Failed to save configuration';
+      setSaveResult({
+        status: 'error',
+        message: errorMessage
+      });
+      toast.error(errorMessage);
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   const copyDiagnostics = async () => {
@@ -270,27 +355,54 @@ export function SettingsScreen() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="nut-host">Host</Label>
-                    <Input id="nut-host" defaultValue="ups.local" onChange={handleInputChange} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="nut-port">Port</Label>
-                    <Input id="nut-port" defaultValue="3493" onChange={handleInputChange} />
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="nut-username">Username</Label>
-                    <Input id="nut-username" defaultValue="upsmon" onChange={handleInputChange} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="nut-password">Password</Label>
-                    <Input id="nut-password" type="password" defaultValue="••••••••" onChange={handleInputChange} />
-                  </div>
-                </div>
+                {nutLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading NUT configuration...</div>
+                ) : nutError ? (
+                  <div className="text-sm text-destructive">Error loading configuration: {nutError}</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="nut-host">Host</Label>
+                        <Input 
+                          id="nut-host" 
+                          value={formConfig.host}
+                          onChange={(e) => handleInputChange('host', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="nut-port">Port</Label>
+                        <Input 
+                          id="nut-port" 
+                          type="number"
+                          value={formConfig.port.toString()}
+                          onChange={(e) => handleInputChange('port', parseInt(e.target.value) || 3493)}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="nut-username">Username</Label>
+                        <Input 
+                          id="nut-username" 
+                          value={formConfig.username}
+                          onChange={(e) => handleInputChange('username', e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="nut-password">Password</Label>
+                        <Input 
+                          id="nut-password" 
+                          type="password" 
+                          value={formConfig.password}
+                          onChange={(e) => handleInputChange('password', e.target.value)}
+                          placeholder="Enter password"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 {testResult && (
                   <div className={`p-3 rounded-lg border ${
@@ -310,11 +422,20 @@ export function SettingsScreen() {
                 )}
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                  <Button variant="outline" onClick={testConnection} className="min-h-[44px]">
+                  <Button 
+                    variant="outline" 
+                    onClick={testConnection} 
+                    disabled={isTesting || nutLoading}
+                    className="min-h-[44px]"
+                  >
                     <TestTube className="w-4 h-4 mr-2" />
-                    Test Connection
+                    {isTesting ? 'Testing...' : 'Test Connection'}
                   </Button>
-                  <Button onClick={saveConfiguration} disabled={!isDirty || isSaving} className="min-h-[44px]">
+                  <Button 
+                    onClick={saveConfiguration} 
+                    disabled={!isDirty || isSaving || nutLoading} 
+                    className="min-h-[44px]"
+                  >
                     <Save className="w-4 h-4 mr-2" />
                     {isSaving ? 'Saving...' : 'Save Configuration'}
                   </Button>

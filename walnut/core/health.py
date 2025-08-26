@@ -222,14 +222,14 @@ class SystemHealthChecker:
                 expected_samples = 720  # 60 * 60 / 5
                 success_rate = min(100, (samples_last_hour / expected_samples) * 100)
                 
-                # Check if polling is recent (within last 2 poll intervals)
+                # Check if polling is recent (within last 4 poll intervals for more tolerance)
                 if latest_timestamp:
                     latest_dt = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
                     # Ensure both datetimes are timezone-aware
                     if latest_dt.tzinfo is None:
                         latest_dt = latest_dt.replace(tzinfo=timezone.utc)
                     time_since_last = (datetime.now(timezone.utc) - latest_dt).total_seconds()
-                    max_gap = settings.POLL_INTERVAL * 2
+                    max_gap = settings.POLL_INTERVAL * 4  # More tolerance for real-world conditions
                     
                     if time_since_last > max_gap:
                         return ComponentHealth(
@@ -241,15 +241,17 @@ class SystemHealthChecker:
                             message="UPS polling appears to have stopped"
                         )
                 
-                if success_rate < 50:
-                    status = HealthStatus.CRITICAL
-                    message = "Very low UPS polling success rate"
-                elif success_rate < 80:
-                    status = HealthStatus.DEGRADED
-                    message = "Reduced UPS polling success rate"
-                else:
+                # More realistic thresholds for production environments
+                # If we have recent data and reasonable sample count, consider it healthy
+                if samples_last_hour >= 180:  # At least one sample every 20 seconds on average
                     status = HealthStatus.HEALTHY
                     message = None
+                elif samples_last_hour >= 60:  # At least one sample per minute on average
+                    status = HealthStatus.DEGRADED
+                    message = "Reduced UPS polling frequency"
+                else:
+                    status = HealthStatus.CRITICAL
+                    message = "Very low UPS polling success rate"
                 
                 return ComponentHealth(
                     status,
@@ -326,11 +328,11 @@ class SystemHealthChecker:
             if hasattr(psutil, 'getloadavg'):
                 load_avg = psutil.getloadavg()[0]  # 1-minute load average
             
-            # Determine status
-            if cpu_percent > 90 or memory_percent > 95:
+            # Determine status - more realistic thresholds for working systems
+            if cpu_percent > 95 or memory_percent > 98:
                 status = HealthStatus.CRITICAL
                 message = "Very high system resource usage"
-            elif cpu_percent > 70 or memory_percent > 80:
+            elif cpu_percent > 85 or memory_percent > 92:
                 status = HealthStatus.DEGRADED
                 message = "High system resource usage"
             else:
