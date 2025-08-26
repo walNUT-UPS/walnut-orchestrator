@@ -90,24 +90,20 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       
       // Find inventory.list capability and extract targets
       const inventoryCapability = type.capabilities.find(cap => cap.id === 'inventory.list');
-      const targets = inventoryCapability?.targets || [];
+      let targets = inventoryCapability?.targets || [];
+      // Ensure 'port' is always available as a tab for switch instances
+      if (!targets.includes('port')) targets = [...targets, 'port'];
       
       setAvailableTargets(targets);
 
       // Set default active tab to first available target
-      if (targets.length > 0) {
-        // Map targets to tab names
-        const tabName = targets.includes('vm') ? 'vms' : 
-                      targets.includes('stack_member') ? 'stack' :
-                      targets.includes('port') ? 'ports' : 
-                      targets[0]; // fallback to first target
-        setActiveTab(tabName);
-      }
+      // Prefer Ports as default for switches
+      const tabName = targets.includes('port') ? 'ports' : targets.includes('vm') ? 'vms' : targets.includes('stack_member') ? 'stack' : 'ports';
+      setActiveTab(tabName);
 
       // Prefetch ports in the background if available so UI is not empty on first click
-      if (targets.includes('port')) {
-        try { await loadTabData('ports', 1, false); } catch (_) {}
-      }
+      // Prefetch ports regardless to ensure immediate content
+      try { await loadTabData('ports', 1, false); } catch (_) {}
     } catch (error) {
       console.error('Failed to load available targets:', error);
       toast.error('Failed to load available targets');
