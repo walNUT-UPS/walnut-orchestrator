@@ -143,7 +143,7 @@ frontend/build/
 frontend/.next/
 frontend/.cache/
 
-*.png
+
 *.jpg
 *.jpeg
 *.gif
