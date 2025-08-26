@@ -65,7 +65,7 @@ RUN python -m pip install --no-index --find-links /wheels walnut-orchestrator &&
 # Create non-root user and data dir
 RUN addgroup --system --gid 10001 walnut && \
     adduser --system --uid 10001 --ingroup walnut --home /app --shell /usr/sbin/nologin walnut && \
-    mkdir -p /app/data && chown -R walnut:walnut /app
+    mkdir -p /app/data /app/integrations && chown -R walnut:walnut /app
 
 USER 10001:10001
 
@@ -79,4 +79,3 @@ ENTRYPOINT ["/usr/bin/env"]
 CMD ["sh", "-lc", \
   "exec gunicorn -k uvicorn.workers.UvicornWorker -w ${WORKERS} -b ${WALNUT_BIND} \
    --timeout ${TIMEOUT} --keep-alive ${KEEPALIVE} --access-logfile - --error-logfile - walnut.app:app" ]
-

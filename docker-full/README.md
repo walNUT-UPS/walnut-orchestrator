@@ -5,6 +5,7 @@ This setup builds and runs both the walNUT backend and the React frontend in one
 ## What it does
 
 - Backend: `docker-full/Dockerfile.backend` (Gunicorn + Uvicorn workers), encrypted DB in `/app/data`.
+- Writable integration store mounted at `/app/integrations` for uploaded integration packages (volume `walnut_integrations`).
 - Frontend: `docker-full/Dockerfile.frontend` builds Vite assets and serves via nginx.
 - nginx proxies `/api/*` and `/ws*` to the backend service.
 - Single public port `8080` -> frontend; backend is only reachable via the proxy.
@@ -27,5 +28,6 @@ Open http://localhost:8080
 ## Notes
 
 - The backend database is persisted in the `walnut_data` volume.
+- Uploaded integration packages persist in `walnut_integrations` volume.
 - To change Gunicorn settings, set `WORKERS`, `TIMEOUT`, `KEEPALIVE` in `.env`.
 - The nginx config (`docker-full/nginx.conf`) handles SPA fallback and proxies `/api` and `/ws` to `backend:8000`.

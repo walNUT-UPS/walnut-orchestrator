@@ -116,14 +116,17 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to schedule periodic cache warmer")
     
-    # Start NUT service for real UPS monitoring
+    # Start NUT service for real UPS monitoring (can be disabled via WALNUT_NUT_ENABLED=false)
     global nut_service
     try:
-        nut_service = NUTService()
-        nt = asyncio.create_task(nut_service.start())
-        app.state.bg_tasks.add(nt)
-        nt.add_done_callback(lambda task: app.state.bg_tasks.discard(task))
-        logger.info("NUT service started for real UPS monitoring")
+        if getattr(settings, 'NUT_ENABLED', True):
+            nut_service = NUTService()
+            nt = asyncio.create_task(nut_service.start())
+            app.state.bg_tasks.add(nt)
+            nt.add_done_callback(lambda task: app.state.bg_tasks.discard(task))
+            logger.info("NUT service started for real UPS monitoring")
+        else:
+            logger.info("NUT service disabled via WALNUT_NUT_ENABLED=false")
     except Exception:
         logger.exception("Failed to start NUT service")
     

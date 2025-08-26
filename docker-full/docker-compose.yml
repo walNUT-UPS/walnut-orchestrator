@@ -16,6 +16,7 @@ services:
       WORKERS: ${WORKERS:-2}
       TIMEOUT: ${TIMEOUT:-45}
       KEEPALIVE: ${KEEPALIVE:-5}
+      FORWARDED_ALLOW_IPS: "*"
       PYTHONUNBUFFERED: "1"
       PYTHONOPTIMIZE: "1"
     read_only: true
@@ -23,6 +24,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=64m
     volumes:
       - walnut_data:/app/data
+      - walnut_integrations:/app/integrations
     restart: unless-stopped
 
   frontend:
@@ -39,4 +41,6 @@ services:
 
 volumes:
   walnut_data:
+    driver: local
+  walnut_integrations:
     driver: local

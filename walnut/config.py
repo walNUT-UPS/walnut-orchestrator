@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     NUT_PORT: int = 3493
     NUT_USERNAME: str | None = None
     NUT_PASSWORD: str | None = None
+    NUT_ENABLED: bool = True
 
     # Polling configuration
     POLL_INTERVAL: int = 5  # seconds

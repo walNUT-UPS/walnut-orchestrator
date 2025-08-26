@@ -457,10 +457,12 @@ class ApiService {
     username?: string;
     password?: string;
   }): Promise<{success: boolean; message: string}> {
-    return this.request('/system/nut/config', {
+    // Backend returns the saved config object; normalize to {success,message}
+    await this.request('/system/nut/config', {
       method: 'PUT',
       body: JSON.stringify(config)
     });
+    return { success: true, message: 'Configuration saved' };
   }
 
   async testNutConnection(config: {
@@ -469,10 +471,16 @@ class ApiService {
     username?: string;
     password?: string;
   }): Promise<{success: boolean; message: string; details?: any}> {
-    return this.request('/system/nut/config/test', {
+    // Backend route is /system/nut/test
+    const res = await this.request<{ status: string; details?: any }>('/system/nut/test', {
       method: 'POST',
       body: JSON.stringify(config)
     });
+    return {
+      success: res.status === 'success',
+      message: res.status === 'success' ? 'Successfully connected to UPS device' : 'Connection failed',
+      details: res.details,
+    };
   }
 
   // OIDC config endpoints
