@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import time
 import logging
+import re
 from typing import Any, Dict, List, Optional
+import re
 
 # Use standard logging instead of relative imports for better compatibility
 log = logging.getLogger("com.aruba.aoss.driver")
@@ -20,8 +22,11 @@ from utils.normalize import (
     normalize_targets,
     is_protected_port,
 )
-from parsers.interfaces import parse_show_modules, parse_show_version, parse_show_vsf
+from parsers.interfaces import parse_show_modules, parse_show_version, parse_show_vsf, parse_show_stack
 from parsers import snmp as snmp_helpers
+
+# Module-level cache for SSH inventory throttling
+_SSH_PORTS_CACHE: Dict[int, Dict[str, Any]] = {}
 
 
 class SSH:
@@ -80,7 +85,7 @@ class SSH:
 def _snmp_ctx(connection: dict) -> dict:
     return dict(
         community=connection.get("snmp_community", "public"),
-        host=connection.get("hostname"),
+        host=connection.get("snmp_host") or connection.get("hostname"),
         port=int(connection.get("snmp_port", 161)),
         timeout=int(connection.get("timeout_s", 5)),
     )
@@ -582,46 +587,420 @@ def _latency_probe(connection: dict) -> int:
 
 
 def _get_stack_info(connection: dict) -> dict:
-    """Get stack member information via SNMP."""
+    """Get stack member information via SSH using both 'show stack' and 'show vsf' commands."""
+    log.info(f"Attempting to connect to {connection['hostname']} for stack info")
     try:
-        # For MVP, return empty members list - real implementation would query
-        # HP-ICF-STACKING MIB or similar to get actual stack information
-        return {"members": []}
+        # Use SSH to query stack status
+        with SSH(
+            host=connection["hostname"],
+            username=connection["username"], 
+            password=connection["password"],
+            device_type=connection.get("device_type", "aruba_osswitch"),
+            port=connection.get("ssh_port", 22),
+            secret=connection.get("enable_password"),
+            timeout=connection.get("timeout_s", 30),
+        ) as ssh_conn:
+            
+            log.info("SSH connection established successfully")
+            members = []
+            
+            # Try 'show stack' first (more common on newer Aruba switches)
+            try:
+                log.info("Executing 'show stack' command")
+                stack_output = ssh_conn.send_command("show stack")
+                log.info(f"'show stack' output ({len(stack_output)} chars): {stack_output[:200]}...")
+                
+                if "Invalid input" not in stack_output and "Unknown command" not in stack_output:
+                    stack_info = parse_show_stack(stack_output)
+                    log.info(f"Parsed stack info: {stack_info}")
+                    
+                    # Use detailed member information from show stack
+                    for member_detail in stack_info.get("member_details", []):
+                        members.append({
+                            "id": member_detail["id"],
+                            "model": member_detail["model"],
+                            "status": member_detail["status"],
+                            "priority": member_detail.get("priority"),
+                            "role": member_detail["role"],
+                            "mac_address": member_detail.get("mac_address"),
+                        })
+                    
+                    if members:  # If we found stack members, return them
+                        log.info(f"Found {len(members)} stack members via 'show stack'")
+                        return {"members": members}
+                else:
+                    log.info("'show stack' command returned invalid/unknown response")
+            except Exception as e:
+                log.warning(f"'show stack' command failed: {e}")
+            
+            # Fall back to 'show vsf' if 'show stack' didn't work
+            try:
+                log.info("Executing 'show vsf' command")
+                vsf_output = ssh_conn.send_command("show vsf")
+                log.info(f"'show vsf' output ({len(vsf_output)} chars): {vsf_output[:200]}...")
+                
+                if "Invalid input" not in vsf_output and "Unknown command" not in vsf_output:
+                    vsf_info = parse_show_vsf(vsf_output)
+                    log.info(f"Parsed VSF info: {vsf_info}")
+                    
+                    # Create member entries from VSF output (less detailed)
+                    if vsf_info.get("members", 0) > 0:
+                        for i in range(1, vsf_info["members"] + 1):
+                            role = "member"
+                            if i <= len(vsf_info.get("roles", [])):
+                                role = vsf_info["roles"][i-1]
+                            
+                            members.append({
+                                "id": str(i),
+                                "model": "Unknown",  # VSF output doesn't provide model details
+                                "status": "active",   # VSF members are typically active if detected
+                                "priority": None,
+                                "role": role,
+                            })
+                        
+                        log.info(f"Found {len(members)} stack members via 'show vsf'")
+                        return {"members": members}
+                else:
+                    log.info("'show vsf' command returned invalid/unknown response")
+            except Exception as e:
+                log.warning(f"'show vsf' command failed: {e}")
+            
+            # If both commands failed or returned no members, return empty
+            log.info("No stack members found via either command")
+            return {"members": []}
+            
     except Exception as e:
-        return {"members": [], "error": str(e)}
+        log.error(f"SSH connection to {connection['hostname']} failed: {e}")
+        # Return empty list for non-stacked switches or connection errors
+        return {"members": []}
 
 
 def _get_port_info(connection: dict) -> dict:
-    """Get port information via SNMP."""
+    """Get real port information via SNMP.
+    
+    Queries IF-MIB (ifTable, ifXTable), POWER-ETHERNET-MIB, and returns
+    a normalized list of port dicts.
+    """
     try:
-        # For MVP, return basic port structure - real implementation would query
-        # IF-MIB and POE-MIB to get actual port status and PoE information
-        # This is a placeholder that provides expected structure
-        ports = []
-        
-        # Simulate basic port structure for development/testing
-        # In real implementation, this would query SNMP OIDs:
-        # - ifTable (1.3.6.1.2.1.2.2) for interface info
-        # - pethPsePortTable (1.3.6.1.2.1.105.1.1.1) for PoE info
-        
-        for i in range(1, 25):  # Simulate 24 ports
-            port = {
-                "port_id": str(i),
-                "description": f"Port {i}",
-                "alias": None,
-                "link_status": "down",  # Would be determined from ifOperStatus
-                "poe_enabled": False,   # Would be determined from PoE MIB
-                "speed": None,
-                "duplex": None,
-                "poe_power": None,
-                "poe_class": None
-            }
+        snmp = _snmp_ctx(connection)
+        if_rows = _safe_snmp_walk(snmp_helpers.IF_TABLE, snmp)
+        alias_rows = _safe_snmp_walk(snmp_helpers.IF_XTABLE_ALIAS, snmp)
+        poe_rows = _safe_snmp_walk(snmp_helpers.PETH_PSE_PORT_TABLE, snmp)
+        if_high_rows = _safe_snmp_walk("1.3.6.1.2.1.31.1.1.1.15", snmp)
+
+        ports: List[Dict[str, Any]] = []
+        for ifidx, cols in if_rows.items():
+            port: Dict[str, Any] = {"port_id": str(ifidx)}
+
+            # ifDescr
+            for k, v in cols.items():
+                if k.endswith(f".2.{ifidx}"):
+                    port["description"] = v
+                    break
+
+            # Alias (ifXTable)
+            if ifidx in alias_rows:
+                try:
+                    port["alias"] = next(iter(alias_rows[ifidx].values()))
+                except Exception:
+                    port["alias"] = None
+
+            # ifAdmin/ifOper
+            for k, v in cols.items():
+                if k.endswith(f".7.{ifidx}"):
+                    port["if_admin"] = v
+                if k.endswith(f".8.{ifidx}"):
+                    port["if_oper"] = v
+
+            # ifType
+            for k, v in cols.items():
+                if k.endswith(f".3.{ifidx}"):
+                    port["if_type"] = v
+                    break
+
+            # ifSpeed
+            for k, v in cols.items():
+                if k.endswith(f".5.{ifidx}"):
+                    port["speed"] = v
+                    break
+
+            # ifHighSpeed
+            if ifidx in if_high_rows:
+                try:
+                    port["if_high_speed"] = next(iter(if_high_rows[ifidx].values()))
+                except Exception:
+                    pass
+
+            # PoE (best-effort)
+            if ifidx in poe_rows:
+                poe_values = poe_rows[ifidx]
+                port["poe_supported"] = True
+                for pk, pv in poe_values.items():
+                    lpk = str(pk).lower()
+                    if "power" in lpk:
+                        try:
+                            port["poe_power"] = float(pv)
+                        except Exception:
+                            port["poe_power"] = pv
+                    if "class" in lpk:
+                        port["poe_class"] = pv
+            else:
+                port["poe_supported"] = False
+
             ports.append(port)
-        
-        return {"ports": ports}
-        
+
+        try:
+            log.info(
+                "AOSS IF-MIB rows=%d ifXTable=%d poe=%d ifHighSpeed=%d composed_ports=%d",
+                len(if_rows), len(alias_rows), len(poe_rows), len(if_high_rows), len(ports)
+            )
+        except Exception:
+            pass
+        # If SNMP yielded nothing, attempt SSH fallback to get a minimal view
+        if len(ports) == 0:
+            try:
+                ports = _ssh_ports_fallback(connection)
+                if ports:
+                    log.info("AOSS SSH fallback returned %d ports", len(ports))
+            except Exception as e:
+                log.warning("SSH fallback failed: %s", e)
+        # Normalize to walNUT inventory item format (list of items)
+        items: List[Dict[str, Any]] = []
+        for p in ports:
+            pid = str(p.get("port_id") or p.get("id") or p.get("ifIndex") or "")
+            if not pid:
+                continue
+            name = p.get("alias") or p.get("description") or pid
+            attrs = {
+                "alias": p.get("alias"),
+                "description": p.get("description"),
+                "if_admin": p.get("if_admin"),
+                "if_oper": p.get("if_oper"),
+                "if_type": p.get("if_type"),
+                "speed": p.get("speed"),
+                "if_high_speed": p.get("if_high_speed"),
+                "poe_supported": p.get("poe_supported"),
+                "poe_power": p.get("poe_power"),
+                "poe_class": p.get("poe_class"),
+            }
+            items.append({
+                "type": "port",
+                "external_id": pid,
+                "name": name,
+                "attrs": attrs,
+                "labels": {},
+            })
+        return items
     except Exception as e:
-        return {"ports": [], "error": str(e)}
+        return []
+
+
+def _ssh_ports_fallback(connection: dict) -> List[Dict[str, Any]]:
+    """Best-effort SSH fallback to list ports when SNMP is unavailable.
+
+    Parses 'show interfaces brief' output. Returns a list of minimal port dicts:
+    { port_id, description?, alias?, if_oper, speed?, if_type? }.
+    """
+    out = ""
+    with SSH(**_ssh_ctx(connection)) as conn:
+        try:
+            out = conn.send_command("show interfaces brief", expect_string=None)
+        except Exception:
+            # Some platforms use 'show interfaces status'
+            out = conn.send_command("show interfaces status", expect_string=None)
+
+    ports: List[Dict[str, Any]] = []
+    for line in out.splitlines():
+        line = line.strip()
+        # Skip headers and separators
+        if (not line) or line.startswith("Status and Counters") or line.startswith("Port ") or line.startswith("-"):
+            continue
+        # The brief table has a '|' column: left = "<port> <type>", right = columns
+        left, sep, right = line.partition('|')
+        left = left.rstrip()
+        right = right.strip()
+        # Extract port id and type
+        lparts = left.split()
+        if not lparts:
+            continue
+        raw_id = lparts[0]
+        # Some IDs have -Trk suffix and/or trailing *
+        pid = re.sub(r"-.*$", "", raw_id).rstrip('*')
+        type_str = lparts[1] if len(lparts) > 1 else ''
+        # Parse status and mode/speed from right columns
+        status = "unknown"
+        speed_mbps = None
+        if right:
+            rparts = right.split()
+            # rparts: [No, Yes, Up, 1000FDx, ...] or similar
+            if len(rparts) >= 3:
+                st = rparts[2].lower()
+                status = 'up' if 'up' in st else ('down' if 'down' in st else 'unknown')
+            if len(rparts) >= 4:
+                mode = rparts[3]
+                # Map 1000FDx / 100FDx / 10GigFD to Mbps
+                m = re.match(r"(?i)(\d+)(gig)?(fdx|hdx)?", mode)
+                if m:
+                    try:
+                        val = int(m.group(1))
+                        if m.group(2):  # 'gig'
+                            val *= 1000
+                        speed_mbps = val
+                    except Exception:
+                        speed_mbps = None
+        # Map media from type string if possible
+        media = _infer_media_from_type(type_str)
+        ports.append({
+            "port_id": pid,
+            "description": None,
+            "alias": None,
+            "if_oper": status,
+            "if_high_speed": speed_mbps,
+            "if_type": None,
+            "_media_hint": media,
+        })
+    return ports
+
+
+def _ssh_ports_fallback_throttled(instance_id: int, connection: dict, min_interval_s: int) -> List[Dict[str, Any]]:
+    """Throttle SSH polling using a module-level cache keyed by instance_id."""
+    now = time.time()
+    cache = _SSH_PORTS_CACHE.get(instance_id)
+    if cache and (now - cache.get("ts", 0) < max(60, min_interval_s)):
+        return cache.get("ports", [])
+    ports = _ssh_ports_fallback(connection)
+    _SSH_PORTS_CACHE[instance_id] = {"ts": now, "ports": ports}
+    return ports
+
+
+def _ssh_lldp_neighbors_throttled(instance_id: int, connection: dict, min_interval_s: int) -> Dict[str, Dict[str, Any]]:
+    now = time.time()
+    cache = _SSH_PORTS_CACHE.get(instance_id)
+    if cache and (now - cache.get("ts_lldp", 0) < max(60, min_interval_s)):
+        return cache.get("lldp", {})
+    data = _ssh_lldp_neighbors(connection)
+    if cache is None:
+        _SSH_PORTS_CACHE[instance_id] = {"ts_lldp": now, "lldp": data}
+    else:
+        cache["ts_lldp"] = now
+        cache["lldp"] = data
+    return data
+
+
+def _ssh_lldp_neighbors(connection: dict) -> Dict[str, Dict[str, Any]]:
+    """Parse LLDP neighbors via 'show lldp info remote-device'.
+
+    Returns mapping: local_port_id -> { chassis_id, port_id, port_descr, sys_name }
+    """
+    out = ""
+    with SSH(**_ssh_ctx(connection)) as conn:
+        out = conn.send_command("show lldp info remote-device", expect_string=None)
+
+    nbrs: Dict[str, Dict[str, Any]] = {}
+    in_table = False
+    for line in out.splitlines():
+        line = line.rstrip()
+        if not line:
+            continue
+        if line.startswith("LLDP Remote Devices Information"):
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        # Skip header and separator
+        if line.strip().startswith("LocalPort") or set(line.strip()) == {"-"} or line.strip().startswith("-"):
+            continue
+        # Expect 'LocalPort | ChassisId  PortId  PortDescr SysName'
+        parts = [p.strip() for p in line.split('|')]
+        if len(parts) < 2:
+            continue
+        local = parts[0].split()[0] if parts[0] else None
+        right = parts[1]
+        if not local or not right:
+            continue
+        # Split right into columns by 2+ spaces
+        cols = [c.strip() for c in re.split(r"\s{2,}", right) if c.strip()]
+        chassis = cols[0] if len(cols) > 0 else None
+        port_id = cols[1] if len(cols) > 1 else None
+        port_descr = cols[2] if len(cols) > 2 else None
+        sys_name = cols[3] if len(cols) > 3 else None
+        # Normalize local port to match inventory
+        local_norm = re.sub(r"-.*$", "", local).rstrip('*')
+        nbrs[local_norm] = {
+            "chassis_id": chassis,
+            "port_id": port_id,
+            "port_descr": port_descr,
+            "sys_name": sys_name,
+        }
+    return nbrs
+
+
+def _ssh_poe_brief_throttled(instance_id: int, connection: dict, min_interval_s: int) -> Dict[str, Dict[str, Any]]:
+    now = time.time()
+    cache = _SSH_PORTS_CACHE.get(instance_id)
+    if cache and (now - cache.get("ts_poe", 0) < max(60, min_interval_s)):
+        return cache.get("poe", {})
+    data = _ssh_poe_brief(connection)
+    if cache is None:
+        _SSH_PORTS_CACHE[instance_id] = {"ts_poe": now, "poe": data}
+    else:
+        cache["ts_poe"] = now
+        cache["poe"] = data
+    return data
+
+
+def _ssh_poe_brief(connection: dict) -> Dict[str, Dict[str, Any]]:
+    """Parse 'show power-over-ethernet brief' per-port power draw and class.
+
+    Returns mapping: port_id -> { poe_power_w: float, poe_class: str, poe_status: str }
+    """
+    out = ""
+    poe: Dict[str, Dict[str, Any]] = {}
+    with SSH(**_ssh_ctx(connection)) as conn:
+        out = conn.send_command("show power-over-ethernet brief", expect_string=None)
+    in_table = False
+    for line in out.splitlines():
+        line = line.rstrip()
+        if not line:
+            continue
+        if line.startswith("PoE") and "Port" in line and "Status" in line:
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if line.strip().startswith("------"):
+            continue
+        # Expected columns: Port Enab Priority Detect Cfg Actual Rsrvd PD Pwr Draw Status PLC Cls Type
+        cols = [c for c in line.split() if c]
+        if len(cols) < 5:
+            continue
+        port_id = cols[0]
+        # Find PD Pwr and Status by searching tokens
+        # Look for a token like '<num> W'
+        pd_power = None
+        for i, tok in enumerate(cols):
+            if tok.endswith('W') and tok[:-1].replace('.', '', 1).isdigit():
+                try:
+                    pd_power = float(tok[:-1])
+                except Exception:
+                    pd_power = None
+        status = cols[-3] if len(cols) >= 3 else None  # 'Delivering' etc.
+        poe_class = cols[-2] if len(cols) >= 2 else None
+        poe[port_id] = {
+            "poe_power_w": pd_power,
+            "poe_class": poe_class,
+            "poe_status": status,
+        }
+    return poe
+
+
+def _infer_media_from_type(type_str: str) -> str:
+    t = (type_str or '').lower()
+    if any(k in t for k in ("sfp", "sr", "lr", "lc", "sc", "xfp", "qsfp")):
+        return "fiber"
+    if any(k in t for k in ("gbe-t", "1000t", "100/1000t", "rj45", "base-t", "t")):
+        return "copper"
+    return "unknown"
 
 
 class ArubaOSSwitchDriver:
@@ -761,10 +1140,13 @@ class ArubaOSSwitchDriver:
             Stack: {type:"stack-member", id:"<member_id>", name:"Member <id>", attrs:{model:<str>}, labels:{}}
             Port: {type:"port", id:"<port-id>", name:"<alias|description|id>", attrs:{poe:<bool>, link:"up|down", speed?:<str>}, labels:{}}
         """
-        if target_type == "stack-member":
+        # Accept both underscore and hyphen style target types; normalize to underscore for outputs
+        if target_type in ("stack_member", "stack-member"):
             return await self._list_stack_members()
-        elif target_type == "port":
-            return await self._list_ports(active_only)
+        elif target_type in ("port", "poe-port", "poe_port", "interface"):
+            poll_mode = (self.config.get("poll_mode") or "snmp").lower()
+            force_ssh = poll_mode == "ssh"
+            return await self._list_ports(active_only, force_ssh=force_ssh)
         # Return empty list for unsupported types (vm, etc.) instead of raising error
         return []
     
@@ -852,7 +1234,7 @@ class ArubaOSSwitchDriver:
                     continue
                     
                 targets.append({
-                    "type": "stack-member",
+                    "type": "stack_member",
                     "id": member_id,
                     "external_id": member_id,  # Keep for compatibility
                     "name": f"Member {member_id}",
@@ -872,68 +1254,100 @@ class ArubaOSSwitchDriver:
             # Return empty list for non-stacked switches
             return []
     
-    async def _list_ports(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        """List switch ports according to walNUT inventory contract.
+    async def _list_ports(self, active_only: bool = True, force_ssh: bool = False) -> List[Dict[str, Any]]:
+        """List switch ports (real SNMP-backed).
         
-        Active ports definition: link == "up" OR poe == true
-        
-        Returns port targets in format:
-        {type:"port", id:"<port-id>", name:"<alias|description|id>", attrs:{poe:<bool>, link:"up|down", speed?:<str>}, labels:{}}
+        Active ports definition: link == 'up' OR PoE delivering power.
         """
         connection = self._build_connection_dict()
-        
         try:
-            # Get port information via SNMP
-            port_info = _get_port_info(connection)
-            
-            targets = []
-            for port in port_info.get("ports", []):
+            if force_ssh:
+                ports_list = _ssh_ports_fallback_throttled(getattr(self.instance, 'instance_id', 0), connection, int(self.config.get("ssh_min_poll_seconds", 180)))
+                info = {"ports": ports_list}
+            else:
+                info = _get_port_info(connection)
+            targets: List[Dict[str, Any]] = []
+            raw_ports = info.get("ports", [])
+            # Optional LLDP + PoE enrichment via SSH (throttled)
+            neighbors = {}
+            poe_map = {}
+            try:
+                neighbors = _ssh_lldp_neighbors_throttled(getattr(self.instance, 'instance_id', 0), connection, int(self.config.get("ssh_min_poll_seconds", 180)))
+            except Exception:
+                neighbors = {}
+            try:
+                poe_map = _ssh_poe_brief_throttled(getattr(self.instance, 'instance_id', 0), connection, int(self.config.get("ssh_min_poll_seconds", 180)))
+            except Exception:
+                poe_map = {}
+            for port in raw_ports:
                 port_id = str(port.get("port_id", ""))
                 if not port_id:
                     continue
-                
-                # Determine port name priority: alias > description > port_id
-                name = (port.get("alias") or 
-                       port.get("description") or 
-                       port_id)
-                
-                # Get port attributes
-                poe_enabled = port.get("poe_enabled", False)
-                link_status = port.get("link_status", "down")  # up|down
-                
-                # Apply active_only filter: active = link up OR poe enabled
-                is_active = link_status == "up" or poe_enabled
-                if active_only and not is_active:
+
+                name = (
+                    port.get("alias")
+                    or port.get("description")
+                    or port.get("if_name")
+                    or port_id
+                )
+
+                link_status = "up" if str(port.get("if_oper", "2")).strip() in ("1", "up") else "down"
+                poe_present = bool(port.get("poe_power")) or bool(port.get("poe_supported"))
+                if active_only and not (link_status == "up" or poe_present):
                     continue
-                
-                attrs = {
-                    "poe": poe_enabled,
-                    "link": link_status,
-                }
-                
-                # Add optional speed if available
-                if port.get("speed"):
-                    attrs["speed"] = port["speed"]
-                    
-                # Add other useful attributes
-                if port.get("duplex"):
-                    attrs["duplex"] = port["duplex"]
-                if port.get("poe_power"):
-                    attrs["poe_power"] = port["poe_power"]
+
+                # Prefer SNMP media; if missing and SSH hinted, use SSH type hint
+                media = _infer_media_type(str(port.get("if_type", "")), str(port.get("description", "")))
+                if (not media or media == 'unknown') and port.get('_media_hint'):
+                    media = port['_media_hint']
+
+                speed_mbps = None
+                if port.get("if_high_speed"):
+                    try:
+                        speed_mbps = int(port.get("if_high_speed"))
+                    except Exception:
+                        speed_mbps = None
+                elif port.get("speed"):
+                    try:
+                        speed_mbps = int(int(port.get("speed")) / 1_000_000)
+                    except Exception:
+                        speed_mbps = None
+
+                attrs: Dict[str, Any] = {"link": link_status, "media": media}
+                if speed_mbps is not None:
+                    attrs["speed_mbps"] = speed_mbps
                 if port.get("poe_class"):
                     attrs["poe_class"] = port["poe_class"]
-                
-                targets.append({
-                    "type": "port",
-                    "id": port_id,
-                    "external_id": port_id,  # Keep for compatibility
-                    "name": name,
-                    "attrs": attrs,
-                    "labels": {},
-                })
-            
+                if port.get("poe_power") is not None:
+                    attrs["poe_power_w"] = port["poe_power"]
+
+                # Attach LLDP neighbor if present
+                nbr = neighbors.get(port_id)
+                if nbr:
+                    attrs["lldp"] = nbr
+                # Attach PoE info from SSH brief if present
+                p = poe_map.get(port_id)
+                if p:
+                    if p.get('poe_power_w') is not None:
+                        attrs['poe_power_w'] = p['poe_power_w']
+                    if p.get('poe_class') is not None:
+                        attrs['poe_class'] = p['poe_class']
+
+                targets.append(
+                    {
+                        "type": "port",
+                        "id": port_id,
+                        "external_id": port_id,
+                        "name": name,
+                        "attrs": attrs,
+                        "labels": {},
+                    }
+                )
+            try:
+                self.logger.info("AOSS inventory_list ports returned=%d (active_only=%s)", len(targets), str(active_only))
+            except Exception:
+                pass
             return targets
-            
         except Exception as e:
             self.logger.error("Failed to get port information: %s", e)
             return []
@@ -950,7 +1364,24 @@ class ArubaOSSwitchDriver:
             "ssh_port": self.config.get("ssh_port", 22),
             "timeout_s": self.config.get("timeout_s", 30),
             "device_type": self.config.get("device_type", "aruba_osswitch"),
-            "snmp_community": self.secrets["snmp_community"],  # SNMP community from secrets
+            "snmp_community": self.secrets.get("snmp_community", "public"),  # SNMP community from secrets
+            "snmp_host": self.config.get("snmp_host"),
             "snmp_port": self.config.get("snmp_port", 161)
         }
 
+
+def _infer_media_type(if_type: str, descr: str) -> str:
+    """Heuristic media type from ifType numeric or description string.
+    Returns: 'fiber' | 'copper' | 'unknown'
+    """
+    d = (descr or '').lower()
+    if any(tok in d for tok in ("sfp", "fiber", "gbic", "xfp", "qsfp", " lc", " sc")):
+        return "fiber"
+    if any(tok in d for tok in ("rj45", "copper", "base-t", "base t", "utp")):
+        return "copper"
+    # Fallback on ifType numeric hints if present
+    try:
+        _ = int(if_type)
+    except Exception:
+        pass
+    return "unknown"

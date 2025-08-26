@@ -290,7 +290,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
+      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] h-[100vh] overflow-hidden flex flex-col">
         <SheetHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg font-semibold">
