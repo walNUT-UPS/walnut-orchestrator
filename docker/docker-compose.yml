@@ -23,8 +23,17 @@ services:
       PORT: 8000
     volumes:
       - walnut_data:/app/data
+    networks:
+      - walnut_net
     restart: unless-stopped
 
 volumes:
   walnut_data:
     driver: local
+
+networks:
+  walnut_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${WALNUT_SUBNET:-172.30.41.0/24}

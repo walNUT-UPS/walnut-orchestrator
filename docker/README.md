@@ -41,7 +41,7 @@ docker run --rm -p 8000:8000 \
   walnut/walnut-api:dev
 ```
 
-Or via Compose:
+Or via Compose (uses ../.env):
 
 ```
 # Create .env next to this file or export in shell
@@ -51,7 +51,7 @@ Or via Compose:
 docker compose -f docker/docker-compose.yml up --build -d
 ```
 
-### Production Compose
+### Production Compose (uses ../.env)
 
 ```
 # .env should define WALNUT_DB_KEY and optionally INSTALL_EXTRAS, WORKERS, TIMEOUT, KEEPALIVE
