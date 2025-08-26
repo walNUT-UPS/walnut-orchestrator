@@ -75,7 +75,7 @@ def init_transports():
     """
     logger.info("Initializing transport adapters...")
 
-    # Register real adapters (will be uncommented as they are implemented)
+    # Register real adapters
     from .http_adapter import HttpAdapter
     register("http", HttpAdapter)
     from .ssh_adapter import SshAdapter
@@ -84,18 +84,43 @@ def init_transports():
     register("mqtt", MqttAdapter)
     from .websocket_adapter import WebsocketAdapter
     register("websocket", WebsocketAdapter)
+    # Newly implemented adapters
+    try:
+        from .telnet_adapter import TelnetAdapter
+        register("telnet", TelnetAdapter)
+    except Exception as e:
+        logger.warning("Telnet adapter unavailable: %s", e)
+    try:
+        from .redfish_adapter import RedfishAdapter
+        register("redfish", RedfishAdapter)
+    except Exception as e:
+        logger.warning("Redfish adapter unavailable: %s", e)
+    try:
+        from .snmp_adapter import SnmpAdapter
+        register("snmp", SnmpAdapter)
+    except Exception as e:
+        logger.warning("SNMP adapter unavailable: %s", e)
+    try:
+        from .modbus_adapter import ModbusAdapter
+        register("modbus", ModbusAdapter)
+    except Exception as e:
+        logger.warning("Modbus adapter unavailable: %s", e)
+    try:
+        from .ipmi_adapter import IpmiAdapter
+        register("ipmi", IpmiAdapter)
+    except Exception as e:
+        logger.warning("IPMI adapter unavailable: %s", e)
+    try:
+        from .gnmi_adapter import GnmiAdapter
+        register("gnmi", GnmiAdapter)
+    except Exception as e:
+        logger.warning("gNMI adapter unavailable: %s", e)
+    try:
+        from .netconf_adapter import NetconfAdapter
+        register("netconf", NetconfAdapter)
+    except Exception as e:
+        logger.warning("NETCONF adapter unavailable: %s", e)
 
-    # Register stubs for planned transports
-    stub_transports = [
-        "snmp",
-        "telnet",
-        "modbus",
-        "redfish",
-        "ipmi",
-        "gnmi",
-        "netconf",
-    ]
-    for name in stub_transports:
-        register(name, _create_stub_adapter(name))
+    # Keep placeholder stubs for any future protocols (none at the moment)
 
     logger.info(f"Transport adapters initialized. Registered: {list(REGISTRY.keys())}")
