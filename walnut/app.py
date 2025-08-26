@@ -22,6 +22,7 @@ from walnut.transports.registry import init_transports
 from walnut.core.integration_registry import get_integration_registry
 from walnut.database.connection import get_db_session
 from walnut.database.models import IntegrationType
+from walnut.database.engine import ensure_schema
 import anyio
 from walnut.utils.logging import setup_logging
 from walnut.api.integrations import warm_inventory_cache
@@ -41,6 +42,11 @@ async def lifespan(app: FastAPI):
     # On startup
     setup_logging()
     logger.info("Initializing walNUT services...")
+    # Ensure DB schema exists before any queries
+    try:
+        ensure_schema()
+    except Exception:
+        logger.exception("Database schema initialization failed")
     init_transports()
     logger.info("Transport adapters initialized.")
     logger.info(

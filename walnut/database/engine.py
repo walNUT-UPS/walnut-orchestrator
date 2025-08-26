@@ -69,6 +69,25 @@ def init_db(db_path: str):
     )
     logger.info("Database engine initialized")
 
+
+def ensure_schema() -> None:
+    """Create database tables if they do not exist yet.
+
+    This is safe to run repeatedly and ensures a fresh container can
+    initialize its own schema without requiring a separate migration step.
+    """
+    global engine
+    if engine is None:
+        # Initialize at default path if not initialized yet
+        os.makedirs(os.path.dirname(DB_PATH_DEFAULT), exist_ok=True)
+        init_db(DB_PATH_DEFAULT)
+    try:
+        from .models import Base
+        Base.metadata.create_all(engine)
+        logger.info("Database schema ensured (create_all executed)")
+    except Exception as e:
+        logger.exception("Failed to ensure database schema: %s", e)
+
 # Initialize with default path for production
 DB_PATH_DEFAULT = os.path.abspath("data/walnut.db")
 if not os.environ.get("WALNUT_TESTING"):
