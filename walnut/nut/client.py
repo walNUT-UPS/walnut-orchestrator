@@ -52,13 +52,26 @@ class NUTClient:
         self.port = port
         self.username = username
         self.password = password
-        self._client = PyNUTClient(
-            host=self.host,
-            port=self.port,
-            login=self.username,
-            password=self.password
-        )
-        logger.info("Initialized NUT client host=%s port=%s user=%s", self.host, self.port, bool(self.username))
+        self._client: PyNUTClient | None = None
+        logger.info("Initialized NUT client (lazy connect) host=%s port=%s user=%s", self.host, self.port, bool(self.username))
+
+    def _ensure_client(self) -> PyNUTClient:
+        """Lazily construct the underlying PyNUTClient.
+
+        Avoids raising during __init__ if the NUT host/port is unreachable.
+        """
+        if self._client is None:
+            try:
+                self._client = PyNUTClient(
+                    host=self.host,
+                    port=self.port,
+                    login=self.username,
+                    password=self.password
+                )
+            except Exception as e:
+                # Normalize connection errors so callers can handle gracefully
+                raise NUTConnectionError(f"Unable to connect to NUT at {self.host}:{self.port}") from e
+        return self._client
 
     async def list_ups(self) -> Dict[str, str]:
         """
@@ -73,7 +86,8 @@ class NUTClient:
         """
         try:
             logger.debug("Listing UPS devices from %s:%s", self.host, self.port)
-            data = await asyncio.to_thread(self._client.list_ups)
+            client = self._ensure_client()
+            data = await asyncio.to_thread(client.list_ups)
             logger.info("NUT list_ups ok: %d devices", len(data) if data else 0)
             return data
         except Exception as e:
@@ -94,7 +108,8 @@ class NUTClient:
         """
         try:
             logger.debug("Fetching vars for UPS '%s'", ups_name)
-            vars_ = await asyncio.to_thread(self._client.list_vars, ups_name)
+            client = self._ensure_client()
+            vars_ = await asyncio.to_thread(client.list_vars, ups_name)
             logger.info("NUT get_vars ok for '%s' (%d vars)", ups_name, len(vars_) if vars_ else 0)
             return vars_
         except Exception as e:
@@ -116,7 +131,8 @@ class NUTClient:
         """
         try:
             logger.debug("Fetching var '%s' for UPS '%s'", var, ups_name)
-            value = await asyncio.to_thread(self._client.get_var, ups_name, var)
+            client = self._ensure_client()
+            value = await asyncio.to_thread(client.get_var, ups_name, var)
             logger.info("NUT get_var ok '%s' for '%s'", var, ups_name)
             return value
         except Exception as e:

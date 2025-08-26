@@ -110,11 +110,13 @@ class NUTService:
                     self.pollers[ups_name] = poller
                     
         except NUTConnectionError as e:
-            logger.error(f"Failed to connect to NUT server: {e}")
+            # Common case: unreachable host/port or auth error — log warning without stack
+            logger.warning("NUT discovery failed: %s", e)
         except asyncio.TimeoutError:
-            logger.error("Timeout connecting to NUT server")
+            logger.warning("NUT discovery timeout when connecting to server")
         except Exception as e:
-            logger.exception(f"Unexpected error during UPS discovery: {e}")
+            # Truly unexpected errors are still logged with stack for diagnostics
+            logger.exception("Unexpected error during UPS discovery: %s", e)
     
     async def _periodic_discovery(self):
         """Periodically check for new UPS devices."""

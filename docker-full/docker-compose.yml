@@ -1,17 +1,15 @@
 version: "3.9"
 services:
-  walnut:
+  backend:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.prod
+      dockerfile: docker-full/Dockerfile.backend
       args:
         INSTALL_EXTRAS: ${INSTALL_EXTRAS}
-    image: walnut/walnut-api:prod
-    container_name: walnut-api-prod
+    image: walnut/walnut-api:full-backend
+    container_name: walnut-api-full-backend
     env_file:
       - ../.env
-    ports:
-      - "8000:8000"
     environment:
       WALNUT_DB_KEY: ${WALNUT_DB_KEY:?Set WALNUT_DB_KEY in ../.env}
       WALNUT_BIND: 0.0.0.0:8000
@@ -26,16 +24,18 @@ services:
     volumes:
       - walnut_data:/app/data
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    # Uncomment and tune if you want explicit resource limits
-    # deploy:
-    #   resources:
-    #     limits:
-    #       cpus: '1.00'
-    #       memory: 512M
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker-full/Dockerfile.frontend
+    image: walnut/walnut-ui:full-frontend
+    container_name: walnut-ui-full-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3333:80"
+    restart: unless-stopped
 
 volumes:
   walnut_data:
