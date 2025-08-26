@@ -9,11 +9,13 @@ services:
         INSTALL_EXTRAS: ${INSTALL_EXTRAS}
     image: walnut/walnut-api:dev
     container_name: walnut-api
+    env_file:
+      - ../.env
     ports:
       - "8000:8000"
     environment:
       # REQUIRED: set a strong key (>=32 chars) before starting
-      WALNUT_DB_KEY: ${WALNUT_DB_KEY:?Set WALNUT_DB_KEY in .env}
+      WALNUT_DB_KEY: ${WALNUT_DB_KEY:?Set WALNUT_DB_KEY in ../.env}
       # Optional tuning
       PYTHONUNBUFFERED: "1"
       # Forwarded to uvicorn args via CMD defaults
@@ -26,4 +28,3 @@ services:
 volumes:
   walnut_data:
     driver: local
-
