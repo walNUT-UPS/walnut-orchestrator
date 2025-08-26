@@ -47,7 +47,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('');
-  const [activeOnly, setActiveOnly] = useState(true);
+  const [activeOnly, setActiveOnly] = useState(false);
   
   // Cache structure: instanceId -> type -> activeOnly -> CachedData
   const [cache, setCache] = useState<Record<number, Record<string, Record<string, CachedData>>>>({});
@@ -69,10 +69,10 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   // Load data when active tab or filters change
   useEffect(() => {
-    if (open && instance && availableTargets.length > 0) {
+    if (open && instance) {
       loadTabData(activeTab);
     }
-  }, [activeTab, activeOnly, open, instance?.instance_id, availableTargets]);
+  }, [activeTab, activeOnly, open, instance?.instance_id]);
 
   const loadAvailableTargets = async () => {
     if (!instance) return;
@@ -267,7 +267,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   // Determine which tabs to show based on available targets
   const availableTabs = useMemo(() => {
-    const tabs = [];
+    const tabs: string[] = [];
     
     // Map targets to tab names
     if (availableTargets.includes('vm')) {
@@ -280,7 +280,8 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       tabs.push('ports');
     }
     
-    return tabs;
+    // Fallback: ensure we at least show Ports tab even if capabilities resolution failed
+    return tabs.length > 0 ? tabs : ['ports'];
   }, [availableTargets]);
 
   const currentData = getFilteredData(activeTab);
