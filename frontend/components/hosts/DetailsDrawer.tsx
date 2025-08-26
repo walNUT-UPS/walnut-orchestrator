@@ -98,7 +98,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       if (targets.length > 0) {
         // Map targets to tab names
         const tabName = targets.includes('vm') ? 'vms' : 
-                      targets.includes('stack-member') ? 'stack' :
+                      targets.includes('stack_member') ? 'stack' :
                       targets.includes('port') ? 'ports' : 
                       targets[0]; // fallback to first target
         setActiveTab(tabName);
@@ -175,7 +175,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       
       const response = await apiService.getInstanceInventory(
         instance.instance_id,
-        type === 'vms' ? 'vm' : type === 'stack' ? 'stack-member' : 'port',
+        type === 'vms' ? 'vm' : type === 'stack' ? 'stack_member' : 'port',
         activeOnly,
         page,
         50, // page_size
@@ -221,7 +221,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       // Reload data with refresh flag
       const response = await apiService.getInstanceInventory(
         instance.instance_id,
-        activeTab === 'vms' ? 'vm' : activeTab === 'stack' ? 'stack-member' : 'port',
+        activeTab === 'vms' ? 'vm' : activeTab === 'stack' ? 'stack_member' : 'port',
         activeOnly,
         1,
         50,
@@ -273,7 +273,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
     if (availableTargets.includes('vm')) {
       tabs.push('vms');
     }
-    if (availableTargets.includes('stack-member')) {
+    if (availableTargets.includes('stack_member')) {
       tabs.push('stack');
     }
     if (availableTargets.includes('port')) {
@@ -290,7 +290,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] overflow-hidden flex flex-col">
+      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
         <SheetHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg font-semibold">
@@ -368,7 +368,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
               <div className="flex-1 min-h-0 overflow-hidden">
                 {availableTabs.includes('vms') && (
-                  <TabsContent value="vms" className="h-full">
+                  <TabsContent value="vms" className="h-full flex flex-col overflow-hidden">
                     <VMsTab
                       data={currentData}
                       loading={loading}
@@ -379,7 +379,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
                 )}
 
                 {availableTabs.includes('stack') && (
-                  <TabsContent value="stack" className="h-full">
+                  <TabsContent value="stack" className="h-full flex flex-col overflow-hidden">
                     <StackTab
                       data={currentData}
                       loading={loading}
@@ -390,7 +390,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
                 )}
 
                 {availableTabs.includes('ports') && (
-                  <TabsContent value="ports" className="h-full">
+                  <TabsContent value="ports" className="h-full flex flex-col overflow-hidden">
                     <PortsTab
                       data={currentData}
                       loading={loading}
@@ -452,8 +452,8 @@ function VMsTab({ data, loading, hasMore, onLoadMore }: {
                 <TableCell className="font-mono text-sm">{vm.external_id}</TableCell>
                 <TableCell>{vm.name}</TableCell>
                 <TableCell>
-                  <Badge variant={getStatusVariant(vm.attrs?.status)}>
-                    {vm.attrs?.status || 'unknown'}
+                  <Badge variant={getStatusVariant(extractVmStatus(vm))}>
+                    {extractVmStatus(vm)}
                   </Badge>
                 </TableCell>
               </TableRow>
@@ -565,17 +565,23 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
             <TableRow>
               <TableHead>Label</TableHead>
               <TableHead>Port ID</TableHead>
-              <TableHead>PoE</TableHead>
+              <TableHead>Admin</TableHead>
+              <TableHead>Oper</TableHead>
+              <TableHead>Speed</TableHead>
+              <TableHead>PoE Power (W)</TableHead>
+              <TableHead>PoE Class</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {data.map((port) => (
               <TableRow key={port.external_id} className="py-2">
-                <TableCell>{port.name}</TableCell>
+                <TableCell>{port.name || port.attrs?.alias || port.attrs?.description || '-'}</TableCell>
                 <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
-                <TableCell>
-                  {port.attrs?.poe_enabled ? 'Y' : 'N'}
-                </TableCell>
+                <TableCell>{formatAdmin(port.attrs?.if_admin)}</TableCell>
+                <TableCell>{formatOper(port.attrs?.if_oper)}</TableCell>
+                <TableCell>{formatSpeed(port.attrs)}</TableCell>
+                <TableCell>{formatPoePower(port.attrs)}</TableCell>
+                <TableCell>{port.attrs?.poe_class || '-'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -604,4 +610,48 @@ function getStatusVariant(status?: string) {
     default:
       return 'destructive';
   }
+}
+
+// Normalize VM status from inventory item
+function extractVmStatus(vm: any): string {
+  const s = vm?.status || vm?.attrs?.status || vm?.attrs?.qmpstatus;
+  if (!s) return 'unknown';
+  const val = String(s).toLowerCase();
+  if (val.includes('run')) return 'running';
+  if (val.includes('stop') || val.includes('shutdown')) return 'stopped';
+  if (val.includes('pause') || val.includes('suspend')) return 'paused';
+  return s;
+}
+
+function formatAdmin(v: any): string {
+  if (v === 1 || String(v).toLowerCase() === 'up') return 'up';
+  if (v === 2 || String(v).toLowerCase() === 'down') return 'down';
+  return String(v || '-');
+}
+
+function formatOper(v: any): string {
+  if (v === 1 || String(v).toLowerCase() === 'up') return 'up';
+  if (v === 2 || String(v).toLowerCase() === 'down') return 'down';
+  return String(v || '-');
+}
+
+function formatSpeed(attrs: any): string {
+  if (!attrs) return '-';
+  const hs = attrs.if_high_speed;
+  const s = attrs.speed;
+  if (hs) return `${hs} Mbps`;
+  if (s) {
+    // SNMP ifSpeed is in bits/sec
+    const mbps = Math.round(Number(s) / 1_000_000);
+    return isFinite(mbps) && mbps > 0 ? `${mbps} Mbps` : String(s);
+  }
+  return '-';
+}
+
+function formatPoePower(attrs: any): string {
+  if (!attrs) return '-';
+  const p = attrs.poe_power ?? attrs.poe_power_w;
+  if (p == null) return attrs.poe_supported ? '0' : '-';
+  const n = Number(p);
+  return isFinite(n) ? n.toFixed(1) : String(p);
 }
