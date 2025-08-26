@@ -97,7 +97,16 @@ async def get_events(
     result = await anyio.to_thread.run_sync(db.execute, query)
     events = await anyio.to_thread.run_sync(result.scalars().all)
     
-    return [EventResponse.model_validate(event) for event in events]
+    return [
+        EventResponse(
+            id=event.id,
+            timestamp=event.timestamp,
+            event_type=event.event_type,
+            description=event.description,
+            severity=event.severity,
+            metadata=event.event_metadata
+        ) for event in events
+    ]
 
 
 @router.post(

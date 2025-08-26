@@ -94,7 +94,7 @@ class NUTClient:
         """
         try:
             logger.debug("Fetching vars for UPS '%s'", ups_name)
-            vars_ = await asyncio.to_thread(self._client.get_vars, ups_name)
+            vars_ = await asyncio.to_thread(self._client.list_vars, ups_name)
             logger.info("NUT get_vars ok for '%s' (%d vars)", ups_name, len(vars_) if vars_ else 0)
             return vars_
         except Exception as e:

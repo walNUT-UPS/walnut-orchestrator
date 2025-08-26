@@ -1249,27 +1249,8 @@ async def _get_cached_inventory(
         integration_type = type_result.scalar_one_or_none()
         if not integration_type:
             raise Exception("Integration type not found")
-        
-        # Dynamically load driver
-        type_path = Path(integration_type.path)
-        driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
-        module_path = type_path / f"{driver_module}.py"
-        if not module_path.exists():
-            raise Exception("Driver module not found")
-        
-        import importlib.util
-        module_name = f"driver_cache_{instance.instance_id}_{int(time.time())}"
-        spec = importlib.util.spec_from_file_location(module_name, module_path)
-        if spec is None or spec.loader is None:
-            raise Exception("Could not load driver module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        driver_class = getattr(module, driver_class_name, None)
-        if driver_class is None:
-            raise Exception("Driver class not found")
 
-        # Fetch secrets
+        # Fetch secrets (sync)
         secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance.instance_id)
         secrets_result = session.execute(secrets_query)
         secrets_rows = secrets_result.fetchall()
@@ -1279,26 +1260,51 @@ async def _get_cached_inventory(
             field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
             secrets[field] = value.decode("utf-8")
 
-        # Initialize driver and fetch inventory
-        from walnut.transports.manager import TransportManager
-        transports = TransportManager(instance.config)
-        try:
-            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
-            
-            # Check if driver has inventory_list method
-            if not hasattr(driver, 'inventory_list'):
-                raise AttributeError(f"Driver {driver_class_name} does not have inventory_list method")
-            
-            inventory_method = getattr(driver, 'inventory_list')
-            if not callable(inventory_method):
-                raise AttributeError(f"Driver {driver_class_name} inventory_list is not callable")
-            
-            items = await inventory_method(target_type=norm_type, active_only=active_only, options={})
-        finally:
-            await transports.close_all()
-            # Clean up module
-            if module_name in sys.modules:
-                del sys.modules[module_name]
+        # Perform driver import and inventory fetch inside a worker thread to avoid blocking the event loop
+        import anyio
+        def _fetch_in_thread() -> List[Dict[str, Any]]:
+            import importlib.util, asyncio
+            from walnut.transports.manager import TransportManager
+            type_path = Path(integration_type.path)
+            driver_module, driver_class_name = integration_type.driver_entrypoint.split(":", 1)
+            module_path = type_path / f"{driver_module}.py"
+            if not module_path.exists():
+                raise Exception("Driver module not found")
+            module_name = f"driver_cache_{instance.instance_id}_{int(time.time())}"
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            if spec is None or spec.loader is None:
+                raise Exception("Could not load driver module")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)  # type: ignore
+                driver_class = getattr(module, driver_class_name, None)
+                if driver_class is None:
+                    raise Exception("Driver class not found")
+                transports = TransportManager(instance.config)
+                try:
+                    driver = driver_class(instance=instance, secrets=secrets, transports=transports)
+                    async def _run() -> List[Dict[str, Any]]:
+                        if not hasattr(driver, 'inventory_list'):
+                            raise AttributeError(f"Driver {driver_class_name} does not have inventory_list method")
+                        inventory_method = getattr(driver, 'inventory_list')
+                        if not callable(inventory_method):
+                            raise AttributeError(f"Driver {driver_class_name} inventory_list is not callable")
+                        return await inventory_method(target_type=norm_type, active_only=active_only, options={})
+                    return asyncio.run(_run())
+                finally:
+                    try:
+                        asyncio.run(transports.close_all())
+                    except Exception:
+                        pass
+            finally:
+                # Clean up the temporary module
+                try:
+                    del sys.modules[module_name]
+                except Exception:
+                    pass
+
+        items: List[Dict[str, Any]] = await anyio.to_thread.run_sync(_fetch_in_thread)
         
         # Calculate fetch duration
         fetch_duration_ms = int((time.time() - start_time) * 1000)

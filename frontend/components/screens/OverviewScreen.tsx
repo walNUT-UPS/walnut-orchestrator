@@ -113,10 +113,20 @@ export function OverviewScreen() {
     const totalInstances = instances.length;
     const connected = instances.filter(x => x.state === 'connected').length;
     const degraded = instances.filter(x => x.state === 'degraded').length;
+    
+    // If no instances exist, don't treat it as an error - it's just empty
+    if (totalInstances === 0) {
+      return [
+        { label: 'Instances', value: 0, max: 1, unit: '', status: 'ok' as const },
+        { label: 'Connected', value: 0, max: 1, unit: '', status: 'ok' as const },
+        { label: 'Degraded', value: 0, max: 1, unit: '', status: 'ok' as const },
+      ];
+    }
+    
     return [
-      { label: 'Instances', value: totalInstances, max: Math.max(1, totalInstances), unit: '' },
-      { label: 'Connected', value: connected, max: Math.max(1, totalInstances), unit: '', status: 'ok' as const, inverse: true },
-      { label: 'Degraded', value: degraded, max: Math.max(1, totalInstances), unit: '', status: 'warn' as const },
+      { label: 'Instances', value: totalInstances, max: totalInstances, unit: '', inverse: true },
+      { label: 'Connected', value: connected, max: totalInstances, unit: '', inverse: true },
+      { label: 'Degraded', value: degraded, max: totalInstances, unit: '' }, // Lower is better for degraded
     ];
   }, [types, instances]);
 
@@ -127,7 +137,7 @@ export function OverviewScreen() {
       value: upsStatus.battery_percent || 0, 
       max: 100, 
       unit: '%', 
-      status: (upsStatus.battery_percent || 0) > 20 ? 'ok' as const : 'warn' as const 
+      inverse: true  // Higher battery percentage is better
     },
     { 
       label: 'Load', 
@@ -138,8 +148,9 @@ export function OverviewScreen() {
     { 
       label: 'Runtime', 
       value: upsStatus.runtime_seconds ? Math.round(upsStatus.runtime_seconds / 60) : 0, 
-      max: 30, 
-      unit: 'min' 
+      max: upsStatus.runtime_seconds ? Math.max(30, Math.round(upsStatus.runtime_seconds / 60)) : 30, 
+      unit: 'min',
+      inverse: true  // Higher runtime is better
     }
   ] : mockUPSMetrics;
 

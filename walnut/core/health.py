@@ -125,51 +125,71 @@ class SystemHealthChecker:
     
     async def check_nut_connection(self) -> ComponentHealth:
         """
-        Check NUT server connection status.
+        Check NUT server connection status by querying the actual running NUT service.
         
         Returns:
             ComponentHealth object with NUT connection status
         """
         try:
-            client = NUTClient()
-            start_time = time.time()
+            # Import here to avoid circular imports
+            from ..app import nut_service
             
-            # Try to get UPS list
-            ups_list = await asyncio.wait_for(client.list_ups(), timeout=5.0)
-            
-            latency_ms = round((time.time() - start_time) * 1000, 2)
-            
-            if not ups_list:
+            # Check if NUT service is running
+            if not nut_service:
                 return ComponentHealth(
-                    HealthStatus.DEGRADED,
-                    latency_ms=latency_ms,
-                    message="NUT server connected but no UPS devices found"
+                    HealthStatus.CRITICAL,
+                    message="NUT service not initialized"
                 )
             
-            return ComponentHealth(
-                HealthStatus.HEALTHY,
-                latency_ms=latency_ms,
-                ups_count=len(ups_list),
-                ups_devices=list(ups_list.keys())
-            )
+            # Get poller status from the running service
+            poller_status = nut_service.get_poller_status()
             
-        except NUTConnectionError as e:
-            return ComponentHealth(
-                HealthStatus.CRITICAL,
-                error=str(e),
-                message="Cannot connect to NUT server"
-            )
-        except asyncio.TimeoutError:
-            return ComponentHealth(
-                HealthStatus.CRITICAL,
-                message="NUT server connection timeout"
-            )
+            if not poller_status:
+                return ComponentHealth(
+                    HealthStatus.DEGRADED,
+                    message="No UPS devices being monitored"
+                )
+            
+            # Check each poller
+            healthy_count = 0
+            total_count = len(poller_status)
+            disconnected_devices = []
+            
+            for ups_name, status in poller_status.items():
+                if status["is_running"] and not status["is_disconnected"]:
+                    healthy_count += 1
+                else:
+                    disconnected_devices.append(ups_name)
+            
+            if healthy_count == total_count:
+                return ComponentHealth(
+                    HealthStatus.HEALTHY,
+                    ups_count=total_count,
+                    ups_devices=list(poller_status.keys()),
+                    message=f"All {total_count} UPS device(s) connected and polling"
+                )
+            elif healthy_count > 0:
+                return ComponentHealth(
+                    HealthStatus.DEGRADED,
+                    ups_count=total_count,
+                    healthy_count=healthy_count,
+                    disconnected_devices=disconnected_devices,
+                    message=f"{healthy_count}/{total_count} UPS devices healthy"
+                )
+            else:
+                return ComponentHealth(
+                    HealthStatus.CRITICAL,
+                    ups_count=total_count,
+                    disconnected_devices=disconnected_devices,
+                    message="All UPS devices disconnected or not polling"
+                )
+            
         except Exception as e:
-            logger.error(f"NUT connection health check failed: {e}")
+            logger.error(f"NUT service health check failed: {e}")
             return ComponentHealth(
                 HealthStatus.CRITICAL,
                 error=str(e),
-                message="NUT connection check failed"
+                message="Failed to check NUT service status"
             )
     
     async def check_ups_polling(self) -> ComponentHealth:
@@ -205,6 +225,9 @@ class SystemHealthChecker:
                 # Check if polling is recent (within last 2 poll intervals)
                 if latest_timestamp:
                     latest_dt = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
+                    # Ensure both datetimes are timezone-aware
+                    if latest_dt.tzinfo is None:
+                        latest_dt = latest_dt.replace(tzinfo=timezone.utc)
                     time_since_last = (datetime.now(timezone.utc) - latest_dt).total_seconds()
                     max_gap = settings.POLL_INTERVAL * 2
                     

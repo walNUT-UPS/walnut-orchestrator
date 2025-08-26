@@ -50,6 +50,11 @@ async def lifespan(app: FastAPI):
         settings.SECURE_COOKIES,
         settings.POLL_INTERVAL,
     )
+    # Track background tasks for immediate cancellation on shutdown
+    try:
+        app.state.bg_tasks = set()
+    except Exception:
+        pass
     # Auto-scan integrations on first boot (when no types exist in DB)
     try:
         async with get_db_session() as session:
@@ -62,14 +67,18 @@ async def lifespan(app: FastAPI):
             logger.info("First boot detected: no integration types found. Starting discovery & validation...")
             registry = get_integration_registry()
             # Run asynchronously so API becomes available immediately
-            asyncio.create_task(registry.discover_and_validate_all(force_rescan=True))
+            t = asyncio.create_task(registry.discover_and_validate_all(force_rescan=True))
+            app.state.bg_tasks.add(t)
+            t.add_done_callback(lambda task: app.state.bg_tasks.discard(task))
         else:
             logger.info("Integration types present in DB: %d — skipping first-boot scan", types_count)
     except Exception:
         logger.exception("Failed to run first-boot integration scan check")
     # Warm inventory cache for instances (best-effort, async)
     try:
-        asyncio.create_task(warm_inventory_cache())
+        t = asyncio.create_task(warm_inventory_cache())
+        app.state.bg_tasks.add(t)
+        t.add_done_callback(lambda task: app.state.bg_tasks.discard(task))
         logger.info("Scheduled inventory cache warmup task")
     except Exception:
         logger.exception("Failed to schedule inventory cache warmup")
@@ -94,7 +103,9 @@ async def lifespan(app: FastAPI):
                 # if event loop is closing
                 break
     try:
-        asyncio.create_task(_periodic_cache_warmer())
+        t = asyncio.create_task(_periodic_cache_warmer())
+        app.state.bg_tasks.add(t)
+        t.add_done_callback(lambda task: app.state.bg_tasks.discard(task))
         logger.info("Scheduled periodic inventory cache warmer task")
     except Exception:
         logger.exception("Failed to schedule periodic cache warmer")
@@ -103,7 +114,9 @@ async def lifespan(app: FastAPI):
     global nut_service
     try:
         nut_service = NUTService()
-        asyncio.create_task(nut_service.start())
+        nt = asyncio.create_task(nut_service.start())
+        app.state.bg_tasks.add(nt)
+        nt.add_done_callback(lambda task: app.state.bg_tasks.discard(task))
         logger.info("NUT service started for real UPS monitoring")
     except Exception:
         logger.exception("Failed to start NUT service")
@@ -112,6 +125,22 @@ async def lifespan(app: FastAPI):
     
     # On shutdown
     logger.info("Shutting down walNUT services...")
+    # Cancel background tasks immediately; do not wait for long-running polls
+    try:
+        tasks = list(getattr(app.state, 'bg_tasks', set()))
+        if tasks:
+            logger.info("Cancelling %d background tasks...", len(tasks))
+            for task in tasks:
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+            try:
+                await asyncio.wait(tasks, timeout=0.5)
+            except Exception:
+                pass
+    except Exception:
+        logger.exception("Error cancelling background tasks")
     if nut_service:
         try:
             await nut_service.stop()

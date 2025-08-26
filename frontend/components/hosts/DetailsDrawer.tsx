@@ -707,8 +707,9 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
                 const poeClass = a.poe_class ? `Class ${a.poe_class}` : '';
                 const poeStatus = a.poe_status || '';
                 const poe = poeW ? `${poeW}${poeClass ? ` (${poeClass})` : ''}` : (poeStatus ? poeStatus : '');
-                const lldpPort = a.lldp?.port_id || a.lldp?.port_descr || '';
-                const lldpHost = a.lldp?.sys_name || a.lldp?.chassis_id || '';
+                // Show LLDP as PortDescr / SysName explicitly
+                const lldpPort = a.lldp?.port_descr || '';
+                const lldpHost = a.lldp?.sys_name || '';
                 const lldp = (lldpPort || lldpHost) ? `${lldpPort}${lldpHost ? ` / ${lldpHost}` : ''}` : '';
                 return (
                   <TableRow key={port.external_id} className="py-2">
