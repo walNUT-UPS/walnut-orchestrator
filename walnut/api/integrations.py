@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select, join, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from walnut.auth.deps import current_active_user, require_current_user
 from walnut.database.connection import get_db_session, get_db_session_dependency
@@ -164,7 +165,7 @@ async def list_integration_types(
 async def upload_integration_package(
     file: UploadFile = File(..., description="Integration package (.int file)"),
     current_user=Depends(require_current_user),
-    db: AsyncSession = Depends(get_db_session_dependency)
+    db: Session = Depends(get_db_session_dependency)
 ):
     """
     Upload and install an integration package (.int file).
@@ -327,7 +328,7 @@ async def upload_integration_package(
 async def upload_integration_package_slash(
     file: UploadFile = File(..., description="Integration package (.int file)"),
     current_user=Depends(require_current_user),
-    db: AsyncSession = Depends(get_db_session_dependency)
+    db: Session = Depends(get_db_session_dependency)
 ):
     return await upload_integration_package(file=file, current_user=current_user, db=db)
 
@@ -938,7 +939,8 @@ async def get_instance_inventory(
     refresh: bool = Query(False, description="Force refresh, bypass cache"),
     page: Optional[int] = Query(None, description="Page number for pagination"),
     page_size: Optional[int] = Query(None, description="Page size for pagination"),
-    current_user=Depends(current_active_user)
+    current_user=Depends(current_active_user),
+    db: Session = Depends(get_db_session_dependency)
 ):
     """
     List inventory targets for an integration instance with caching support.
@@ -950,84 +952,83 @@ async def get_instance_inventory(
     target_type = type or "vm"
     page_size = min(page_size or 100, 500)  # Cap at 500 items per page
     
-    async with get_db_session() as session:
-        # Load instance
-        instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
-        instance_result = await session.execute(instance_stmt)
-        instance = instance_result.scalar_one_or_none()
-        if not instance:
-            raise HTTPException(status_code=404, detail="Integration instance not found")
+    # Load instance
+    instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+    instance_result = db.execute(instance_stmt)
+    instance = instance_result.scalar_one_or_none()
+    if not instance:
+        raise HTTPException(status_code=404, detail="Integration instance not found")
+    
+    # Check instance status
+    if instance.state == "type_unavailable":
+        raise HTTPException(status_code=409, detail="Integration type is not available")
+    
+    # Get cached inventory with caching logic
+    items = await _get_cached_inventory(
+        session=db,
+        instance=instance,
+        target_type=target_type,
+        active_only=active_only,
+        force_refresh=refresh
+    )
+    
+    # Apply pagination if requested
+    if page is not None:
+        offset = (page - 1) * page_size
+        paginated_items = items[offset:offset + page_size]
         
-        # Check instance status
-        if instance.state == "type_unavailable":
-            raise HTTPException(status_code=409, detail="Integration type is not available")
+        # Generate next page token if there are more items
+        next_page = None
+        if len(items) > offset + page_size:
+            next_page = page + 1
         
-        # Get cached inventory with caching logic
-        items = await _get_cached_inventory(
-            session=session,
-            instance=instance,
-            target_type=target_type,
-            active_only=active_only,
-            force_refresh=refresh
-        )
-        
-        # Apply pagination if requested
-        if page is not None:
-            offset = (page - 1) * page_size
-            paginated_items = items[offset:offset + page_size]
-            
-            # Generate next page token if there are more items
-            next_page = None
-            if len(items) > offset + page_size:
-                next_page = page + 1
-            
-            return {
-                "items": paginated_items,
-                "next_page": next_page
-            }
-        
-        return {"items": items}
+        return {
+            "items": paginated_items,
+            "next_page": next_page
+        }
+    
+    return {"items": items}
 
 
 @router.get("/instances/{instance_id}/inventory/summary")
 async def get_instance_inventory_summary(
     instance_id: int,
     refresh: bool = Query(False, description="Force refresh, bypass cache"),
-    current_user=Depends(current_active_user)
+    current_user=Depends(current_active_user),
+    db: Session = Depends(get_db_session_dependency)
 ):
     """
     Get inventory summary counts for an integration instance.
     
     Returns counts for each target type: vm, stack-member, port_active.
     """
-    async with get_db_session() as session:
-        # Load instance
-        instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
-        instance_result = await anyio.to_thread.run_sync(session.execute, instance_stmt)
-        instance = instance_result.scalar_one_or_none()
-        if not instance:
-            raise HTTPException(status_code=404, detail="Integration instance not found")
-        
-        # Check instance status
-        if instance.state == "type_unavailable":
-            raise HTTPException(status_code=409, detail="Integration type is not available")
-        
-        # Get counts for each target type
-        summary = {}
-        
-        # VM count
-        vms = await _get_cached_inventory(session, instance, "vm", active_only=False, force_refresh=refresh)
-        summary["vm"] = len(vms)
-        
-        # Stack member count
-        stack_members = await _get_cached_inventory(session, instance, "stack-member", active_only=False, force_refresh=refresh)
-        summary["stack_member"] = len(stack_members)
-        
-        # Active port count (ports where link=up OR poe=true)
-        ports_active = await _get_cached_inventory(session, instance, "port", active_only=True, force_refresh=refresh)
-        summary["port_active"] = len(ports_active)
-        
-        return summary
+    # Load instance
+    instance_stmt = select(IntegrationInstance).where(IntegrationInstance.instance_id == instance_id)
+    instance_result = db.execute(instance_stmt)
+    instance = instance_result.scalar_one_or_none()
+    if not instance:
+        raise HTTPException(status_code=404, detail="Integration instance not found")
+    
+    # Check instance status
+    if instance.state == "type_unavailable":
+        raise HTTPException(status_code=409, detail="Integration type is not available")
+    
+    # Get counts for each target type
+    summary = {}
+    
+    # VM count
+    vms = await _get_cached_inventory(db, instance, "vm", active_only=False, force_refresh=refresh)
+    summary["vm"] = len(vms)
+    
+    # Stack member count
+    stack_members = await _get_cached_inventory(db, instance, "stack-member", active_only=False, force_refresh=refresh)
+    summary["stack_member"] = len(stack_members)
+    
+    # Active port count (ports where link=up OR poe=true)
+    ports_active = await _get_cached_inventory(db, instance, "port", active_only=True, force_refresh=refresh)
+    summary["port_active"] = len(ports_active)
+    
+    return summary
 
 
 @router.post("/instances/{instance_id}/vm/{vm_id}/lifecycle", response_model=VmLifecycleResponse)
@@ -1117,7 +1118,7 @@ async def vm_lifecycle_action(
 # --- Helper Functions ---
 
 async def _get_cached_inventory(
-    session: AsyncSession,
+    session: Session,
     instance: IntegrationInstance,
     target_type: str,
     active_only: bool,
@@ -1145,7 +1146,7 @@ async def _get_cached_inventory(
             InventoryCache.target_type == target_type,
             InventoryCache.active_only == active_only
         )
-        cache_result = await anyio.to_thread.run_sync(session.execute, cache_stmt)
+        cache_result = session.execute(cache_stmt)
         cache_entry = cache_result.scalar_one_or_none()
         
         if cache_entry:
@@ -1163,7 +1164,7 @@ async def _get_cached_inventory(
     try:
         # Load integration type for driver info
         type_stmt = select(IntegrationType).where(IntegrationType.id == instance.type_id)
-        type_result = await anyio.to_thread.run_sync(session.execute, type_stmt)
+        type_result = session.execute(type_stmt)
         integration_type = type_result.scalar_one_or_none()
         if not integration_type:
             raise Exception("Integration type not found")
@@ -1189,7 +1190,7 @@ async def _get_cached_inventory(
 
         # Fetch secrets
         secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance.instance_id)
-        secrets_result = await anyio.to_thread.run_sync(session.execute, secrets_query)
+        secrets_result = session.execute(secrets_query)
         secrets_rows = secrets_result.fetchall()
         secrets: Dict[str, str] = {}
         for secret_row in secrets_rows:
@@ -1239,11 +1240,11 @@ async def _get_cached_inventory(
             InventoryCache.target_type == target_type,
             InventoryCache.active_only == active_only
         )
-        await anyio.to_thread.run_sync(session.execute, delete_stmt)
+        session.execute(delete_stmt)
         
         new_cache = InventoryCache(**cache_data)
         session.add(new_cache)
-        await anyio.to_thread.run_sync(session.commit)
+        session.commit()
         
         return items
         
@@ -1313,7 +1314,7 @@ async def test_instance_connection(
 
         # Get secrets
         secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-        secrets_result = await anyio.to_thread.run_sync(session.execute, secrets_query)
+        secrets_result = session.execute(secrets_query)
         secrets_rows = secrets_result.fetchall()
 
         secrets: Dict[str, str] = {}

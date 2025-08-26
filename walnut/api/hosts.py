@@ -1,5 +1,5 @@
 from typing import Any, Dict, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 import anyio
 from sqlalchemy import select
 
@@ -66,7 +66,13 @@ async def get_host_capabilities(host_id: str, _user: User = Depends(require_curr
 
 
 @router.get("/hosts/{host_id}/inventory", summary="Get host inventory")
-async def get_host_inventory(host_id: str, refresh: bool = False, _user: User = Depends(require_current_user)) -> Dict[str, Any]:
+async def get_host_inventory(
+    host_id: str,
+    type: str | None = Query(None, description="Target type to list (e.g., vm, stack-member, port, host)"),
+    active_only: bool = Query(True, description="Only return active targets when applicable"),
+    refresh: bool = Query(False, description="Force refresh, bypass cache"),
+    _user: User = Depends(require_current_user),
+) -> Dict[str, Any]:
     """
     Return discovered inventory for a host via the integration inventory system.
     """
@@ -86,12 +92,12 @@ async def get_host_inventory(host_id: str, refresh: bool = False, _user: User = 
         if not instance:
             raise HTTPException(status_code=404, detail="Host not found")
         
-        # Get VM inventory (most common target type)
+        target_type = type or "vm"
         items = await _get_cached_inventory(
             session=session,
             instance=instance,
-            target_type="vm",
-            active_only=False,
+            target_type=target_type,
+            active_only=active_only,
             force_refresh=refresh
         )
         

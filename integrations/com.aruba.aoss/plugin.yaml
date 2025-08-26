@@ -88,4 +88,10 @@ capabilities:
     targets: [switch]
     dry_run: required
 
+  # Inventory
+  - id: inventory.list
+    verbs: [list]
+    targets: [stack-member, port]
+    dry_run: optional
+
 

@@ -26,8 +26,16 @@ export function TargetSelector({ hostId, targetTypes, value, onChange }: Props) 
   const refresh = React.useCallback(async () => {
     try {
       setLoading(true);
-      const res = await apiService.getInstanceInventory(Number(hostId), type);
-      const arr = (res.items || []).map((i: any) => ({ external_id: String(i.external_id), name: i.name }));
+      const numericId = /^[0-9]+$/.test(String(hostId)) ? Number(hostId) : null;
+      let res: any;
+      if (numericId !== null) {
+        // Use integrations inventory API; include inactive so selection can include stopped items
+        res = await apiService.getInstanceInventory(numericId, type, false);
+      } else {
+        // Fallback to hosts inventory API with explicit type and include inactive
+        res = await apiService.getHostInventory(String(hostId), type, false, false);
+      }
+      const arr = (res.items || []).map((i: any) => ({ external_id: String((i.external_id ?? i.id) ?? ''), name: i.name }));
       setItems(arr);
     } catch (_) {
       setItems([]);

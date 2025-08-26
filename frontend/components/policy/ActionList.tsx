@@ -37,6 +37,16 @@ export function ActionList({ value, onChange }: { value: CapabilityAction[]; onC
     })();
   }, []);
 
+  // Preload capabilities for hosts referenced by existing actions (edit flow)
+  React.useEffect(() => {
+    const wanted = Array.from(new Set((value || []).map((a) => (a as any).host_id).filter(Boolean)));
+    wanted.forEach((hid) => {
+      if (!capsByHost[hid]) {
+        void loadCaps(hid);
+      }
+    });
+  }, [value]);
+
   const loadCaps = async (hostId: string) => {
     try {
       if (capsByHost[hostId]) return;

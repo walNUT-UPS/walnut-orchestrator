@@ -25,12 +25,6 @@ interface InventoryResponse {
   next_page?: number;
 }
 
-interface InventorySummary {
-  vm?: number;
-  stack_member?: number;
-  port?: number;
-  [key: string]: number | undefined;
-}
 
 interface CachedData {
   data: InventoryItem[];
@@ -49,7 +43,7 @@ const CACHE_TTL_MS = 30 * 1000; // 30 seconds
 
 export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
   const [activeTab, setActiveTab] = useState('vms');
-  const [summary, setSummary] = useState<InventorySummary | null>(null);
+  const [availableTargets, setAvailableTargets] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('');
@@ -61,36 +55,58 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
   // Reset state when instance changes
   useEffect(() => {
     if (instance) {
-      setActiveTab('vms');
       setFilter('');
       setActiveOnly(true);
     }
   }, [instance?.instance_id]);
 
-  // Load summary when drawer opens
+  // Load available targets when drawer opens
   useEffect(() => {
     if (open && instance) {
-      loadSummary();
+      loadAvailableTargets();
     }
   }, [open, instance?.instance_id]);
 
   // Load data when active tab or filters change
   useEffect(() => {
-    if (open && instance && summary) {
+    if (open && instance && availableTargets.length > 0) {
       loadTabData(activeTab);
     }
-  }, [activeTab, activeOnly, open, instance?.instance_id, summary]);
+  }, [activeTab, activeOnly, open, instance?.instance_id, availableTargets]);
 
-  const loadSummary = async () => {
+  const loadAvailableTargets = async () => {
     if (!instance) return;
     
     try {
       setLoading(true);
-      const summaryData = await apiService.getInstanceInventorySummary(instance.instance_id);
-      setSummary(summaryData);
+      // Get integration type capabilities to determine available inventory targets
+      const types = await apiService.getIntegrationTypes();
+      const type = types.find(t => t.id === instance.type_id);
+      
+      if (!type) {
+        setAvailableTargets([]);
+        return;
+      }
+      
+      // Find inventory.list capability and extract targets
+      const inventoryCapability = type.capabilities.find(cap => cap.id === 'inventory.list');
+      const targets = inventoryCapability?.targets || [];
+      
+      setAvailableTargets(targets);
+      
+      // Set default active tab to first available target
+      if (targets.length > 0) {
+        // Map targets to tab names
+        const tabName = targets.includes('vm') ? 'vms' : 
+                      targets.includes('stack-member') ? 'stack' :
+                      targets.includes('port') ? 'ports' : 
+                      targets[0]; // fallback to first target
+        setActiveTab(tabName);
+      }
     } catch (error) {
-      console.error('Failed to load inventory summary:', error);
-      toast.error('Failed to load inventory summary');
+      console.error('Failed to load available targets:', error);
+      toast.error('Failed to load available targets');
+      setAvailableTargets([]);
     } finally {
       setLoading(false);
     }
@@ -249,25 +265,23 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
     );
   };
 
-  // Determine which tabs to show based on summary
+  // Determine which tabs to show based on available targets
   const availableTabs = useMemo(() => {
-    if (!summary) return ['vms'];
-    
     const tabs = [];
     
-    // Always show VMs for Proxmox
-    tabs.push('vms');
-    
-    // Show Stack only if there are stack members
-    if ((summary.stack_member || 0) > 0) {
+    // Map targets to tab names
+    if (availableTargets.includes('vm')) {
+      tabs.push('vms');
+    }
+    if (availableTargets.includes('stack-member')) {
       tabs.push('stack');
     }
-    
-    // Always show Ports (they'll be filtered by active_only)
-    tabs.push('ports');
+    if (availableTargets.includes('port')) {
+      tabs.push('ports');
+    }
     
     return tabs;
-  }, [summary]);
+  }, [availableTargets]);
 
   const currentData = getFilteredData(activeTab);
   const cachedInfo = instance ? getCachedData(activeTab, activeOnly) : null;
@@ -293,20 +307,28 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
           </div>
         </SheetHeader>
 
-        {loading && !summary ? (
+        {loading && availableTargets.length === 0 ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-sm text-muted-foreground">Loading...</div>
+          </div>
+        ) : availableTargets.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-sm text-muted-foreground">No inventory targets available</div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col min-h-0">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
               <div className="flex-shrink-0 space-y-4 pb-4">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="vms">VMs</TabsTrigger>
+                <TabsList className={`grid w-full grid-cols-${availableTabs.length}`}>
+                  {availableTabs.includes('vms') && (
+                    <TabsTrigger value="vms">VMs</TabsTrigger>
+                  )}
                   {availableTabs.includes('stack') && (
                     <TabsTrigger value="stack">Stack</TabsTrigger>
                   )}
-                  <TabsTrigger value="ports">Ports</TabsTrigger>
+                  {availableTabs.includes('ports') && (
+                    <TabsTrigger value="ports">Ports</TabsTrigger>
+                  )}
                 </TabsList>
 
                 <div className="flex items-center gap-2">
@@ -345,14 +367,16 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
               </div>
 
               <div className="flex-1 min-h-0 overflow-hidden">
-                <TabsContent value="vms" className="h-full">
-                  <VMsTab
-                    data={currentData}
-                    loading={loading}
-                    hasMore={cachedInfo?.hasMore || false}
-                    onLoadMore={handleLoadMore}
-                  />
-                </TabsContent>
+                {availableTabs.includes('vms') && (
+                  <TabsContent value="vms" className="h-full">
+                    <VMsTab
+                      data={currentData}
+                      loading={loading}
+                      hasMore={cachedInfo?.hasMore || false}
+                      onLoadMore={handleLoadMore}
+                    />
+                  </TabsContent>
+                )}
 
                 {availableTabs.includes('stack') && (
                   <TabsContent value="stack" className="h-full">
@@ -365,14 +389,16 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
                   </TabsContent>
                 )}
 
-                <TabsContent value="ports" className="h-full">
-                  <PortsTab
-                    data={currentData}
-                    loading={loading}
-                    hasMore={cachedInfo?.hasMore || false}
-                    onLoadMore={handleLoadMore}
-                  />
-                </TabsContent>
+                {availableTabs.includes('ports') && (
+                  <TabsContent value="ports" className="h-full">
+                    <PortsTab
+                      data={currentData}
+                      loading={loading}
+                      hasMore={cachedInfo?.hasMore || false}
+                      onLoadMore={handleLoadMore}
+                    />
+                  </TabsContent>
+                )}
               </div>
             </Tabs>
           </div>

@@ -29,6 +29,16 @@ export function PolicyForm({ initial, onSaved, onCancel }: { initial?: { id?: nu
     { name: 'Review', key: 'review' },
   ];
 
+  // Reinitialize when switching to edit a different policy
+  React.useEffect(() => {
+    const nextSpec = initial?.spec ? (initial.spec as PolicySpec) : defaultPolicy();
+    setSpec(nextSpec);
+    setStep(0);
+    setDryRunResults(null);
+    setDryPlan(null);
+    setValidation({ ok: true, schema: [], compile: [] });
+  }, [initial?.id]);
+
   React.useEffect(() => {
     const timer = setTimeout(async () => {
       try {

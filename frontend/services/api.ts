@@ -508,8 +508,13 @@ class ApiService {
     return this.request(`/hosts/${hostId}/capabilities`);
   }
 
-  async getHostInventory(hostId: string, refresh = false): Promise<any[]> {
-    return this.request(`/hosts/${hostId}/inventory?refresh=${refresh}`);
+  async getHostInventory(hostId: string, type?: string, activeOnly: boolean = true, refresh: boolean = false): Promise<{ items: Array<{ type: string; external_id?: string; id?: string; name: string; attrs?: any; labels?: any }> }> {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    if (activeOnly !== undefined) params.set('active_only', activeOnly ? '1' : '0');
+    if (refresh) params.set('refresh', '1');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/hosts/${encodeURIComponent(hostId)}/inventory${qs}`);
   }
 }
 
