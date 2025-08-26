@@ -63,7 +63,7 @@ function DashboardApp() {
 // Main App component with all providers
 function App() {
   return (
-    <ThemeProvider defaultTheme="dark" storageKey="walnut-theme">
+    <ThemeProvider defaultTheme="system" storageKey="walnut-theme">
       <AuthProvider>
         <AuthPromptProvider>
         <ConfirmProvider>

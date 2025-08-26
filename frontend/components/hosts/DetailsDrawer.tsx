@@ -3,6 +3,7 @@ import { X, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
+import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Badge } from '../ui/badge';
 import { Card, CardContent } from '../ui/card';
@@ -559,28 +560,54 @@ function PortsTab({ data, loading, hasMore, onLoadMore }: {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto">
-        <Table>
-          <TableHeader className="sticky top-0 bg-background">
-            <TableRow>
-              <TableHead>Label</TableHead>
-              <TableHead>Port ID</TableHead>
-              <TableHead>PoE</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((port) => (
-              <TableRow key={port.external_id} className="py-2">
-                <TableCell>{port.name}</TableCell>
-                <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
-                <TableCell>
-                  {port.attrs?.poe_enabled ? 'Y' : 'N'}
-                </TableCell>
+      <ScrollArea className="flex-1">
+        <div className="min-w-full">
+          <Table>
+            <TableHeader className="sticky top-0 bg-background">
+              <TableRow>
+                <TableHead>Port</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Speed</TableHead>
+                <TableHead>Media</TableHead>
+                <TableHead>PoE</TableHead>
+                <TableHead>LLDP</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHeader>
+            <TableBody>
+              {data.map((port) => {
+                const a = port.attrs || {};
+                const link = (a.link || '').toLowerCase();
+                const speed = typeof a.speed_mbps === 'number' ? `${a.speed_mbps} Mbps` : '';
+                const media = a.media && a.media !== 'unknown' ? a.media : '';
+                const poeW = (typeof a.poe_power_w === 'number' && a.poe_power_w > 0) ? `${a.poe_power_w.toFixed(1)} W` : '';
+                const poeClass = a.poe_class ? `Class ${a.poe_class}` : '';
+                const poe = poeW ? `${poeW}${poeClass ? ` (${poeClass})` : ''}` : '';
+                const lldp = a.lldp ? (a.lldp.sys_name || a.lldp.port_id || '') : '';
+                return (
+                  <TableRow key={port.external_id} className="py-2">
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">{port.external_id}</span>
+                        <span className="truncate max-w-[220px]">{port.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className={`inline-block w-2 h-2 rounded-full ${link === 'up' ? 'bg-green-500' : link === 'down' ? 'bg-gray-400' : 'bg-yellow-500'}`} />
+                        <span className={link === 'up' ? 'text-green-600' : 'text-muted-foreground'}>{link || 'unknown'}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">{speed}</TableCell>
+                    <TableCell className="text-xs capitalize">{media}</TableCell>
+                    <TableCell className="text-xs">{poe}</TableCell>
+                    <TableCell className="text-xs truncate max-w-[220px]">{lldp}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </ScrollArea>
       {hasMore && (
         <div className="flex-shrink-0 p-4 border-t">
           <Button onClick={onLoadMore} variant="outline" size="sm" className="w-full">

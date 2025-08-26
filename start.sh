@@ -17,6 +17,8 @@ BACKEND_PORT=${BACKEND_PORT:-8000}
 VITE_PORT=${VITE_PORT:-3000}
 BACKEND_LOG=${BACKEND_LOG:-.tmp/back.log}
 FRONTEND_LOG=${FRONTEND_LOG:-.tmp/front.log}
+# Set to 1 to skip launching Vite frontend (backend-only mode)
+NO_FRONTEND=${NO_FRONTEND:-0}
 
 # Required walNUT env (use provided development secrets)
 # These can be overridden by exporting them before calling this script.
@@ -75,19 +77,23 @@ pids+=($!)
 # Provide a restart command for backend to exec when /api/system/restart is called
 export WALNUT_RESTART_CMD="${PYTHON} -m uvicorn walnut.app:app --host ${BACKEND_HOST} --port ${BACKEND_PORT} ${BACKEND_RELOAD:+--reload}"
 
-echo "Starting frontend (Vite) on port ${VITE_PORT}..."
-(
-  cd frontend
-  export VITE_PORT
-  # Run Vite dev server; assumes dependencies are already installed.
-  exec npm run dev
-) &> "../$FRONTEND_LOG" &
-pids+=($!)
-
-echo "Servers started. Logs: $BACKEND_LOG (backend), $FRONTEND_LOG (frontend)"
-echo "- Backend:  http://localhost:${BACKEND_PORT}"
-echo "- Frontend: http://localhost:${VITE_PORT}"
-echo "Press Ctrl+C to stop both."
+if [[ "$NO_FRONTEND" != "1" ]]; then
+  echo "Starting frontend (Vite) on port ${VITE_PORT}..."
+  (
+    cd frontend
+    export VITE_PORT
+    # Run Vite dev server; assumes dependencies are already installed.
+    exec npm run dev
+  ) &> "../$FRONTEND_LOG" &
+  pids+=($!)
+  echo "Servers started. Logs: $BACKEND_LOG (backend), $FRONTEND_LOG (frontend)"
+  echo "- Backend:  http://localhost:${BACKEND_PORT}"
+  echo "- Frontend: http://localhost:${VITE_PORT}"
+  echo "Press Ctrl+C to stop both."
+else
+  echo "Backend started (frontend disabled by NO_FRONTEND=1). Log: $BACKEND_LOG"
+  echo "- Backend:  http://localhost:${BACKEND_PORT}"
+fi
 
 # Wait for any process to exit, then trigger cleanup via trap
 wait -n "${pids[@]}" || true

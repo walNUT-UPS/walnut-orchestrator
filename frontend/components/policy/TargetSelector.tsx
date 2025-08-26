@@ -13,8 +13,18 @@ type Props = {
 };
 
 export function TargetSelector({ hostId, targetTypes, value, onChange }: Props) {
+  // Map capability target types to inventory API types
+  // Examples:
+  //  - poe_port -> port
+  //  - stack_member -> stack-member
+  //  - vm -> vm (unchanged)
+  const mapToInventoryType = React.useCallback((t: string): string => {
+    if (!t) return t;
+    if (t === 'poe_port' || t === 'interface') return 'port';
+    return t.replace(/_/g, '-');
+  }, []);
   const [type, setType] = React.useState<string>(() => targetTypes[0] || 'vm');
-  const [items, setItems] = React.useState<Array<{ external_id: string; name?: string }>>([]);
+  const [items, setItems] = React.useState<Array<{ external_id: string; name?: string; attrs?: any }>>([]);
   const [q, setQ] = React.useState('');
   const [loading, setLoading] = React.useState(false);
 
@@ -28,14 +38,15 @@ export function TargetSelector({ hostId, targetTypes, value, onChange }: Props) 
       setLoading(true);
       const numericId = /^[0-9]+$/.test(String(hostId)) ? Number(hostId) : null;
       let res: any;
+      const apiType = mapToInventoryType(type);
       if (numericId !== null) {
         // Use integrations inventory API; include inactive so selection can include stopped items
-        res = await apiService.getInstanceInventory(numericId, type, false);
+        res = await apiService.getInstanceInventory(numericId, apiType, false);
       } else {
         // Fallback to hosts inventory API with explicit type and include inactive
-        res = await apiService.getHostInventory(String(hostId), type, false, false);
+        res = await apiService.getHostInventory(String(hostId), apiType, false, false);
       }
-      const arr = (res.items || []).map((i: any) => ({ external_id: String((i.external_id ?? i.id) ?? ''), name: i.name }));
+      const arr = (res.items || []).map((i: any) => ({ external_id: String((i.external_id ?? i.id) ?? ''), name: i.name, attrs: i.attrs }));
       setItems(arr);
     } catch (_) {
       setItems([]);
@@ -74,23 +85,52 @@ export function TargetSelector({ hostId, targetTypes, value, onChange }: Props) 
       </div>
       <div>
         <Input placeholder="Type to search by name or ID..." value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="mt-2 border rounded-md max-h-56 overflow-auto divide-y">
+        <div className="mt-2 border rounded-md max-h-96 overflow-auto divide-y">
           {loading ? (
             <div className="p-2 text-sm text-muted-foreground">Loading…</div>
           ) : filtered.length === 0 ? (
             <div className="p-2 text-sm text-muted-foreground">No results</div>
           ) : (
-            filtered.map((it) => (
-              <button
-                key={`${it.external_id}:${it.name || ''}`}
-                type="button"
-                onClick={() => add(it.external_id, it.name)}
-                className="w-full text-left p-2 hover:bg-accent hover:text-accent-foreground flex items-center justify-between"
-              >
-                <span className="truncate max-w-[320px]">{it.name || it.external_id}</span>
-                <span className="text-xs text-muted-foreground ml-2">ID: {it.external_id}</span>
-              </button>
-            ))
+            filtered.map((it) => {
+              const a = it.attrs || {};
+              const link = a.link;
+              const speed = typeof a.speed_mbps === 'number' ? `${a.speed_mbps} Mbps` : undefined;
+              const media = a.media;
+              const poeW = a.poe_power_w;
+              const poeClass = a.poe_class;
+              const nbr = a.lldp;
+              return (
+                <button
+                  key={`${it.external_id}:${it.name || ''}`}
+                  type="button"
+                  onClick={() => add(it.external_id, it.name)}
+                  className="w-full text-left p-2 hover:bg-accent hover:text-accent-foreground"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium truncate max-w-[240px]">{it.name || it.external_id}</span>
+                        <span className="text-[11px] text-muted-foreground">{it.external_id}</span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                        {link && (
+                          <span className={`inline-flex items-center gap-1 ${link === 'up' ? 'text-green-600' : 'text-gray-500'}`}>
+                            <span className={`inline-block w-2 h-2 rounded-full ${link === 'up' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                            {link}
+                          </span>
+                        )}
+                        {speed && <span>{speed}</span>}
+                        {media && media !== 'unknown' && <span>{media}</span>}
+                        {typeof poeW === 'number' && poeW > 0 && <span>PoE {poeW.toFixed(1)} W{poeClass ? ` (Class ${poeClass})` : ''}</span>}
+                        {nbr && (nbr.sys_name || nbr.port_id) && (
+                          <span>LLDP: {nbr.sys_name || nbr.port_id}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
         {selected.length > 0 && (

@@ -91,7 +91,7 @@ capabilities:
   # Inventory
   - id: inventory.list
     verbs: [list]
-    targets: [stack-member, port]
+    targets: [stack_member, port]
     dry_run: optional
 
 

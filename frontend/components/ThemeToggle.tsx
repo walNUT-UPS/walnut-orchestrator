@@ -1,35 +1,30 @@
 import React from 'react';
 import { Button } from './ui/button';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Monitor } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
 export function ThemeToggle() {
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   const toggleTheme = () => {
-    // Toggle between light and dark, ignore system preference for simplicity
-    if (theme === 'light' || resolvedTheme === 'light') {
+    // Cycle: system -> light -> dark -> system
+    if (theme === 'system') {
+      setTheme('light');
+    } else if (theme === 'light') {
       setTheme('dark');
     } else {
-      setTheme('light');
+      setTheme('system');
     }
   };
 
   const getIcon = () => {
-    // Show the icon for the NEXT theme that will be activated
-    if (theme === 'light' || resolvedTheme === 'light') {
-      return <Moon className="w-4 h-4" />; // Will switch to dark
-    } else {
-      return <Sun className="w-4 h-4" />; // Will switch to light
-    }
+    // Show current mode indicator: system (monitor), light (sun), dark (moon)
+    if (theme === 'system') return <Monitor className="w-4 h-4" />;
+    return theme === 'light' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />;
   };
 
   const getAriaLabel = () => {
-    if (theme === 'light' || resolvedTheme === 'light') {
-      return 'Switch to dark mode';
-    } else {
-      return 'Switch to light mode';
-    }
+    return `Theme: ${theme} (resolved ${resolvedTheme}). Click to cycle`;
   };
 
   return (

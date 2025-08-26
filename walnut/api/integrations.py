@@ -1152,7 +1152,12 @@ async def _get_cached_inventory(
         if cache_entry:
             # Check if cache is still valid
             now = datetime.now(timezone.utc)
-            cache_age_seconds = (now - cache_entry.fetched_at).total_seconds()
+            # Ensure both datetimes are timezone-aware
+            fetched_at = cache_entry.fetched_at
+            if fetched_at.tzinfo is None:
+                # If database returned naive datetime, assume UTC
+                fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+            cache_age_seconds = (now - fetched_at).total_seconds()
             
             if cache_age_seconds < cache_entry.ttl_seconds:
                 # Cache hit - return cached data

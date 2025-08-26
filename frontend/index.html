@@ -4,6 +4,24 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      // Early theme sync: apply system or stored preference before React mounts
+      (function() {
+        try {
+          var storageKey = 'walnut-theme';
+          var stored = null;
+          try { stored = localStorage.getItem(storageKey); } catch (e) {}
+          var prefersDark = false;
+          try { prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) {}
+          var theme = stored || 'system';
+          var effective = theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme;
+          var root = document.documentElement;
+          root.classList.remove('light','dark');
+          root.classList.add(effective);
+        } catch (e) { /* no-op */ }
+      })();
+    </script>
     <title>walNUT - UPS Management Platform</title>
   </head>
   <body>

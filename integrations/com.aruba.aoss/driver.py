@@ -764,35 +764,9 @@ def _get_port_info(connection: dict) -> dict:
                     log.info("AOSS SSH fallback returned %d ports", len(ports))
             except Exception as e:
                 log.warning("SSH fallback failed: %s", e)
-        # Normalize to walNUT inventory item format (list of items)
-        items: List[Dict[str, Any]] = []
-        for p in ports:
-            pid = str(p.get("port_id") or p.get("id") or p.get("ifIndex") or "")
-            if not pid:
-                continue
-            name = p.get("alias") or p.get("description") or pid
-            attrs = {
-                "alias": p.get("alias"),
-                "description": p.get("description"),
-                "if_admin": p.get("if_admin"),
-                "if_oper": p.get("if_oper"),
-                "if_type": p.get("if_type"),
-                "speed": p.get("speed"),
-                "if_high_speed": p.get("if_high_speed"),
-                "poe_supported": p.get("poe_supported"),
-                "poe_power": p.get("poe_power"),
-                "poe_class": p.get("poe_class"),
-            }
-            items.append({
-                "type": "port",
-                "external_id": pid,
-                "name": name,
-                "attrs": attrs,
-                "labels": {},
-            })
-        return items
+        return {"ports": ports}
     except Exception as e:
-        return []
+        return {"ports": [], "error": str(e)}
 
 
 def _ssh_ports_fallback(connection: dict) -> List[Dict[str, Any]]:

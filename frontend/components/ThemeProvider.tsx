@@ -29,16 +29,23 @@ export function ThemeProvider({
   defaultTheme = 'system',
   storageKey = 'walnut-theme'
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme);
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>('dark');
-
-  useEffect(() => {
-    // Load theme from localStorage
-    const stored = localStorage.getItem(storageKey) as Theme;
-    if (stored) {
-      setTheme(stored);
+  // Initialize from localStorage synchronously to avoid flash
+  const [theme, setTheme] = useState<Theme>(() => {
+    try {
+      const stored = localStorage.getItem(storageKey) as Theme | null;
+      return stored || defaultTheme;
+    } catch {
+      return defaultTheme;
     }
-  }, [storageKey]);
+  });
+  // Resolve initial system theme synchronously
+  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -58,7 +65,7 @@ export function ThemeProvider({
     setResolvedTheme(effectiveTheme);
     
     // Store theme preference
-    localStorage.setItem(storageKey, theme);
+    try { localStorage.setItem(storageKey, theme); } catch {}
   }, [theme, storageKey]);
 
   useEffect(() => {
