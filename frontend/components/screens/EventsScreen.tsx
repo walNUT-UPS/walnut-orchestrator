@@ -191,7 +191,7 @@ export function EventsScreen() {
         showViewToggle={false}
       />
 
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="max-w-7xl mx-auto p-6 space-y-6 mt-4 md:mt-6">
         {/* Advanced Filters (revealed by Filters toggle) */}
         {showFilters && (
         <div className="bg-card rounded-lg border border-border p-4">

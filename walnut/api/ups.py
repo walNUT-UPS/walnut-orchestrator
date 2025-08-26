@@ -238,3 +238,87 @@ async def get_ups_health(
             status_code=500,
             detail=f"Failed to retrieve UPS health summary: {str(e)}"
         )
+
+
+class UPSTelemetryPoint(BaseModel):
+    ts: datetime = Field(description="Sample timestamp")
+    online: bool = Field(description="UPS is online and responding")
+    linePower: bool = Field(description="Line power is available")  
+    onBattery: bool = Field(description="UPS is running on battery")
+    lastHeartbeat: datetime = Field(description="Last heartbeat timestamp")
+
+
+class UPSTelemetryResponse(BaseModel):
+    now: datetime = Field(description="Current timestamp")
+    heartbeatTimeoutMs: int = Field(description="Heartbeat timeout threshold in milliseconds")
+    points: List[UPSTelemetryPoint] = Field(description="Raw telemetry points")
+
+
+@router.get(
+    "/ups/telemetry",
+    response_model=UPSTelemetryResponse,
+    summary="Get UPS telemetry for health timeline",
+    responses={
+        404: {"description": "No UPS data is available for the requested time period."},
+        500: {"description": "An internal error occurred while retrieving telemetry."},
+    },
+)
+async def get_ups_telemetry(
+    hours: int = Query(24, ge=1, le=168, description="Number of hours of telemetry data to retrieve"),
+    user: User = Depends(current_active_user),
+    session = Depends(get_db_session_dependency)
+) -> UPSTelemetryResponse:
+    """
+    Get UPS telemetry data for health timeline visualization.
+    
+    Returns processed telemetry points suitable for deriving health states over time.
+    Each point contains online status, power state, and heartbeat information.
+    Requires authentication.
+    """
+    try:
+        # Calculate time window
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(hours=hours)
+        
+        # Query samples in time window 
+        query = select(UPSSample).where(
+            UPSSample.timestamp >= start_time,
+            UPSSample.timestamp <= end_time
+        ).order_by(UPSSample.timestamp)
+        
+        result = await anyio.to_thread.run_sync(session.execute, query)
+        samples = await anyio.to_thread.run_sync(result.scalars().all)
+        
+        if not samples:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No UPS telemetry data available for the last {hours} hours"
+            )
+        
+        # Convert samples to telemetry points
+        points = []
+        for sample in samples:
+            # Derive states from UPS sample data
+            online = sample.status is not None and "OL" in sample.status or "OB" in sample.status
+            linePower = sample.status is not None and "OL" in sample.status
+            onBattery = sample.status is not None and "OB" in sample.status
+            
+            points.append(UPSTelemetryPoint(
+                ts=sample.timestamp,
+                online=online,
+                linePower=linePower,
+                onBattery=onBattery,
+                lastHeartbeat=sample.timestamp  # Use sample timestamp as heartbeat
+            ))
+        
+        return UPSTelemetryResponse(
+            now=end_time,
+            heartbeatTimeoutMs=120000,  # 2 minutes timeout
+            points=points
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve UPS telemetry: {str(e)}"
+        )

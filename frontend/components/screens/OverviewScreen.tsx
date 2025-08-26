@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { MetricCard } from '../MetricCard';
 import { EventsTable, Event } from '../EventsTable';
 import { StatusPill } from '../StatusPill';
 import { LinePower24h, PowerSegment } from '../LinePower24h';
+import { HealthBar, useHealthData } from '../HealthBar';
 import { cn } from '../ui/utils';
 import { useWalnutApi } from '../../hooks/useWalnutApi';
 import { apiService, IntegrationInstance, IntegrationType } from '../../services/api';
@@ -75,11 +77,27 @@ function buildTimelineFromEvents(events: Event[], hours: 6 | 12 | 24 = 24): Powe
 
 export function OverviewScreen() {
   const { upsStatus, systemHealth, events, isLoading, error, wsConnected } = useWalnutApi();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode] = useState<'cards' | 'table'>('cards');
-  const [timelineDuration, setTimelineDuration] = useState<'6h' | '12h' | '24h'>('24h');
+  
+  // Get timeline duration from URL params (with fallback)
+  const timelineDuration = (searchParams.get('range') as '6h' | '12h' | '24h') || '24h';
+  
   const [types, setTypes] = useState<IntegrationType[]>([]);
   const [instances, setInstances] = useState<IntegrationInstance[]>([]);
-  // Overview has no filters/search controls
+  
+  // UPS Health Data for the new timeline
+  const { segments: healthSegments, loading: healthLoading, error: healthError } = useHealthData({
+    duration: timelineDuration,
+    enabled: true,
+  });
+  
+  // Update URL params when range changes
+  const setTimelineDuration = (duration: '6h' | '12h' | '24h') => {
+    const newParams = new URLSearchParams(searchParams);
+    newParams.set('range', duration);
+    setSearchParams(newParams);
+  };
 
   // Convert API events to frontend format
   const convertedEvents: Event[] = events.map(event => ({
@@ -158,7 +176,7 @@ export function OverviewScreen() {
     <div className="flex-1">
       {/* No secondary toolbar on Overview */}
 
-      <div className="container-grid py-6 space-y-6">
+      <div className="container-grid py-6 space-y-6 mt-4 md:mt-6">
         <div className="grid-12">
           {/* Status Banner */}
           <div className="col-span-12">
@@ -194,18 +212,69 @@ export function OverviewScreen() {
             </div>
           </div>
 
-          {/* 24-Hour Line Power Timeline */}
+          {/* UPS Health Timeline */}
           <div className="col-span-12">
-            <LinePower24h 
-              segments={buildTimelineFromEvents(
-                filteredEvents,
-                timelineDuration === '6h' ? 6 : timelineDuration === '12h' ? 12 : 24
+            <div className="space-y-4">
+              {/* Header with title and zoom controls */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-title">UPS Health Status — Last {timelineDuration.replace('h', ' hours')}</h3>
+                
+                <div className="flex items-center bg-muted rounded-md p-1 space-x-1">
+                  {(['24h', '12h', '6h'] as const).map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setTimelineDuration(d)}
+                      className={cn(
+                        'px-3 py-1 rounded text-micro font-medium transition-colors',
+                        timelineDuration === d 
+                          ? 'bg-background text-foreground shadow-sm' 
+                          : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Health Status Legend */}
+              <div className="flex items-center flex-wrap gap-4 text-micro">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--health-green)' }} />
+                  <span className="text-muted-foreground">Online</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-sm health-pattern-amber" style={{ backgroundColor: 'var(--health-amber)' }} />
+                  <span className="text-muted-foreground">Degraded</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-sm health-pattern-red" style={{ backgroundColor: 'var(--health-red)' }} />
+                  <span className="text-muted-foreground">Critical</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: 'var(--health-grey)' }} />
+                  <span className="text-muted-foreground">No Data</span>
+                </div>
+              </div>
+
+              {/* Health Timeline */}
+              {healthLoading ? (
+                <div className="h-3 bg-muted rounded-md animate-pulse" />
+              ) : healthError ? (
+                <div className="h-3 bg-muted rounded-md flex items-center justify-center">
+                  <span className="text-micro text-muted-foreground">Failed to load health data</span>
+                </div>
+              ) : (
+                <HealthBar 
+                  segments={healthSegments}
+                  duration={timelineDuration}
+                  height={12}
+                  showTimeAxis={true}
+                  enableTooltips={true}
+                  className="mb-6"
+                />
               )}
-              duration={timelineDuration}
-              onZoomChange={setTimelineDuration}
-              showLegend={true}
-              className="mb-6"
-            />
+            </div>
           </div>
         </div>
 

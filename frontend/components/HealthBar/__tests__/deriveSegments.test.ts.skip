@@ -1,0 +1,157 @@
+/**
+ * Tests for segment derivation logic
+ */
+import { deriveHealthState, deriveHealthSegments, mergeConsecutiveSegments, clipToWindow } from '../deriveSegments';
+import type { UPSTelemetryPoint, HealthSegment } from '../types';
+
+describe('deriveHealthState', () => {
+  const now = Date.now();
+  const oneMinute = 60 * 1000;
+  const heartbeatTimeoutMs = 2 * oneMinute; // 2 minutes
+
+  it('should return red when onBattery is true', () => {
+    const point: UPSTelemetryPoint = {
+      ts: new Date(now).toISOString(),
+      online: true,
+      linePower: false,
+      onBattery: true,
+      lastHeartbeat: new Date(now).toISOString(),
+    };
+    expect(deriveHealthState(point, now, heartbeatTimeoutMs)).toBe('red');
+  });
+
+  it('should return red when linePower is false', () => {
+    const point: UPSTelemetryPoint = {
+      ts: new Date(now).toISOString(),
+      online: true,
+      linePower: false,
+      onBattery: false,
+      lastHeartbeat: new Date(now).toISOString(),
+    };
+    expect(deriveHealthState(point, now, heartbeatTimeoutMs)).toBe('red');
+  });
+
+  it('should return amber when heartbeat is stale', () => {
+    const staleHeartbeat = now - (3 * oneMinute); // 3 minutes ago
+    const point: UPSTelemetryPoint = {
+      ts: new Date(now).toISOString(),
+      online: true,
+      linePower: true,
+      onBattery: false,
+      lastHeartbeat: new Date(staleHeartbeat).toISOString(),
+    };
+    expect(deriveHealthState(point, now, heartbeatTimeoutMs)).toBe('amber');
+  });
+
+  it('should return green when all conditions are good', () => {
+    const recentHeartbeat = now - oneMinute; // 1 minute ago
+    const point: UPSTelemetryPoint = {
+      ts: new Date(now).toISOString(),
+      online: true,
+      linePower: true,
+      onBattery: false,
+      lastHeartbeat: new Date(recentHeartbeat).toISOString(),
+    };
+    expect(deriveHealthState(point, now, heartbeatTimeoutMs)).toBe('green');
+  });
+});
+
+describe('mergeConsecutiveSegments', () => {
+  it('should merge consecutive segments with same state', () => {
+    const segments: HealthSegment[] = [
+      { startTs: 1000, endTs: 2000, state: 'green' },
+      { startTs: 2000, endTs: 3000, state: 'green' },
+      { startTs: 3000, endTs: 4000, state: 'red' },
+      { startTs: 4000, endTs: 5000, state: 'red' },
+    ];
+    
+    const merged = mergeConsecutiveSegments(segments);
+    
+    expect(merged).toEqual([
+      { startTs: 1000, endTs: 3000, state: 'green' },
+      { startTs: 3000, endTs: 5000, state: 'red' },
+    ]);
+  });
+
+  it('should handle single segment', () => {
+    const segments: HealthSegment[] = [
+      { startTs: 1000, endTs: 2000, state: 'green' },
+    ];
+    
+    const merged = mergeConsecutiveSegments(segments);
+    
+    expect(merged).toEqual(segments);
+  });
+
+  it('should handle empty array', () => {
+    const merged = mergeConsecutiveSegments([]);
+    expect(merged).toEqual([]);
+  });
+});
+
+describe('clipToWindow', () => {
+  const windowStart = 1000;
+  const windowEnd = 5000;
+
+  it('should clip segments to window boundaries', () => {
+    const segments: HealthSegment[] = [
+      { startTs: 500, endTs: 1500, state: 'green' },   // overlaps start
+      { startTs: 2000, endTs: 3000, state: 'red' },    // fully inside
+      { startTs: 4500, endTs: 6000, state: 'amber' },  // overlaps end
+      { startTs: 0, endTs: 500, state: 'grey' },       // before window
+      { startTs: 6000, endTs: 7000, state: 'grey' },   // after window
+    ];
+    
+    const clipped = clipToWindow(segments, windowStart, windowEnd);
+    
+    expect(clipped).toEqual([
+      { startTs: 1000, endTs: 1500, state: 'green' },
+      { startTs: 2000, endTs: 3000, state: 'red' },
+      { startTs: 4500, endTs: 5000, state: 'amber' },
+    ]);
+  });
+
+  it('should handle segments completely outside window', () => {
+    const segments: HealthSegment[] = [
+      { startTs: 0, endTs: 500, state: 'grey' },
+      { startTs: 6000, endTs: 7000, state: 'grey' },
+    ];
+    
+    const clipped = clipToWindow(segments, windowStart, windowEnd);
+    expect(clipped).toEqual([]);
+  });
+});
+
+describe('deriveHealthSegments integration', () => {
+  it('should handle realistic UPS scenario with power outage', () => {
+    const baseTime = Date.now();
+    const oneHour = 60 * 60 * 1000;
+    const heartbeatTimeoutMs = 2 * 60 * 1000; // 2 minutes
+    
+    const points: UPSTelemetryPoint[] = [
+      // Normal operation for 2 hours
+      { ts: new Date(baseTime - 6 * oneHour).toISOString(), online: true, linePower: true, onBattery: false, lastHeartbeat: new Date(baseTime - 6 * oneHour).toISOString() },
+      { ts: new Date(baseTime - 4 * oneHour).toISOString(), online: true, linePower: true, onBattery: false, lastHeartbeat: new Date(baseTime - 4 * oneHour).toISOString() },
+      
+      // Power outage starts
+      { ts: new Date(baseTime - 2 * oneHour).toISOString(), online: true, linePower: false, onBattery: true, lastHeartbeat: new Date(baseTime - 2 * oneHour).toISOString() },
+      
+      // Power restored  
+      { ts: new Date(baseTime - oneHour).toISOString(), online: true, linePower: true, onBattery: false, lastHeartbeat: new Date(baseTime - oneHour).toISOString() },
+      
+      // Recent normal operation
+      { ts: new Date(baseTime).toISOString(), online: true, linePower: true, onBattery: false, lastHeartbeat: new Date(baseTime).toISOString() },
+    ];
+    
+    const windowStart = baseTime - 6 * oneHour;
+    const windowEnd = baseTime;
+    
+    const segments = deriveHealthSegments(points, baseTime, heartbeatTimeoutMs, windowStart, windowEnd);
+    
+    // Should have: green -> red -> green segments
+    expect(segments).toHaveLength(3);
+    expect(segments[0].state).toBe('green');
+    expect(segments[1].state).toBe('red');
+    expect(segments[2].state).toBe('green');
+  });
+});

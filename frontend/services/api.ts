@@ -40,6 +40,28 @@ export interface SystemHealth {
   last_power_event?: string;
 }
 
+export interface UPSTelemetryPoint {
+  /** ISO timestamp */
+  ts: string;
+  /** UPS is online and responding */
+  online: boolean;
+  /** Line power is available */
+  linePower: boolean;
+  /** UPS is running on battery */
+  onBattery: boolean;
+  /** Last heartbeat timestamp */
+  lastHeartbeat: string;
+}
+
+export interface UPSTelemetryResponse {
+  /** Current timestamp */
+  now: string;
+  /** Heartbeat timeout threshold in milliseconds */
+  heartbeatTimeoutMs: number;
+  /** Raw telemetry points */
+  points: UPSTelemetryPoint[];
+}
+
 export interface IntegrationType {
   id: string;
   name: string;
@@ -220,6 +242,10 @@ class ApiService {
     }
 
     return this.request(`/ups/samples?${params.toString()}`);
+  }
+
+  async getUPSTelemetry(hours: number = 24): Promise<UPSTelemetryResponse> {
+    return this.request<UPSTelemetryResponse>(`/ups/telemetry?hours=${hours}`);
   }
 
   // Events API methods

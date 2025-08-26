@@ -208,7 +208,7 @@ export function LinePower24h({
         </div>
 
         {/* Time ticks */}
-        <div className="relative mt-3 mb-3">
+        <div className="relative mt-3 mb-6 md:mb-8">
           {timeTicks.map((tick, index) => (
             <div
               key={index}
