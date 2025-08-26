@@ -42,7 +42,8 @@ dependencies = [
     "cryptography>=41.0.0",
     "passlib[bcrypt]>=1.7.4",
     "fastapi-users[sqlalchemy]>=13.0.0",
-    "fastapi-users-db-sqlalchemy>=8.0.0",
+    # Latest available on PyPI as of now is 7.x
+    "fastapi-users-db-sqlalchemy>=7.0.0,<8.0.0",
     "python-jose[cryptography]>=3.3.0",
     "httpx-oauth>=0.12.0",  # OIDC/OAuth support
 
