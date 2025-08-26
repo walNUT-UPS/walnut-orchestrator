@@ -1,0 +1,41 @@
+version: "3.9"
+services:
+  walnut:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.prod
+      args:
+        INSTALL_EXTRAS: ${INSTALL_EXTRAS}
+    image: walnut/walnut-api:prod
+    container_name: walnut-api-prod
+    ports:
+      - "8000:8000"
+    environment:
+      WALNUT_DB_KEY: ${WALNUT_DB_KEY:?Set WALNUT_DB_KEY in .env}
+      WALNUT_BIND: 0.0.0.0:8000
+      WORKERS: ${WORKERS:-2}
+      TIMEOUT: ${TIMEOUT:-45}
+      KEEPALIVE: ${KEEPALIVE:-5}
+      PYTHONUNBUFFERED: "1"
+      PYTHONOPTIMIZE: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    volumes:
+      - walnut_data:/app/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Uncomment and tune if you want explicit resource limits
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1.00'
+    #       memory: 512M
+
+volumes:
+  walnut_data:
+    driver: local
+

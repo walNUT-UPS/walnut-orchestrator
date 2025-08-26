@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Build/venv
+/build
+/dist
+/.venv
+/venv
+
+# Node/Frontend
+/node_modules
+/frontend/node_modules
+/frontend/.vite
+
+# Local data/temp
+/.tmp
+/data
+
+# Docker
+docker/*.md
+

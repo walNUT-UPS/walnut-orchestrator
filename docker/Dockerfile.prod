@@ -1,0 +1,82 @@
+# syntax=docker/dockerfile:1
+
+# --- Builder stage ---
+FROM python:3.12-slim AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    pkg-config \
+    libffi-dev \
+    libssl-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    sqlcipher \
+    libsqlcipher-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+
+ARG INSTALL_EXTRAS=
+RUN python -m pip install --upgrade pip && \
+    if [ -n "$INSTALL_EXTRAS" ]; then \
+      python -m pip wheel --wheel-dir /wheels ".[${INSTALL_EXTRAS}]"; \
+    else \
+      python -m pip wheel --wheel-dir /wheels .; \
+    fi
+
+COPY walnut ./walnut
+RUN python -m pip wheel --wheel-dir /wheels .
+
+
+# --- Runtime stage ---
+FROM python:3.12-slim AS runtime
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONOPTIMIZE=1 \
+    WALNUT_BIND=0.0.0.0:8000 \
+    WORKERS=2 \
+    TIMEOUT=45 \
+    KEEPALIVE=5
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sqlcipher \
+    ipmitool \
+    telnet \
+    curl \
+    ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=builder /wheels /wheels
+RUN python -m pip install --no-index --find-links /wheels walnut-orchestrator && rm -rf /wheels
+
+# Create non-root user and data dir
+RUN addgroup --system --gid 10001 walnut && \
+    adduser --system --uid 10001 --ingroup walnut --home /app --shell /usr/sbin/nologin walnut && \
+    mkdir -p /app/data && chown -R walnut:walnut /app
+
+USER 10001:10001
+
+VOLUME ["/app/data"]
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8000/health || exit 1
+
+ENTRYPOINT ["/usr/bin/env"]
+CMD ["sh", "-lc", \
+  "exec gunicorn -k uvicorn.workers.UvicornWorker -w ${WORKERS} -b ${WALNUT_BIND} \
+   --timeout ${TIMEOUT} --keep-alive ${KEEPALIVE} --access-logfile - --error-logfile - walnut.app:app" ]
+

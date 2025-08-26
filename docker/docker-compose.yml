@@ -1,0 +1,29 @@
+version: "3.9"
+services:
+  walnut:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        # Install optional extras. Example: "transports"
+        INSTALL_EXTRAS: ${INSTALL_EXTRAS}
+    image: walnut/walnut-api:dev
+    container_name: walnut-api
+    ports:
+      - "8000:8000"
+    environment:
+      # REQUIRED: set a strong key (>=32 chars) before starting
+      WALNUT_DB_KEY: ${WALNUT_DB_KEY:?Set WALNUT_DB_KEY in .env}
+      # Optional tuning
+      PYTHONUNBUFFERED: "1"
+      # Forwarded to uvicorn args via CMD defaults
+      HOST: 0.0.0.0
+      PORT: 8000
+    volumes:
+      - walnut_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  walnut_data:
+    driver: local
+
