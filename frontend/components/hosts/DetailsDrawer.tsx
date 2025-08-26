@@ -47,7 +47,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('');
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(true);
   
   // Cache structure: instanceId -> type -> activeOnly -> CachedData
   const [cache, setCache] = useState<Record<number, Record<string, Record<string, CachedData>>>>({});
@@ -69,10 +69,10 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   // Load data when active tab or filters change
   useEffect(() => {
-    if (open && instance) {
+    if (open && instance && availableTargets.length > 0) {
       loadTabData(activeTab);
     }
-  }, [activeTab, activeOnly, open, instance?.instance_id]);
+  }, [activeTab, activeOnly, open, instance?.instance_id, availableTargets]);
 
   const loadAvailableTargets = async () => {
     if (!instance) return;
@@ -90,20 +90,19 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       
       // Find inventory.list capability and extract targets
       const inventoryCapability = type.capabilities.find(cap => cap.id === 'inventory.list');
-      let targets = inventoryCapability?.targets || [];
-      // Ensure 'port' is always available as a tab for switch instances
-      if (!targets.includes('port')) targets = [...targets, 'port'];
+      const targets = inventoryCapability?.targets || [];
       
       setAvailableTargets(targets);
-
+      
       // Set default active tab to first available target
-      // Prefer Ports as default for switches
-      const tabName = targets.includes('port') ? 'ports' : targets.includes('vm') ? 'vms' : targets.includes('stack_member') ? 'stack' : 'ports';
-      setActiveTab(tabName);
-
-      // Prefetch ports in the background if available so UI is not empty on first click
-      // Prefetch ports regardless to ensure immediate content
-      try { await loadTabData('ports', 1, false); } catch (_) {}
+      if (targets.length > 0) {
+        // Map targets to tab names
+        const tabName = targets.includes('vm') ? 'vms' : 
+                      targets.includes('stack-member') ? 'stack' :
+                      targets.includes('port') ? 'ports' : 
+                      targets[0]; // fallback to first target
+        setActiveTab(tabName);
+      }
     } catch (error) {
       console.error('Failed to load available targets:', error);
       toast.error('Failed to load available targets');
@@ -176,7 +175,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       
       const response = await apiService.getInstanceInventory(
         instance.instance_id,
-        type === 'vms' ? 'vm' : type === 'stack' ? 'stack_member' : 'port',
+        type === 'vms' ? 'vm' : type === 'stack' ? 'stack-member' : 'port',
         activeOnly,
         page,
         50, // page_size
@@ -222,7 +221,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
       // Reload data with refresh flag
       const response = await apiService.getInstanceInventory(
         instance.instance_id,
-        activeTab === 'vms' ? 'vm' : activeTab === 'stack' ? 'stack_member' : 'port',
+        activeTab === 'vms' ? 'vm' : activeTab === 'stack' ? 'stack-member' : 'port',
         activeOnly,
         1,
         50,
@@ -268,21 +267,20 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   // Determine which tabs to show based on available targets
   const availableTabs = useMemo(() => {
-    const tabs: string[] = [];
+    const tabs = [];
     
     // Map targets to tab names
     if (availableTargets.includes('vm')) {
       tabs.push('vms');
     }
-    if (availableTargets.includes('stack_member')) {
+    if (availableTargets.includes('stack-member')) {
       tabs.push('stack');
     }
     if (availableTargets.includes('port')) {
       tabs.push('ports');
     }
     
-    // Fallback: ensure we at least show Ports tab even if capabilities resolution failed
-    return tabs.length > 0 ? tabs : ['ports'];
+    return tabs;
   }, [availableTargets]);
 
   const currentData = getFilteredData(activeTab);
@@ -292,7 +290,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
-      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] h-[100vh] overflow-hidden flex flex-col">
+      <SheetContent className="w-[35%] min-w-[400px] max-w-[600px] overflow-hidden flex flex-col">
         <SheetHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-lg font-semibold">
@@ -370,7 +368,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
               <div className="flex-1 min-h-0 overflow-hidden">
                 {availableTabs.includes('vms') && (
-                  <TabsContent value="vms" className="h-full flex flex-col overflow-hidden">
+                  <TabsContent value="vms" className="h-full">
                     <VMsTab
                       data={currentData}
                       loading={loading}
@@ -381,7 +379,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
                 )}
 
                 {availableTabs.includes('stack') && (
-                  <TabsContent value="stack" className="h-full flex flex-col overflow-hidden">
+                  <TabsContent value="stack" className="h-full">
                     <StackTab
                       data={currentData}
                       loading={loading}
@@ -392,8 +390,13 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
                 )}
 
                 {availableTabs.includes('ports') && (
-                  <TabsContent value="ports" className="h-full flex flex-col overflow-hidden">
-                    <DirectPortsView instanceId={instance.instance_id} />
+                  <TabsContent value="ports" className="h-full">
+                    <PortsTab
+                      data={currentData}
+                      loading={loading}
+                      hasMore={cachedInfo?.hasMore || false}
+                      onLoadMore={handleLoadMore}
+                    />
                   </TabsContent>
                 )}
               </div>
@@ -449,8 +452,8 @@ function VMsTab({ data, loading, hasMore, onLoadMore }: {
                 <TableCell className="font-mono text-sm">{vm.external_id}</TableCell>
                 <TableCell>{vm.name}</TableCell>
                 <TableCell>
-                  <Badge variant={getStatusVariant(extractVmStatus(vm))}>
-                    {extractVmStatus(vm)}
+                  <Badge variant={getStatusVariant(vm.attrs?.status)}>
+                    {vm.attrs?.status || 'unknown'}
                   </Badge>
                 </TableCell>
               </TableRow>
@@ -528,82 +531,61 @@ function StackTab({ data, loading, hasMore, onLoadMore }: {
 }
 
 // Ports Tab Component  
-function DirectPortsView({ instanceId }: { instanceId: number }) {
-  const [loading, setLoading] = React.useState(true);
-  const [activeOnly, setActiveOnly] = React.useState(false);
-  const [ports, setPorts] = React.useState<InventoryItem[]>([]);
-  const [error, setError] = React.useState<string | null>(null);
-  const [refreshing, setRefreshing] = React.useState(false);
+function PortsTab({ data, loading, hasMore, onLoadMore }: {
+  data: InventoryItem[];
+  loading: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
+}) {
+  if (loading && data.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          Loading ports...
+        </CardContent>
+      </Card>
+    );
+  }
 
-  const fetchPorts = React.useCallback(async (opts?: { refresh?: boolean }) => {
-    try {
-      if (!opts?.refresh) setLoading(true);
-      setError(null);
-      const res = await apiService.getInstanceInventory(instanceId, 'port', activeOnly, 1, 200, !!opts?.refresh);
-      setPorts(res.items || []);
-    } catch (e: any) {
-      setError(e?.message || 'Failed to load ports');
-      setPorts([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [instanceId, activeOnly]);
-
-  React.useEffect(() => { fetchPorts(); }, [fetchPorts]);
+  if (data.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No ports found.
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          <Switch id="ports-active-only" checked={activeOnly} onCheckedChange={(v) => { setActiveOnly(v); }} />
-          <Label htmlFor="ports-active-only" className="text-sm">Active only</Label>
-        </div>
-        <Button size="sm" variant="outline" onClick={() => { setRefreshing(true); fetchPorts({ refresh: true }); }} disabled={refreshing}>
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
-
-      {loading ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">Loading ports...</CardContent>
-        </Card>
-      ) : error ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-destructive">{error}</CardContent>
-        </Card>
-      ) : ports.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">No ports found.</CardContent>
-        </Card>
-      ) : (
-        <div className="flex-1 overflow-auto">
-          <Table>
-            <TableHeader className="sticky top-0 bg-background">
-              <TableRow>
-                <TableHead>Label</TableHead>
-                <TableHead>Port ID</TableHead>
-                <TableHead>Admin</TableHead>
-                <TableHead>Oper</TableHead>
-                <TableHead>Speed</TableHead>
-                <TableHead>PoE Power (W)</TableHead>
-                <TableHead>PoE Class</TableHead>
+      <div className="flex-1 overflow-auto">
+        <Table>
+          <TableHeader className="sticky top-0 bg-background">
+            <TableRow>
+              <TableHead>Label</TableHead>
+              <TableHead>Port ID</TableHead>
+              <TableHead>PoE</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.map((port) => (
+              <TableRow key={port.external_id} className="py-2">
+                <TableCell>{port.name}</TableCell>
+                <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
+                <TableCell>
+                  {port.attrs?.poe_enabled ? 'Y' : 'N'}
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ports.map((port) => (
-                <TableRow key={port.external_id} className="py-2">
-                  <TableCell>{port.name || port.attrs?.alias || port.attrs?.description || '-'}</TableCell>
-                  <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
-                  <TableCell>{formatAdmin(port.attrs?.if_admin, port.attrs)}</TableCell>
-                  <TableCell>{formatOper(port.attrs?.if_oper, port.attrs)}</TableCell>
-                  <TableCell>{formatSpeed(port.attrs)}</TableCell>
-                  <TableCell>{formatPoePower(port.attrs)}</TableCell>
-                  <TableCell>{port.attrs?.poe_class || '-'}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {hasMore && (
+        <div className="flex-shrink-0 p-4 border-t">
+          <Button onClick={onLoadMore} variant="outline" size="sm" className="w-full">
+            View more
+          </Button>
         </div>
       )}
     </div>
@@ -622,51 +604,4 @@ function getStatusVariant(status?: string) {
     default:
       return 'destructive';
   }
-}
-
-// Normalize VM status from inventory item
-function extractVmStatus(vm: any): string {
-  const s = vm?.status || vm?.attrs?.status || vm?.attrs?.qmpstatus;
-  if (!s) return 'unknown';
-  const val = String(s).toLowerCase();
-  if (val.includes('run')) return 'running';
-  if (val.includes('stop') || val.includes('shutdown')) return 'stopped';
-  if (val.includes('pause') || val.includes('suspend')) return 'paused';
-  return s;
-}
-
-function formatAdmin(v: any, attrs?: any): string {
-  // Prefer explicit admin; fall back to link if that's all we have
-  if (v === 1 || String(v).toLowerCase() === 'up') return 'up';
-  if (v === 2 || String(v).toLowerCase() === 'down') return 'down';
-  if (attrs && typeof attrs.link === 'string') return String(attrs.link);
-  return String(v ?? '-');
-}
-
-function formatOper(v: any, attrs?: any): string {
-  if (v === 1 || String(v).toLowerCase() === 'up') return 'up';
-  if (v === 2 || String(v).toLowerCase() === 'down') return 'down';
-  if (attrs && typeof attrs.link === 'string') return String(attrs.link);
-  return String(v ?? '-');
-}
-
-function formatSpeed(attrs: any): string {
-  if (!attrs) return '-';
-  const hs = attrs.if_high_speed ?? attrs.speed_mbps;
-  const s = attrs.speed;
-  if (hs) return `${hs} Mbps`;
-  if (s) {
-    // SNMP ifSpeed is in bits/sec
-    const mbps = Math.round(Number(s) / 1_000_000);
-    return isFinite(mbps) && mbps > 0 ? `${mbps} Mbps` : String(s);
-  }
-  return '-';
-}
-
-function formatPoePower(attrs: any): string {
-  if (!attrs) return '-';
-  const p = attrs.poe_power ?? attrs.poe_power_w;
-  if (p == null) return attrs.poe_supported ? '0' : '-';
-  const n = Number(p);
-  return isFinite(n) ? n.toFixed(1) : String(p);
 }
