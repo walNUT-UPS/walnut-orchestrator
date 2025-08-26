@@ -393,12 +393,7 @@ export function DetailsDrawer({ instance, open, onClose }: DetailsDrawerProps) {
 
                 {availableTabs.includes('ports') && (
                   <TabsContent value="ports" className="h-full flex flex-col overflow-hidden">
-                    <PortsTab
-                      data={currentData}
-                      loading={loading}
-                      hasMore={cachedInfo?.hasMore || false}
-                      onLoadMore={handleLoadMore}
-                    />
+                    <DirectPortsView instanceId={instance.instance_id} />
                   </TabsContent>
                 )}
               </div>
@@ -533,67 +528,82 @@ function StackTab({ data, loading, hasMore, onLoadMore }: {
 }
 
 // Ports Tab Component  
-function PortsTab({ data, loading, hasMore, onLoadMore }: {
-  data: InventoryItem[];
-  loading: boolean;
-  hasMore: boolean;
-  onLoadMore: () => void;
-}) {
-  if (loading && data.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Loading ports...
-        </CardContent>
-      </Card>
-    );
-  }
+function DirectPortsView({ instanceId }: { instanceId: number }) {
+  const [loading, setLoading] = React.useState(true);
+  const [activeOnly, setActiveOnly] = React.useState(false);
+  const [ports, setPorts] = React.useState<InventoryItem[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const [refreshing, setRefreshing] = React.useState(false);
 
-  if (data.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          No ports found.
-        </CardContent>
-      </Card>
-    );
-  }
+  const fetchPorts = React.useCallback(async (opts?: { refresh?: boolean }) => {
+    try {
+      if (!opts?.refresh) setLoading(true);
+      setError(null);
+      const res = await apiService.getInstanceInventory(instanceId, 'port', activeOnly, 1, 200, !!opts?.refresh);
+      setPorts(res.items || []);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load ports');
+      setPorts([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [instanceId, activeOnly]);
+
+  React.useEffect(() => { fetchPorts(); }, [fetchPorts]);
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-auto">
-        <Table>
-          <TableHeader className="sticky top-0 bg-background">
-            <TableRow>
-              <TableHead>Label</TableHead>
-              <TableHead>Port ID</TableHead>
-              <TableHead>Admin</TableHead>
-              <TableHead>Oper</TableHead>
-              <TableHead>Speed</TableHead>
-              <TableHead>PoE Power (W)</TableHead>
-              <TableHead>PoE Class</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((port) => (
-              <TableRow key={port.external_id} className="py-2">
-                <TableCell>{port.name || port.attrs?.alias || port.attrs?.description || '-'}</TableCell>
-                <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
-                <TableCell>{formatAdmin(port.attrs?.if_admin)}</TableCell>
-                <TableCell>{formatOper(port.attrs?.if_oper)}</TableCell>
-                <TableCell>{formatSpeed(port.attrs)}</TableCell>
-                <TableCell>{formatPoePower(port.attrs)}</TableCell>
-                <TableCell>{port.attrs?.poe_class || '-'}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center space-x-2">
+          <Switch id="ports-active-only" checked={activeOnly} onCheckedChange={(v) => { setActiveOnly(v); }} />
+          <Label htmlFor="ports-active-only" className="text-sm">Active only</Label>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => { setRefreshing(true); fetchPorts({ refresh: true }); }} disabled={refreshing}>
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+        </Button>
       </div>
-      {hasMore && (
-        <div className="flex-shrink-0 p-4 border-t">
-          <Button onClick={onLoadMore} variant="outline" size="sm" className="w-full">
-            View more
-          </Button>
+
+      {loading ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">Loading ports...</CardContent>
+        </Card>
+      ) : error ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-destructive">{error}</CardContent>
+        </Card>
+      ) : ports.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-muted-foreground">No ports found.</CardContent>
+        </Card>
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <Table>
+            <TableHeader className="sticky top-0 bg-background">
+              <TableRow>
+                <TableHead>Label</TableHead>
+                <TableHead>Port ID</TableHead>
+                <TableHead>Admin</TableHead>
+                <TableHead>Oper</TableHead>
+                <TableHead>Speed</TableHead>
+                <TableHead>PoE Power (W)</TableHead>
+                <TableHead>PoE Class</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ports.map((port) => (
+                <TableRow key={port.external_id} className="py-2">
+                  <TableCell>{port.name || port.attrs?.alias || port.attrs?.description || '-'}</TableCell>
+                  <TableCell className="font-mono text-sm">{port.external_id}</TableCell>
+                  <TableCell>{formatAdmin(port.attrs?.if_admin)}</TableCell>
+                  <TableCell>{formatOper(port.attrs?.if_oper)}</TableCell>
+                  <TableCell>{formatSpeed(port.attrs)}</TableCell>
+                  <TableCell>{formatPoePower(port.attrs)}</TableCell>
+                  <TableCell>{port.attrs?.poe_class || '-'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
     </div>
