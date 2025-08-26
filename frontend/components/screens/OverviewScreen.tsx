@@ -202,10 +202,7 @@ export function OverviewScreen() {
                   </div>
                   <div className="text-micro text-muted-foreground tabular-nums">
                     {isLoading ? 'Establishing secure connection...' : 
-                     error ? 'Check network connection and try refreshing' : 
-                     wsConnected ? 'Live data stream active' : 
-                     systemHealth?.timestamp ? `Last sync: ${new Date(systemHealth.timestamp).toLocaleString()}` : 
-                     'Waiting for first data sync'}
+                     error ? 'Check network connection and try refreshing' : ''}
                   </div>
                 </div>
               </div>
