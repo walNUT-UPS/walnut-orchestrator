@@ -64,6 +64,9 @@ dependencies = [
     "semver>=3.0.2",
     "python-multipart>=0.0.9",
     
+    # JSON Schema validation for plugin manifests
+    "jsonschema>=4.21.0",
+    
     # NUT integration
     "pynut2>=2.1.2",
     
