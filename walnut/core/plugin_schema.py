@@ -296,9 +296,19 @@ def validate_plugin_manifest(manifest_data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Validation result with success/errors
     """
-    import jsonschema
-    from jsonschema import Draft202012Validator
-    
+    # Soft dependency on jsonschema: handle environments where it's not installed
+    try:
+        from jsonschema import Draft202012Validator  # type: ignore
+    except Exception as e:  # ImportError or other
+        return {
+            "valid": False,
+            "errors": [{
+                "path": "",
+                "message": f"Schema validation unavailable: {e}. Install 'jsonschema' to enable manifest checks.",
+                "value": None,
+            }],
+        }
+
     try:
         validator = Draft202012Validator(PLUGIN_MANIFEST_SCHEMA)
         errors = list(validator.iter_errors(manifest_data))
