@@ -110,7 +110,8 @@ class NUTClient:
             logger.debug("Fetching vars for UPS '%s'", ups_name)
             client = self._ensure_client()
             vars_ = await asyncio.to_thread(client.list_vars, ups_name)
-            logger.info("NUT get_vars ok for '%s' (%d vars)", ups_name, len(vars_) if vars_ else 0)
+            # Reduce log noise: success path at debug level (polling is frequent)
+            logger.debug("NUT get_vars ok for '%s' (%d vars)", ups_name, len(vars_) if vars_ else 0)
             return vars_
         except Exception as e:
             raise NUTConnectionError(f"Failed to get variables for UPS '{ups_name}'") from e
@@ -133,7 +134,7 @@ class NUTClient:
             logger.debug("Fetching var '%s' for UPS '%s'", var, ups_name)
             client = self._ensure_client()
             value = await asyncio.to_thread(client.get_var, ups_name, var)
-            logger.info("NUT get_var ok '%s' for '%s'", var, ups_name)
+            logger.debug("NUT get_var ok '%s' for '%s'", var, ups_name)
             return value
         except Exception as e:
             raise NUTConnectionError(f"Failed to get variable '{var}' for UPS '{ups_name}'") from e

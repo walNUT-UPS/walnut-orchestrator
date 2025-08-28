@@ -471,7 +471,7 @@ async def upload_integration_package_stream(
                         from sqlalchemy import select as _select
                         return session.execute(_select(IntegrationType).where(IntegrationType.id == type_id)).scalar_one_or_none()
                     existing = await anyio.to_thread.run_sync(_check_exists)
-                    if existing:
+                    if existing and (getattr(existing, 'status', None) or '').lower() != 'unavailable':
                         await _job_event("registry", "error", f"Integration type '{type_id}' already exists")
                         raise HTTPException(status_code=409, detail=f"Integration type '{type_id}' already exists")
 
