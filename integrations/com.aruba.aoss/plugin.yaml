@@ -2,7 +2,7 @@ id: com.aruba.aoss
 name: ArubaOS-S Switches
 version: 0.1.0
 category: network-device
-min_core_version: "0.10.0"
+min_core_version: "0.10.2"
 driver:
   entrypoint: driver:ArubaOSSwitchDriver
   language: python

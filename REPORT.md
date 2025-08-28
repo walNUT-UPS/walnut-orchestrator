@@ -1,5 +1,5 @@
 # walNUT Integration Validation & Requirements — Audit
-- Repo commit/date: 1a3a090 (2025-08-26 17:05:43 +0000)
+- Repo commit/date: 1f93306 (2025-08-28 13:00:00 +0000)
 - Summary of installed integration types (filesystem):
   - com.aruba.aoss (0.1.0) — status: not queried (DB encrypted)
   - walnut.proxmox.ve (1.0.1) — status: not queried (DB encrypted)
@@ -158,7 +158,7 @@ Source of truth for Last Test/latency: IntegrationInstance.last_test and latency
     - id: com.aruba.aoss
     - name: ArubaOS-S Switches
     - version: 0.1.0
-    - min_core_version: 0.10.0
+    - min_core_version: 0.10.2
     - category: network-device
     - driver.entrypoint: driver:ArubaOSSwitchDriver
     - schema.connection.required: [hostname, username, password, snmp_community]
@@ -180,7 +180,7 @@ Source of truth for Last Test/latency: IntegrationInstance.last_test and latency
     - id: walnut.proxmox.ve
     - name: Proxmox VE
     - version: 1.0.1
-    - min_core_version: 0.10.0
+    - min_core_version: 0.10.2
     - category: host-orchestrator
     - driver.entrypoint: driver:ProxmoxVeDriver
     - schema.connection.required: [host, port, node, api_token]
@@ -232,3 +232,14 @@ Source of truth for Last Test/latency: IntegrationInstance.last_test and latency
 - Integration folders under `integrations/*`:
   - `com.aruba.aoss`: plugin.yaml, driver.py, README.md, requirements.txt, utils/, parsers/.
   - `walnut.proxmox.ve`: plugin.yaml, driver.py, README.md.
+
+## Recent Changes (v0.10.2)
+- Fixed WebSocket job stream errors (missing WebSocketDisconnect import)
+- Comprehensive permission fixes for integration package uploads:
+  - ZIP extraction now properly restores file permissions
+  - Virtual environment creation with correct executable permissions  
+- Enhanced WebSocket job management with message history replay
+- Database schema migration improvements
+- Enhanced plugin virtualenv support and dependency management
+- Added requests HTTP client library support
+- UI improvements for manifest schema validation errors
