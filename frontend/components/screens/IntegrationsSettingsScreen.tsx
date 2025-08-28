@@ -765,6 +765,37 @@ export function IntegrationsSettingsScreen() {
               <>
                 {/* Summary line derived from tooltip */}
                 <div className="text-sm text-status-error">{getErrorTooltip(errorsPayload)}</div>
+
+                {/* Full schema errors listing if present */}
+                {Array.isArray(errorsPayload.schema_error) && errorsPayload.schema_error.length > 0 && (
+                  <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                    <div className="text-sm font-medium mb-2">Manifest Schema Issues</div>
+                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                      {errorsPayload.schema_error.map((e: any, idx: number) => (
+                        <li key={idx}>
+                          <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">{e.path || '(root)'}</span>
+                          <span className="ml-2">{e.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Capability conformance issues listing if present */}
+                {Array.isArray(errorsPayload.capability_mismatch) && errorsPayload.capability_mismatch.length > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+                    <div className="text-sm font-medium mb-2">Capability Conformance Issues</div>
+                    <ul className="list-disc pl-5 space-y-1 text-sm">
+                      {errorsPayload.capability_mismatch.map((e: any, idx: number) => (
+                        <li key={idx}>
+                          <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">{e.capability_id}</span>
+                          <span className="ml-2">{e.message} (expected <code className="font-mono">{e.expected_method}</code>)</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* Known traces */}
                 {errorsPayload.trace && (
                   <div>
