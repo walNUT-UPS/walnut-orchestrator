@@ -185,6 +185,8 @@ class IntegrationType(Base):
                                                         comment="Capabilities list from manifest")
     schema_connection: Mapped[Dict[str, Any]] = mapped_column(SQLiteJSON, nullable=False,
                                                              comment="Connection schema for instance creation")
+    requires: Mapped[Optional[Dict[str, Any]]] = mapped_column(SQLiteJSON, nullable=True,
+                                                              comment="Normalized dependency requirements from manifest")
     defaults: Mapped[Optional[Dict[str, Any]]] = mapped_column(SQLiteJSON, nullable=True,
                                                               comment="Default values from manifest") 
     test_config: Mapped[Optional[Dict[str, Any]]] = mapped_column(SQLiteJSON, nullable=True,

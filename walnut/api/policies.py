@@ -302,7 +302,9 @@ async def test_policy_dry_run(payload: Dict[str, Any], user: User = Depends(requ
                         continue
                     module = importlib.util.module_from_spec(spec)
                     sys.modules[f"driver_{host_id}"] = module
-                    spec.loader.exec_module(module)
+                    from walnut.core.venv_isolation import plugin_import_path
+                    with plugin_import_path(type_path):
+                        spec.loader.exec_module(module)
                     driver_class = getattr(module, driver_class_name, None)
                     if driver_class is None:
                         plan.append({"step": idx + 1, "host_id": host_id, "error": "driver class not found"})
@@ -477,7 +479,9 @@ async def dry_run_policy_by_id(policy_id: int, user: User = Depends(require_curr
                         raise HTTPException(status_code=500, detail="Driver import failed")
                     module = importlib.util.module_from_spec(specmod)
                     sys.modules[f"driver_{host_id}"] = module
-                    specmod.loader.exec_module(module)
+                    from walnut.core.venv_isolation import plugin_import_path
+                    with plugin_import_path(type_path):
+                        specmod.loader.exec_module(module)
                     driver_class = getattr(module, driver_class_name, None)
                     if driver_class is None:
                         raise HTTPException(status_code=500, detail="Driver class not found")

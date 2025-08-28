@@ -23,6 +23,46 @@ PLUGIN_MANIFEST_SCHEMA: Dict[str, Any] = {
             "description": "Unique integration identifier in reverse domain format",
             "examples": ["walnut.proxmox.ve", "walnut.tapo.smartplug"]
         },
+        "requires": {
+            "type": "object",
+            "description": "Optional dependency requirements for per-plugin virtualenv",
+            "additionalProperties": False,
+            "properties": {
+                "python": {
+                    "type": "string",
+                    "description": "Informational Python version requirement (not enforced in v1)",
+                    "examples": [">=3.12,<3.13"]
+                },
+                "deps": {
+                    "type": "array",
+                    "description": "Pip requirement specs (strings or objects)",
+                    "items": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "version": {"type": "string"},
+                                    "extras": {
+                                        "type": "array",
+                                        "items": {"type": "string"}
+                                    },
+                                    "markers": {"type": "string"}
+                                }
+                            }
+                        ]
+                    }
+                },
+                "wheelhouse": {
+                    "type": "string",
+                    "description": "Optional directory inside the package containing wheels",
+                    "default": "wheelhouse"
+                }
+            }
+        },
         "name": {
             "type": "string",
             "minLength": 1,

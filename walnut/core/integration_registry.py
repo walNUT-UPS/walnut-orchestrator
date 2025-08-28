@@ -75,6 +75,7 @@ class IntegrationTypeRegistry:
                         status="checking",
                         capabilities=manifest_data.get("capabilities", []),
                         schema_connection=manifest_data.get("schema", {}).get("connection", {}),
+                        requires=manifest_data.get("requires"),
                         driver_entrypoint=manifest_data.get("driver", {}).get("entrypoint", ""),
                     )
                     session.add(it)
@@ -87,6 +88,7 @@ class IntegrationTypeRegistry:
                     it.status = "checking"
                     it.capabilities = manifest_data.get("capabilities", it.capabilities or [])
                     it.schema_connection = manifest_data.get("schema", {}).get("connection", it.schema_connection or {})
+                    it.requires = manifest_data.get("requires", it.requires)
                     it.driver_entrypoint = manifest_data.get("driver", {}).get("entrypoint", it.driver_entrypoint or "")
                 session.commit()
                 return it
@@ -384,27 +386,30 @@ class IntegrationTypeRegistry:
             if integration_path not in sys.path:
                 sys.path.insert(0, integration_path)
                 path_added = True
-                
+            
+            # Also prepend plugin venv site-packages if present (import isolation)
+            from walnut.core.venv_isolation import plugin_import_path
             try:
-                # Create the package structure in sys.modules to support relative imports
-                if package_name not in sys.modules:
-                    # Create a package module
-                    package_module = type(sys)('package')
-                    package_module.__path__ = [str(type_path)]
-                    package_module.__package__ = package_name
-                    sys.modules[package_name] = package_module
-                
-                # Import the module with package context
-                spec = importlib.util.spec_from_file_location(spec_name, module_path)
-                if spec is None or spec.loader is None:
-                    raise ImportError(f"Could not load module spec from {module_path}")
-                
-                module = importlib.util.module_from_spec(spec)
-                module.__package__ = package_name  # Set package for relative imports
-                
-                # Add to sys.modules temporarily for imports within the module
-                sys.modules[spec_name] = module
-                spec.loader.exec_module(module)
+                with plugin_import_path(type_path):
+                    # Create the package structure in sys.modules to support relative imports
+                    if package_name not in sys.modules:
+                        # Create a package module
+                        package_module = type(sys)('package')
+                        package_module.__path__ = [str(type_path)]
+                        package_module.__package__ = package_name
+                        sys.modules[package_name] = package_module
+                    
+                    # Import the module with package context
+                    spec = importlib.util.spec_from_file_location(spec_name, module_path)
+                    if spec is None or spec.loader is None:
+                        raise ImportError(f"Could not load module spec from {module_path}")
+                    
+                    module = importlib.util.module_from_spec(spec)
+                    module.__package__ = package_name  # Set package for relative imports
+                    
+                    # Add to sys.modules temporarily for imports within the module
+                    sys.modules[spec_name] = module
+                    spec.loader.exec_module(module)
                 
             finally:
                 # Clean up sys.path
@@ -461,6 +466,7 @@ class IntegrationTypeRegistry:
                     integration_type.category = manifest_data.get("category", integration_type.category)
                     integration_type.capabilities = manifest_data.get("capabilities", [])
                     integration_type.schema_connection = manifest_data.get("schema", {}).get("connection", {})
+                    integration_type.requires = manifest_data.get("requires", integration_type.requires)
                     integration_type.defaults = manifest_data.get("defaults")
                     integration_type.test_config = manifest_data.get("test")
                     integration_type.driver_entrypoint = manifest_data.get("driver", {}).get("entrypoint", "")
@@ -500,6 +506,8 @@ class IntegrationTypeRegistry:
                         "errors": t.errors,
                         "capabilities": t.capabilities,
                         "schema_connection": t.schema_connection,
+                        "requires": t.requires,
+                        "path": t.path,
                         "last_validated_at": t.last_validated_at.isoformat() if t.last_validated_at else None,
                         "created_at": t.created_at.isoformat(),
                         "updated_at": t.updated_at.isoformat()

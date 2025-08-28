@@ -53,6 +53,8 @@ class IntegrationTypeOut(BaseModel):
     last_validated_at: Optional[str]
     created_at: str
     updated_at: str
+    requires: Optional[Dict[str, Any]] = None
+    venv_present: Optional[bool] = None
 
 
 class IntegrationInstanceIn(BaseModel):
@@ -155,7 +157,16 @@ async def list_integration_types(
 
         # Return current state
         types = await registry.get_integration_types()
-        return [IntegrationTypeOut(**type_data) for type_data in types]
+        # Attach venv presence by probing the filesystem path
+        enriched = []
+        for type_data in types:
+            try:
+                tp = Path(type_data.get("path") or "")
+                type_data["venv_present"] = bool((tp / ".venv").exists())
+            except Exception:
+                type_data["venv_present"] = False
+            enriched.append(IntegrationTypeOut(**type_data))
+        return enriched
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list integration types: {str(e)}")
@@ -475,6 +486,89 @@ async def upload_integration_package_stream(
                         await _job_event("registry", "error", f"Integration type '{type_id}' already exists")
                         raise HTTPException(status_code=409, detail=f"Integration type '{type_id}' already exists")
 
+                # Optional: per-plugin dependencies into a local venv in staging
+                install_failed = None
+                requires = manifest_data.get("requires") if isinstance(manifest_data, dict) else None
+                if requires:
+                    await _job_event("deps-validate", "info", "Found requires section; preparing venv")
+                    venv_dir = integration_folder / ".venv"
+                    deps = requires.get("deps") if isinstance(requires, dict) else None
+                    wheelhouse_name = (requires.get("wheelhouse") or "wheelhouse") if isinstance(requires, dict) else None
+                    wheelhouse_dir = integration_folder / str(wheelhouse_name) if wheelhouse_name else None
+                    wheelhouse_exists = bool(wheelhouse_dir and wheelhouse_dir.exists())
+                    if wheelhouse_name and not wheelhouse_exists:
+                        await _job_event("deps-validate", "warning", f"wheelhouse '{wheelhouse_name}' not found; falling back to online installs")
+                    # Create venv with pip
+                    try:
+                        import venv as _venv
+                        def _mk():
+                            builder = _venv.EnvBuilder(with_pip=True, upgrade=False, clear=False)
+                            builder.create(str(venv_dir))
+                        await anyio.to_thread.run_sync(_mk)
+                        await _job_event("deps-install", "info", f"Created venv at {venv_dir}")
+                    except Exception as _e:
+                        await _job_event("deps-install", "error", f"Failed to create venv: {_e}")
+                    # Install deps
+                    if deps and isinstance(deps, list):
+                        def _fmt(x: Any) -> str:
+                            if isinstance(x, str):
+                                return x
+                            if isinstance(x, dict):
+                                name = x.get("name", "")
+                                extras = x.get("extras") or []
+                                ver = x.get("version") or ""
+                                markers = x.get("markers") or ""
+                                es = f"[{','.join(extras)}]" if extras else ""
+                                ms = f" ; {markers}" if markers else ""
+                                return f"{name}{es}{ver}{ms}".strip()
+                            return str(x)
+                        reqs = [_fmt(d) for d in deps]
+                        py_path = venv_dir / ("Scripts/python" if os.name == "nt" else "bin/python")
+                        # Upgrade pip quietly (best-effort)
+                        try:
+                            proc_u = await asyncio.create_subprocess_exec(
+                                str(py_path), "-m", "pip", "install", "--upgrade", "pip",
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.STDOUT,
+                                cwd=str(integration_folder),
+                            )
+                            if proc_u.stdout:
+                                async for line in proc_u.stdout:
+                                    await _job_event("deps-install", "info", line.decode(errors="ignore").rstrip())
+                            await proc_u.wait()
+                        except Exception:
+                            pass
+                        # Install requirements
+                        args = [str(py_path), "-m", "pip", "install"]
+                        if wheelhouse_exists:
+                            args += ["--no-index", "--find-links", str(wheelhouse_dir)]
+                        args += reqs
+                        await _job_event("deps-install", "info", f"pip install {' '.join(reqs)}")
+                        try:
+                            proc_i = await asyncio.create_subprocess_exec(
+                                *args,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.STDOUT,
+                                cwd=str(integration_folder),
+                            )
+                            pip_lines: list[str] = []
+                            if proc_i.stdout:
+                                async for line in proc_i.stdout:
+                                    text = line.decode(errors="ignore").rstrip()
+                                    pip_lines.append(text)
+                                    await _job_event("deps-install", "info", text)
+                            rc = await proc_i.wait()
+                            if rc != 0:
+                                install_failed = {
+                                    "code": "deps_install_error",
+                                    "returncode": rc,
+                                    "logs_tail": "\n".join(pip_lines)[-16000:],
+                                }
+                                await _job_event("deps-install", "error", f"pip failed with exit code {rc}")
+                        except Exception as _e:
+                            install_failed = {"code": "deps_install_error", "exception": str(_e)}
+                            await _job_event("deps-install", "error", f"pip invocation failed: {_e}")
+
                 # Move into ./integrations/<type_id>
                 target_path = Path("./integrations").resolve() / type_id
                 if target_path.exists():
@@ -488,6 +582,16 @@ async def upload_integration_package_stream(
                 except Exception as _e:
                     await _job_event("registry", "error", f"Failed to register type: {_e}")
                     raise
+
+                # If dependency installation failed, mark invalid with error subcode immediately
+                if requires and install_failed is not None:
+                    from walnut.core.integration_registry import get_integration_registry as _gir
+                    reg = _gir()
+                    invalid = {"id": type_id, "status": "invalid", "errors": {install_failed["code"]: install_failed}}
+                    try:
+                        await reg._update_integration_type_status(type_id, invalid, manifest_data)  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
 
                 # Validate only this type
                 await _job_event("registry", "info", "Starting validation and registry update")
@@ -1083,12 +1187,14 @@ async def vm_lifecycle_action(
         if not module_path.exists():
             raise HTTPException(status_code=500, detail="Driver module not found")
         import importlib.util
+        from walnut.core.venv_isolation import plugin_import_path
         spec = importlib.util.spec_from_file_location(f"driver_vm_{instance_id}", module_path)
         if spec is None or spec.loader is None:
             raise HTTPException(status_code=500, detail="Could not load driver module")
         module = importlib.util.module_from_spec(spec)
         sys.modules[f"driver_vm_{instance_id}"] = module
-        spec.loader.exec_module(module)
+        with plugin_import_path(type_path):
+            spec.loader.exec_module(module)
         driver_class = getattr(module, driver_class_name, None)
         if driver_class is None:
             raise HTTPException(status_code=500, detail="Driver class not found")
@@ -1111,10 +1217,12 @@ async def vm_lifecycle_action(
         from walnut.transports.manager import TransportManager
         transports = TransportManager(instance.config)
         try:
-            driver = driver_class(instance=instance, secrets=secrets, transports=transports)
-            # Minimal target shim with external_id
-            target = type("T", (), {"external_id": str(vm_id)})
-            res = await driver.vm_lifecycle(verb=action.verb, target=target, dry_run=action.dry_run)
+            from walnut.core.venv_isolation import plugin_import_path
+            with plugin_import_path(type_path):
+                driver = driver_class(instance=instance, secrets=secrets, transports=transports)
+                # Minimal target shim with external_id
+                target = type("T", (), {"external_id": str(vm_id)})
+                res = await driver.vm_lifecycle(verb=action.verb, target=target, dry_run=action.dry_run)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"vm.lifecycle failed: {e}")
         finally:
@@ -1298,7 +1406,9 @@ async def _get_cached_inventory(
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             try:
-                spec.loader.exec_module(module)  # type: ignore
+                from walnut.core.venv_isolation import plugin_import_path
+                with plugin_import_path(type_path):
+                    spec.loader.exec_module(module)  # type: ignore
                 driver_class = getattr(module, driver_class_name, None)
                 if driver_class is None:
                     raise Exception("Driver class not found")
@@ -1437,13 +1547,22 @@ async def test_instance_connection(
 
         import importlib.util
 
+        from walnut.core.venv_isolation import plugin_import_path
         spec = importlib.util.spec_from_file_location(module_name, module_path)
         if spec is None or spec.loader is None:
             raise RuntimeError(f"Could not load driver module: {module_path}")
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        # Keep plugin venv import path active through import and driver execution
+        ctx = plugin_import_path(type_path)
+        ctx.__enter__()
+        try:
+            spec.loader.exec_module(module)
+        except Exception:
+            # Ensure we exit context if import fails
+            ctx.__exit__(None, None, None)
+            raise
 
         driver_class = getattr(module, driver_class_name, None)
         if driver_class is None:
@@ -1469,7 +1588,7 @@ async def test_instance_connection(
         transports = TransportManager(instance.config)
         try:
             driver = driver_class(instance=instance, secrets=secrets, transports=transports)
-
+            
             test_result = await driver.test_connection()
             status = test_result.get("status", "unknown")
             latency_ms = test_result.get("latency_ms")
@@ -1499,6 +1618,11 @@ async def test_instance_connection(
             )
         finally:
             await transports.close_all()
+            # Exit plugin import path context
+            try:
+                ctx.__exit__(None, None, None)
+            except Exception:
+                pass
 
     except Exception as e:
         import traceback
