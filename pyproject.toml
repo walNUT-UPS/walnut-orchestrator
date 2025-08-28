@@ -66,6 +66,9 @@ dependencies = [
     
     # JSON Schema validation for plugin manifests
     "jsonschema>=4.21.0",
+
+    # Common HTTP client for drivers and utilities
+    "requests>=2.32.3",
     
     # NUT integration
     "pynut2>=2.1.2",
