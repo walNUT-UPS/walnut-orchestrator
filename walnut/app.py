@@ -7,6 +7,7 @@ import time
 from typing import Optional
 
 from fastapi import FastAPI, Query, WebSocket, Request
+from fastapi.exceptions import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from walnut.auth.router import auth_router, api_router

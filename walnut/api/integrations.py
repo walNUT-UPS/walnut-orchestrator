@@ -239,7 +239,25 @@ async def upload_integration_package(
 
                     # Extract to staging
                     zip_ref.extractall(staging_path)
-                    add_log("Extracted archive to staging", step="extract")
+                    
+                    # Fix permissions on all extracted files (ZIP extraction often loses exec permissions)
+                    def fix_extracted_permissions():
+                        import stat
+                        for root, dirs, files in os.walk(staging_path):
+                            # Ensure directories are accessible
+                            for d in dirs:
+                                dir_path = Path(root) / d
+                                dir_path.chmod(0o755)
+                            # Ensure files are readable, and make scripts/binaries executable
+                            for f in files:
+                                file_path = Path(root) / f
+                                if file_path.suffix in {'.py', '.sh', '.bash'} or 'bin/' in str(file_path):
+                                    file_path.chmod(0o755)  # executable
+                                else:
+                                    file_path.chmod(0o644)  # readable
+                    
+                    fix_extracted_permissions()
+                    add_log("Extracted archive to staging and fixed permissions", step="extract")
 
                 # Find plugin.yaml in extracted contents
                 plugin_yaml_candidates = list(staging_path.rglob("plugin.yaml"))
@@ -454,7 +472,25 @@ async def upload_integration_package_stream(
                             await _job_event("unpack", "error", f"Unsafe path in archive: {member}")
                             raise HTTPException(status_code=400, detail="Unsafe file path in archive")
                     zip_ref.extractall(staging_path)
-                await _job_event("unpack", "info", "Extracted archive to staging")
+                
+                # Fix permissions on all extracted files (ZIP extraction often loses exec permissions)
+                def fix_extracted_permissions():
+                    import stat
+                    for root, dirs, files in os.walk(staging_path):
+                        # Ensure directories are accessible
+                        for d in dirs:
+                            dir_path = Path(root) / d
+                            dir_path.chmod(0o755)
+                        # Ensure files are readable, and make scripts/binaries executable
+                        for f in files:
+                            file_path = Path(root) / f
+                            if file_path.suffix in {'.py', '.sh', '.bash'} or 'bin/' in str(file_path):
+                                file_path.chmod(0o755)  # executable
+                            else:
+                                file_path.chmod(0o644)  # readable
+                
+                await anyio.to_thread.run_sync(fix_extracted_permissions)
+                await _job_event("unpack", "info", "Extracted archive to staging and fixed permissions")
 
                 plugin_yaml_candidates = list(staging_path.rglob("plugin.yaml"))
                 if not plugin_yaml_candidates:
@@ -505,7 +541,19 @@ async def upload_integration_package_stream(
                             builder = _venv.EnvBuilder(with_pip=True, upgrade=False, clear=False)
                             builder.create(str(venv_dir))
                         await anyio.to_thread.run_sync(_mk)
-                        await _job_event("deps-install", "info", f"Created venv at {venv_dir}")
+                        
+                        # Fix permissions on entire venv directory (comprehensive)
+                        def fix_venv_permissions():
+                            import stat
+                            bin_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+                            if bin_dir.exists():
+                                for exe_file in bin_dir.iterdir():
+                                    if exe_file.is_file():
+                                        exe_file.chmod(0o755)  # Make all binaries executable
+                        
+                        await anyio.to_thread.run_sync(fix_venv_permissions)
+                        await _job_event("deps-install", "info", f"Created venv at {venv_dir} with proper permissions")
+                            
                     except Exception as _e:
                         await _job_event("deps-install", "error", f"Failed to create venv: {_e}")
                     # Install deps
