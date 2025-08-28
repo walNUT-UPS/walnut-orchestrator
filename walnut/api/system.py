@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 from fastapi.responses import StreamingResponse
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 from uuid import uuid4
 
@@ -93,6 +93,17 @@ class OIDCConfigOut(BaseModel):
     admin_roles: List[str] = []
     viewer_roles: List[str] = []
     requires_restart: bool = True
+
+
+class OIDCConfigTestIn(BaseModel):
+    """Lenient payload for test endpoint: all fields optional."""
+    enabled: Optional[bool] = None
+    provider_name: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    discovery_url: Optional[str] = None
+    admin_roles: Optional[List[str]] = None
+    viewer_roles: Optional[List[str]] = None
 
 
 # Initialize the health checker
@@ -196,10 +207,13 @@ async def update_oidc_config(payload: OIDCConfigIn, _user: User = Depends(curren
 
 
 @router.post("/system/oidc/test")
-async def test_oidc_config(payload: Optional[OIDCConfigIn] = None, _user: User = Depends(current_active_user)) -> Dict[str, Any]:
+async def test_oidc_config(
+    payload: Optional[dict] = Body(default=None),
+    _user: User = Depends(current_active_user)
+) -> Dict[str, Any]:
     """Basic OIDC configuration test: fetch discovery metadata and report endpoints."""
     try:
-        cfg = (payload.model_dump() if payload else None) or get_setting("oidc_config") or {}
+        cfg = (payload or {}) or get_setting("oidc_config") or {}
         discovery_url = cfg.get("discovery_url") or runtime_settings.OIDC_DISCOVERY_URL
         if not discovery_url:
             raise HTTPException(status_code=400, detail="discovery_url is required")

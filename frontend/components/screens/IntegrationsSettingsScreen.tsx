@@ -90,6 +90,7 @@ const getStatusBadge = (status: string) => {
 };
 
 export function IntegrationsSettingsScreen() {
+  const confirmDialog = useConfirm();
   const [integrationTypes, setIntegrationTypes] = useState<IntegrationType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
