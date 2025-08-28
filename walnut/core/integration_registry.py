@@ -69,7 +69,7 @@ class IntegrationTypeRegistry:
                         id=type_id,
                         name=manifest_data.get("name", type_id),
                         version=manifest_data.get("version", "0.0.0"),
-                        min_core_version=manifest_data.get("min_core_version", "0.1.0"),
+                        min_core_version=manifest_data.get("min_core_version", "0.10.0"),
                         category=manifest_data.get("category", "unknown"),
                         path=str(type_path),
                         status="checking",
@@ -213,7 +213,7 @@ class IntegrationTypeRegistry:
                                 id=type_id,
                                 name=manifest_data.get("name", folder_path.name),
                                 version=manifest_data.get("version", "0.0.0"),
-                                min_core_version=manifest_data.get("min_core_version", "0.1.0"),
+                                min_core_version=manifest_data.get("min_core_version", "0.10.0"),
                                 category=manifest_data.get("category", "unknown"),
                                 path=str(folder_path),
                                 status="checking",
@@ -329,7 +329,7 @@ class IntegrationTypeRegistry:
             try:
                 from walnut import __version__ as core_version
                 import semver
-                required = manifest_data.get("min_core_version", "0.1.0")
+                required = manifest_data.get("min_core_version", "0.10.0")
                 # If core < required, mark invalid
                 if semver.compare(semver.VersionInfo.parse(core_version), semver.VersionInfo.parse(required)) < 0:
                     validation_result["status"] = "invalid"

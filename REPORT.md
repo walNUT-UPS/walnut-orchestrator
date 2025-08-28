@@ -180,7 +180,7 @@ Source of truth for Last Test/latency: IntegrationInstance.last_test and latency
     - id: walnut.proxmox.ve
     - name: Proxmox VE
     - version: 1.0.1
-    - min_core_version: 0.1.0
+    - min_core_version: 0.10.0
     - category: host-orchestrator
     - driver.entrypoint: driver:ProxmoxVeDriver
     - schema.connection.required: [host, port, node, api_token]
@@ -232,4 +232,3 @@ Source of truth for Last Test/latency: IntegrationInstance.last_test and latency
 - Integration folders under `integrations/*`:
   - `com.aruba.aoss`: plugin.yaml, driver.py, README.md, requirements.txt, utils/, parsers/.
   - `walnut.proxmox.ve`: plugin.yaml, driver.py, README.md.
-

@@ -2,7 +2,7 @@ id: walnut.proxmox.ve
 name: Proxmox VE
 version: 1.0.1
 category: host-orchestrator
-min_core_version: "0.1.0"
+min_core_version: "0.10.0"
 
 driver:
   entrypoint: driver:ProxmoxVeDriver

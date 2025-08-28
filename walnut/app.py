@@ -161,7 +161,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="walNUT API",
     description="walNUT - UPS Management Platform with Network UPS Tools (NUT) integration",
-    version="0.1.0",
+    version="0.10.0",
     lifespan=lifespan,
 )
 
