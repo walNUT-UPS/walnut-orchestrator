@@ -85,8 +85,34 @@ def ensure_schema() -> None:
         from .models import Base
         Base.metadata.create_all(engine)
         logger.info("Database schema ensured (create_all executed)")
+        # Run lightweight in-place migrations for existing databases
+        _run_inline_migrations()
     except Exception as e:
         logger.exception("Failed to ensure database schema: %s", e)
+
+
+def _run_inline_migrations() -> None:
+    """Apply minimal, safe ALTER TABLE migrations for existing installs.
+
+    This avoids hard failures when models add nullable columns between releases.
+    """
+    global engine
+    if engine is None:
+        return
+    try:
+        with engine.begin() as conn:
+            # Add column integration_types.requires if missing
+            try:
+                info = conn.exec_driver_sql("PRAGMA table_info('integration_types')").fetchall()
+                cols = {row[1] for row in info} if info else set()
+                if "requires" not in cols:
+                    conn.exec_driver_sql("ALTER TABLE integration_types ADD COLUMN requires JSON")
+                    logger.info("Applied inline migration: added integration_types.requires")
+            except Exception as e:
+                # Don't block startup on migration issues; logged for troubleshooting
+                logger.warning("Inline migration check failed for integration_types.requires: %s", e)
+    except Exception:
+        logger.exception("Inline migrations failed")
 
 # Initialize with default path for production
 DB_PATH_DEFAULT = os.path.abspath("data/walnut.db")
