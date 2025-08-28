@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "walnut-orchestrator"
-version = "0.10.0"
+version = "0.10.0.1"
 description = "walNUT - UPS Management Platform with Network UPS Tools (NUT) integration"
 readme = "README.md"
 license = "MIT"
