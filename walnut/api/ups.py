@@ -83,6 +83,9 @@ async def get_ups_status(
             status=sample.status
         )
         
+    except HTTPException:
+        # Preserve intended HTTP status codes (e.g., 404 when no data)
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -154,6 +157,8 @@ async def get_ups_samples(
             has_more=offset + len(samples) < total_count
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -233,6 +238,9 @@ async def get_ups_health(
             last_updated=latest_sample.timestamp
         )
         
+    except HTTPException:
+        # Preserve 404 when no data in the requested window
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=500,
