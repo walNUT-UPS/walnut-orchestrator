@@ -21,7 +21,7 @@ import anyio
 from sqlalchemy import select
 
 from walnut.database.connection import get_db_session
-from walnut.database.models import IntegrationType
+from walnut.database.models import IntegrationType, IntegrationInstance
 from walnut.core.plugin_schema import validate_plugin_manifest, validate_capability_conformance
 from walnut.core.websocket_manager import WebSocketManager
 
@@ -538,6 +538,13 @@ class IntegrationTypeRegistry:
                 
                 # Mark type as unavailable (don't delete to preserve instance references)
                 integration_type.status = "unavailable"
+                # Propagate to instances referencing this type
+                try:
+                    session.query(IntegrationInstance).filter(IntegrationInstance.type_id == type_id).update({
+                        IntegrationInstance.state: "type_unavailable"
+                    }, synchronize_session=False)
+                except Exception as e:
+                    logger.error(f"Failed to mark instances as type_unavailable for {type_id}: {e}")
                 session.commit()
                 return integration_type
             

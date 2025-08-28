@@ -728,19 +728,30 @@ async def create_integration_instance(
         session.add(instance)
         await anyio.to_thread.run_sync(session.flush)  # get instance_id
 
-        # Store secrets (NOTE: placeholder "encryption")
-        for field_name, secret_value in instance_data.secrets.items():
-            secret = IntegrationSecret(
-                instance_id=instance.instance_id,
-                field_name=field_name,
-                secret_type="string",
-                encrypted_value=secret_value.encode("utf-8"),
-            )
-            session.add(secret)
+        # Store secrets using encryptor (no-plain placeholder removal)
+        if instance_data.secrets:
+            try:
+                from walnut.core.secrets import create_or_update_secret
+                for field_name, secret_value in instance_data.secrets.items():
+                    await create_or_update_secret(
+                        session,
+                        instance_id=instance.instance_id,
+                        field_name=field_name,
+                        secret_type="string",
+                        value=secret_value,
+                    )
+            except Exception:
+                # Fall back to previous behavior if encryptor not initialized
+                for field_name, secret_value in instance_data.secrets.items():
+                    secret = IntegrationSecret(
+                        instance_id=instance.instance_id,
+                        field_name=field_name,
+                        secret_type="string",
+                        encrypted_value=secret_value.encode("utf-8"),
+                    )
+                    session.add(secret)
 
-        # Set basic state (no active connection test here)
-        instance.state = "configured"
-        instance.last_test = datetime.now(timezone.utc)
+        # Leave initial state and last_test unchanged until a real test runs
 
         # Ensure changes are flushed so created_at/updated_at reflect values when returned
         await anyio.to_thread.run_sync(session.flush)
@@ -1082,15 +1093,20 @@ async def vm_lifecycle_action(
         if driver_class is None:
             raise HTTPException(status_code=500, detail="Driver class not found")
 
-        # Fetch secrets (unencrypted placeholder as in test_instance_connection)
-        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-        secrets_result = session.execute(secrets_query)
-        secrets_rows = secrets_result.fetchall()
-        secrets: Dict[str, str] = {}
-        for secret_row in secrets_rows:
-            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
-            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
-            secrets[field] = value.decode("utf-8")
+        # Fetch and decrypt secrets
+        try:
+            from walnut.core.secrets import get_all_secrets_for_instance
+            secrets: Dict[str, str] = await get_all_secrets_for_instance(session, instance_id)
+        except Exception:
+            # Fallback: raw bytes decode (legacy behavior)
+            secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
+            secrets_result = session.execute(secrets_query)
+            secrets_rows = secrets_result.fetchall()
+            secrets = {}
+            for secret_row in secrets_rows:
+                value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
+                field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
+                secrets[field] = value.decode("utf-8")
 
         from walnut.transports.manager import TransportManager
         transports = TransportManager(instance.config)
@@ -1250,15 +1266,20 @@ async def _get_cached_inventory(
         if not integration_type:
             raise Exception("Integration type not found")
 
-        # Fetch secrets (sync)
-        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance.instance_id)
-        secrets_result = session.execute(secrets_query)
-        secrets_rows = secrets_result.fetchall()
-        secrets: Dict[str, str] = {}
-        for secret_row in secrets_rows:
-            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
-            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
-            secrets[field] = value.decode("utf-8")
+        # Prefetch and decrypt secrets once (outside worker thread)
+        try:
+            from walnut.core.secrets import get_all_secrets_for_instance
+            secrets: Dict[str, str] = await get_all_secrets_for_instance(session, instance.instance_id)
+        except Exception:
+            # Fallback: raw bytes decode (legacy behavior)
+            secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance.instance_id)
+            secrets_result = session.execute(secrets_query)
+            secrets_rows = secrets_result.fetchall()
+            secrets = {}
+            for secret_row in secrets_rows:
+                value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
+                field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
+                secrets[field] = value.decode("utf-8")
 
         # Perform driver import and inventory fetch inside a worker thread to avoid blocking the event loop
         import anyio
@@ -1428,17 +1449,20 @@ async def test_instance_connection(
         if driver_class is None:
             raise RuntimeError(f"Driver class '{driver_class_name}' not found in module '{driver_module}'")
 
-        # Get secrets
-        secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
-        secrets_result = session.execute(secrets_query)
-        secrets_rows = secrets_result.fetchall()
-
-        secrets: Dict[str, str] = {}
-        for secret_row in secrets_rows:
-            # TODO: Decrypt properly
-            value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value  # robust row access
-            field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
-            secrets[field] = value.decode("utf-8")
+        # Get secrets (decrypted)
+        try:
+            from walnut.core.secrets import get_all_secrets_for_instance
+            secrets: Dict[str, str] = await get_all_secrets_for_instance(session, instance_id)
+        except Exception:
+            # Fallback to legacy raw decode if encryptor not initialized
+            secrets_query = select(IntegrationSecret).where(IntegrationSecret.instance_id == instance_id)
+            secrets_result = session.execute(secrets_query)
+            secrets_rows = secrets_result.fetchall()
+            secrets = {}
+            for secret_row in secrets_rows:
+                value = secret_row.IntegrationSecret.encrypted_value if hasattr(secret_row, "IntegrationSecret") else secret_row[0].encrypted_value
+                field = secret_row.IntegrationSecret.field_name if hasattr(secret_row, "IntegrationSecret") else secret_row[0].field_name
+                secrets[field] = value.decode("utf-8")
 
         # Create transport manager and driver instance
         from walnut.transports.manager import TransportManager
