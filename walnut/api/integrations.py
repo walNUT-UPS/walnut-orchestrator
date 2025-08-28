@@ -860,7 +860,7 @@ async def create_integration_instance(
         # Ensure changes are flushed so created_at/updated_at reflect values when returned
         await anyio.to_thread.run_sync(session.flush)
 
-        return IntegrationInstanceOut(
+        out = IntegrationInstanceOut(
             instance_id=instance.instance_id,
             type_id=instance.type_id,
             name=instance.name,
@@ -874,6 +874,22 @@ async def create_integration_instance(
             type_name=integration_type.name,
             type_category=integration_type.category,
         )
+
+        # Broadcast an instance-created event so the UI can refresh the Hosts table
+        try:
+            await websocket_manager.broadcast_json({
+                "type": "integration_instance.created",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "data": {
+                    "instance_id": instance.instance_id,
+                    "type_id": instance.type_id,
+                    "name": instance.name,
+                },
+            })
+        except Exception:
+            pass
+
+        return out
 
     except HTTPException:
         raise

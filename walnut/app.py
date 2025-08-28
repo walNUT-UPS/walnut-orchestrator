@@ -247,10 +247,18 @@ async def websocket_job_endpoint(websocket: WebSocket, job_id: str, token: Optio
         websocket_manager.subscribe_job(job_id, client_id)
 
         await websocket.send_json({"type": "job_stream.open", "data": {"job_id": job_id, "client_id": client_id}})
+        # Replay any existing job events so late subscribers see progress
+        try:
+            await websocket_manager.send_job_history_to_client(job_id, client_id)
+        except Exception:
+            pass
 
         while True:
             await websocket.receive_text()
 
+    except WebSocketDisconnect:
+        # Normal lifecycle; client navigated away or closed socket
+        logger.info("WS job stream disconnect for job_id=%s client_id=%s", job_id, client_id)
     except Exception:
         logger.exception("WS job stream error for job_id=%s client_id=%s", job_id, client_id)
     finally:

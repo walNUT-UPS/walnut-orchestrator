@@ -58,6 +58,9 @@ class WebSocketManager:
 
         # Job-specific subscribers: job_id -> set(client_id)
         self._job_subscribers: Dict[str, Set[str]] = {}
+        # Job-specific message history for late subscribers
+        self._job_history: Dict[str, List[Dict[str, Any]]] = {}
+        self._job_history_max: int = 200
         
     async def connect(self, websocket: WebSocket, client_id: Optional[str] = None) -> str:
         """
@@ -257,12 +260,27 @@ class WebSocketManager:
                 del self._job_subscribers[job_id]
 
     async def send_job_event(self, job_id: str, message: Dict[str, Any]):
+        # Always add to per-job history for replay
+        hist = self._job_history.setdefault(job_id, [])
+        hist.append(message)
+        if len(hist) > self._job_history_max:
+            self._job_history[job_id] = hist[-self._job_history_max:]
+
         subs = self._job_subscribers.get(job_id)
         if not subs:
             return
         tasks = [self._send_to_client(cid, message) for cid in list(subs)]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def send_job_history_to_client(self, job_id: str, client_id: str):
+        """Replay recent job events to a subscriber that joined late."""
+        hist = self._job_history.get(job_id) or []
+        if not hist:
+            return
+        # Stream in order
+        for msg in hist:
+            await self._send_to_client(client_id, msg)
     
     def get_connection_info(self) -> List[ConnectionInfo]:
         """
