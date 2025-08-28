@@ -10,6 +10,7 @@ from walnut.auth.deps import (
 from walnut.auth.models import User
 from walnut.auth.schemas import MeResponse, UserCreate, UserRead, UserUpdate
 from walnut.config import settings
+from walnut.core.app_settings import get_setting
 import anyio
 from sqlalchemy import select
 from walnut.database.connection import get_db_session
@@ -43,13 +44,17 @@ auth_router.include_router(
     tags=["Auth"],
 )
 
-if settings.OIDC_ENABLED:
+_cfg = get_setting("oidc_config") or {}
+_enabled = bool(settings.OIDC_ENABLED or _cfg.get("enabled"))
+if _enabled:
     from walnut.auth.auth import get_oidc_client, oauth_backend
-    auth_router.include_router(
-        fastapi_users.get_oauth_router(get_oidc_client(), oauth_backend, settings.JWT_SECRET),
-        prefix="/oauth/oidc",
-        tags=["Auth"],
-    )
+    _client = get_oidc_client()
+    if _client is not None and oauth_backend is not None:
+        auth_router.include_router(
+            fastapi_users.get_oauth_router(_client, oauth_backend, settings.JWT_SECRET),
+            prefix="/oauth/oidc",
+            tags=["Auth"],
+        )
 
 # Router for user management and API endpoints
 # Add CSRF protection for API endpoints (but NOT auth endpoints)

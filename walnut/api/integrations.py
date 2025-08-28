@@ -257,7 +257,7 @@ async def upload_integration_package(
                 # Check if type already exists
                 result = db.execute(select(IntegrationType).where(IntegrationType.id == type_id))
                 existing_type = result.scalar_one_or_none()
-                if existing_type:
+                if existing_type and (getattr(existing_type, 'status', None) or '').lower() != 'unavailable':
                     add_log(f"Integration type '{type_id}' already exists", level="error", step="pre-install")
                     raise HTTPException(
                         status_code=409,
