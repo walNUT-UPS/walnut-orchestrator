@@ -154,3 +154,5 @@ bin/
 .playwright-mcp/
 test-results/
 ui-screenshots/
+
+loader.py
