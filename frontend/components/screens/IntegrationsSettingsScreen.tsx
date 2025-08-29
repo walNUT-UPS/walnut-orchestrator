@@ -237,8 +237,26 @@ export function IntegrationsSettingsScreen() {
         }
       };
       
+      // Keep the job WebSocket alive by sending periodic pings
+      let pingTimer: any = null;
       ws.onopen = () => {
         setStreamStatus('streaming');
+        try {
+          pingTimer = setInterval(() => {
+            try { ws.send('ping'); } catch {}
+          }, 10000);
+        } catch {}
+        // Guard: if job doesn't finish within 120s, error out
+        try {
+          setTimeout(() => {
+            if (isUploading && wsRef.current === ws && streamStatus === 'streaming') {
+              try { ws.close(); } catch {}
+              setStreamStatus('error');
+              setIsUploading(false);
+              toast.error('Upload timed out');
+            }
+          }, 120000);
+        } catch {}
       };
       ws.onmessage = (event) => {
         try {
@@ -261,6 +279,8 @@ export function IntegrationsSettingsScreen() {
               (window as any).__walnut_last_upload_trace = msg.data.trace || null;
               setUploadResult({ success: false, typeId: msg.data.type_id, errors: msg.data.error || msg.data.errors });
               toast.error(`Upload failed: ${msg.data.error || 'Unknown error'}`);
+              // Refresh types so invalid type appears immediately
+              loadIntegrationTypes();
             }
             setIsUploading(false);
           }
@@ -269,6 +289,16 @@ export function IntegrationsSettingsScreen() {
         }
       };
       ws.onerror = () => { if (isUploading) fallbackDirect(); };
+      ws.onclose = () => {
+        // If stream closes unexpectedly without a done event, surface an error
+        setWs(null);
+        setStreamStatus((prev) => (prev === 'streaming' ? 'error' : prev));
+        if (isUploading) {
+          toast.error('Upload stream ended before completion');
+          setIsUploading(false);
+        }
+        if (pingTimer) { try { clearInterval(pingTimer); } catch {} pingTimer = null; }
+      };
       // Safety timeout if WS doesn't open
       setTimeout(() => {
         if (isUploading && wsRef.current && wsRef.current.readyState !== WebSocket.OPEN) {

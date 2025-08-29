@@ -540,37 +540,14 @@ async def upload_integration_package_stream(
                 install_failed = None
                 requires = manifest_data.get("requires") if isinstance(manifest_data, dict) else None
                 if requires:
-                    await _job_event("deps-validate", "info", "Found requires section; preparing venv")
-                    venv_dir = integration_folder / ".venv"
+                    await _job_event("deps-validate", "info", "Found requires section; evaluating install policy")
                     deps = requires.get("deps") if isinstance(requires, dict) else None
                     wheelhouse_name = (requires.get("wheelhouse") or "wheelhouse") if isinstance(requires, dict) else None
                     wheelhouse_dir = integration_folder / str(wheelhouse_name) if wheelhouse_name else None
                     wheelhouse_exists = bool(wheelhouse_dir and wheelhouse_dir.exists())
-                    if wheelhouse_name and not wheelhouse_exists:
-                        await _job_event("deps-validate", "warning", f"wheelhouse '{wheelhouse_name}' not found; falling back to online installs")
-                    # Create venv with pip
-                    try:
-                        import venv as _venv
-                        def _mk():
-                            builder = _venv.EnvBuilder(with_pip=True, upgrade=False, clear=False)
-                            builder.create(str(venv_dir))
-                        await anyio.to_thread.run_sync(_mk)
-                        
-                        # Fix permissions on entire venv directory (comprehensive)
-                        def fix_venv_permissions():
-                            import stat
-                            bin_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
-                            if bin_dir.exists():
-                                for exe_file in bin_dir.iterdir():
-                                    if exe_file.is_file():
-                                        exe_file.chmod(0o755)  # Make all binaries executable
-                        
-                        await anyio.to_thread.run_sync(fix_venv_permissions)
-                        await _job_event("deps-install", "info", f"Created venv at {venv_dir} with proper permissions")
-                            
-                    except Exception as _e:
-                        await _job_event("deps-install", "error", f"Failed to create venv: {_e}")
-                    # Install deps
+                    # Policy: default skip installs in container; allow offline (wheelhouse) target installs; allow online only if explicitly enabled
+                    import os as _os
+                    allow_online = str(_os.getenv("WALNUT_PLUGIN_INSTALL", "")).lower() in ("1","true","yes","online","enabled")
                     if deps and isinstance(deps, list):
                         def _fmt(x: Any) -> str:
                             if isinstance(x, str):
@@ -585,51 +562,89 @@ async def upload_integration_package_stream(
                                 return f"{name}{es}{ver}{ms}".strip()
                             return str(x)
                         reqs = [_fmt(d) for d in deps]
-                        py_path = venv_dir / ("Scripts/python" if os.name == "nt" else "bin/python")
-                        # Upgrade pip quietly (best-effort)
-                        try:
-                            proc_u = await asyncio.create_subprocess_exec(
-                                str(py_path), "-m", "pip", "install", "--upgrade", "pip",
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.STDOUT,
-                                cwd=str(integration_folder),
-                            )
-                            if proc_u.stdout:
-                                async for line in proc_u.stdout:
-                                    await _job_event("deps-install", "info", line.decode(errors="ignore").rstrip())
-                            await proc_u.wait()
-                        except Exception:
-                            pass
-                        # Install requirements
-                        args = [str(py_path), "-m", "pip", "install"]
                         if wheelhouse_exists:
-                            args += ["--no-index", "--find-links", str(wheelhouse_dir)]
-                        args += reqs
-                        await _job_event("deps-install", "info", f"pip install {' '.join(reqs)}")
-                        try:
-                            proc_i = await asyncio.create_subprocess_exec(
-                                *args,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.STDOUT,
-                                cwd=str(integration_folder),
-                            )
-                            pip_lines: list[str] = []
-                            if proc_i.stdout:
-                                async for line in proc_i.stdout:
-                                    text = line.decode(errors="ignore").rstrip()
-                                    pip_lines.append(text)
-                                    await _job_event("deps-install", "info", text)
-                            rc = await proc_i.wait()
-                            if rc != 0:
-                                install_failed = {
-                                    "code": "deps_install_error",
-                                    "returncode": rc,
-                                    "logs_tail": "\n".join(pip_lines)[-16000:],
-                                }
-                                await _job_event("deps-install", "error", f"pip failed with exit code {rc}")
-                        except Exception as _e:
-                            install_failed = {"code": "deps_install_error", "exception": str(_e)}
-                            await _job_event("deps-install", "error", f"pip invocation failed: {_e}")
+                            # Offline install into _vendor (no venv needed)
+                            vendor_dir = integration_folder / "_vendor"
+                            try:
+                                vendor_dir.mkdir(parents=True, exist_ok=True)
+                            except Exception:
+                                pass
+                            await _job_event("deps-install", "info", f"pip install (offline) to {vendor_dir} from {wheelhouse_dir}")
+                            try:
+                                proc_i = await asyncio.create_subprocess_exec(
+                                    sys.executable, "-m", "pip", "install", "--no-index", "--find-links", str(wheelhouse_dir), "-t", str(vendor_dir), *reqs,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.STDOUT,
+                                    cwd=str(integration_folder),
+                                )
+                                pip_lines: list[str] = []
+                                if proc_i.stdout:
+                                    async for line in proc_i.stdout:
+                                        text = line.decode(errors="ignore").rstrip()
+                                        pip_lines.append(text)
+                                        await _job_event("deps-install", "info", text)
+                                rc = await proc_i.wait()
+                                if rc != 0:
+                                    install_failed = {
+                                        "code": "deps_install_error",
+                                        "returncode": rc,
+                                        "logs_tail": "\n".join(pip_lines)[-16000:],
+                                    }
+                                    await _job_event("deps-install", "error", f"pip (offline) failed with exit code {rc}")
+                            except Exception as _e:
+                                install_failed = {"code": "deps_install_error", "exception": str(_e)}
+                                await _job_event("deps-install", "error", f"pip (offline) invocation failed: {_e}")
+                        elif allow_online:
+                            # Online install into a venv (best-effort). May fail in restricted containers.
+                            venv_dir = integration_folder / ".venv"
+                            await _job_event("deps-validate", "info", "Creating venv for online installation")
+                            try:
+                                import venv as _venv
+                                def _mk():
+                                    builder = _venv.EnvBuilder(with_pip=True, upgrade=False, clear=False)
+                                    builder.create(str(venv_dir))
+                                await anyio.to_thread.run_sync(_mk)
+                                def fix_venv_permissions():
+                                    import stat
+                                    bin_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+                                    if bin_dir.exists():
+                                        for exe_file in bin_dir.iterdir():
+                                            if exe_file.is_file():
+                                                exe_file.chmod(0o755)
+                                await anyio.to_thread.run_sync(fix_venv_permissions)
+                                await _job_event("deps-install", "info", f"Created venv at {venv_dir}")
+                            except Exception as _e:
+                                await _job_event("deps-install", "error", f"Failed to create venv: {_e}")
+                            py_path = venv_dir / ("Scripts/python" if os.name == "nt" else "bin/python")
+                            args = [str(py_path), "-m", "pip", "install", *reqs]
+                            await _job_event("deps-install", "info", f"pip install {' '.join(reqs)}")
+                            try:
+                                proc_i = await asyncio.create_subprocess_exec(
+                                    *args,
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.STDOUT,
+                                    cwd=str(integration_folder),
+                                )
+                                pip_lines: list[str] = []
+                                if proc_i.stdout:
+                                    async for line in proc_i.stdout:
+                                        text = line.decode(errors="ignore").rstrip()
+                                        pip_lines.append(text)
+                                        await _job_event("deps-install", "info", text)
+                                rc = await proc_i.wait()
+                                if rc != 0:
+                                    install_failed = {
+                                        "code": "deps_install_error",
+                                        "returncode": rc,
+                                        "logs_tail": "\n".join(pip_lines)[-16000:],
+                                    }
+                                    await _job_event("deps-install", "error", f"pip failed with exit code {rc}")
+                            except Exception as _e:
+                                install_failed = {"code": "deps_install_error", "exception": str(_e)}
+                                await _job_event("deps-install", "error", f"pip invocation failed: {_e}")
+                        else:
+                            # Skipped installations
+                            await _job_event("deps-validate", "warning", "Dependency installation skipped (container mode, wheelhouse not present)")
 
                 # Move into ./integrations/<type_id>
                 target_path = Path("./integrations").resolve() / type_id
@@ -669,6 +684,13 @@ async def upload_integration_package_stream(
 
                 # Compute success from validation result
                 is_valid = (status_val == "valid")
+
+                if not is_valid:
+                    # Emit an explicit error event before finalizing to ensure UI shows failure immediately
+                    try:
+                        await _job_event("validate", "error", "Validation failed", {"type_id": type_id, "status": status_val})
+                    except Exception:
+                        pass
 
                 # Done (job-scoped)
                 await websocket_manager.send_job_event(job_id, {

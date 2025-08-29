@@ -77,6 +77,31 @@ function buildTimelineFromEvents(events: Event[], hours: 6 | 12 | 24 = 24): Powe
 
 export function OverviewScreen() {
   const { upsStatus, systemHealth, events, isLoading, error, wsConnected } = useWalnutApi();
+  
+  // Determine UPS availability based on stale timestamp and NUT health
+  const HEARTBEAT_TIMEOUT_MS = 120_000; // sync with backend /ups/telemetry
+  const nowMs = Date.now();
+  const upsLastTsMs = upsStatus ? new Date(upsStatus.timestamp).getTime() : 0;
+  const upsStale = !!upsStatus && (nowMs - upsLastTsMs > HEARTBEAT_TIMEOUT_MS);
+  const nutUnhealthy = !!systemHealth && (systemHealth as any).components && (systemHealth as any).components.nut_connection && (systemHealth as any).components.nut_connection.status !== 'healthy';
+  const upsUnavailable = upsStale || nutUnhealthy;
+  
+  // Derive a brief issue summary for banner when degraded/critical
+  const issueSummary = React.useMemo(() => {
+    if (!systemHealth || !(systemHealth as any).components) return '';
+    const comps: any = (systemHealth as any).components;
+    const firstCritical = Object.entries(comps).find(([, c]: any) => c && c.status === 'critical');
+    const firstDegraded = Object.entries(comps).find(([, c]: any) => c && c.status === 'degraded');
+    const entry = (firstCritical || firstDegraded);
+    if (!entry) return '';
+    const key = entry[0];
+    const details: any = entry[1];
+    if (key === 'nut_connection') return 'NUT Unreachable';
+    if (key === 'ups_polling') return 'UPS Polling Stopped';
+    if (key === 'database') return 'Database Unavailable';
+    if (key === 'system_resources') return 'High System Resource Usage';
+    return details?.message || 'Service Issue';
+  }, [systemHealth]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode] = useState<'cards' | 'table'>('cards');
   
@@ -148,8 +173,8 @@ export function OverviewScreen() {
     ];
   }, [types, instances]);
 
-  // Convert UPS status to metrics format
-  const upsMetrics = upsStatus ? [
+  // Convert UPS status to metrics format (empty when UPS is unavailable)
+  const upsMetrics = (!upsUnavailable && upsStatus) ? [
     { 
       label: 'Battery', 
       value: upsStatus.battery_percent || 0, 
@@ -170,7 +195,7 @@ export function OverviewScreen() {
       unit: 'min',
       inverse: true  // Higher runtime is better
     }
-  ] : mockUPSMetrics;
+  ] : [];
 
   return (
     <div className="flex-1">
@@ -198,7 +223,7 @@ export function OverviewScreen() {
                      error ? 'Connection Error' : 
                      !systemHealth ? 'Initializing System' :
                      systemHealth.status === 'healthy' ? 'System Online' : 
-                     systemHealth.status === 'degraded' ? 'System Degraded' : 'System Issues Detected'}
+                     systemHealth.status === 'degraded' ? `System Degraded${issueSummary ? ': ' + issueSummary : ''}` : `System Issues Detected${issueSummary ? ': ' + issueSummary : ''}`}
                   </div>
                   <div className="text-micro text-muted-foreground tabular-nums">
                     {isLoading ? 'Establishing secure connection...' : 
@@ -283,7 +308,7 @@ export function OverviewScreen() {
               <div className="min-h-[280px]">
                 <MetricCard
                   title="UPS Status"
-                  status={upsStatus?.status?.includes('OB') ? 'warn' : 'ok'}
+                  status={upsUnavailable ? 'error' : (upsStatus?.status?.includes('OB') ? 'warn' : 'ok')}
                   metrics={upsMetrics}
                   meta={{
                     uptime: systemHealth && systemHealth.uptime_seconds ? 
@@ -292,9 +317,11 @@ export function OverviewScreen() {
                     lastUpdate: wsConnected ? 'Live data' : 
                       upsStatus ? new Date(upsStatus.timestamp).toLocaleString() : 
                       isLoading ? 'Connecting...' : 'Waiting for data',
-                    driver: upsStatus?.status ? 
-                      upsStatus.status.replace('OL', 'Online').replace('OB', 'On Battery').replace('CHRG', 'Charging') : 
-                      isLoading ? 'Detecting...' : 'Not connected'
+                    driver: upsUnavailable ? 'No Data' : (
+                      upsStatus?.status ? 
+                        upsStatus.status.replace('OL', 'Online').replace('OB', 'On Battery').replace('CHRG', 'Charging') : 
+                        isLoading ? 'Detecting...' : 'Not connected'
+                    )
                   }}
                 />
               </div>

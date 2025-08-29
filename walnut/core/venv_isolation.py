@@ -48,11 +48,32 @@ def _candidate_site_packages(venv_dir: Path) -> List[Path]:
 
 
 def get_plugin_site_packages(plugin_dir: Path) -> List[Path]:
-    """Return a list of site-packages paths inside the plugin's .venv, if present."""
+    """Return a list of extra import paths for a plugin.
+
+    Priority order:
+    - .venv site-packages (full isolation when available)
+    - _vendor (fallback target installs)
+    - vendor (legacy dir name)
+    """
+    paths: List[Path] = []
     venv_dir = plugin_dir / ".venv"
-    if not venv_dir.exists() or not venv_dir.is_dir():
-        return []
-    return _candidate_site_packages(venv_dir)
+    if venv_dir.exists() and venv_dir.is_dir():
+        paths.extend(_candidate_site_packages(venv_dir))
+    # Fallback vendor directories (no venv)
+    vendor_dir = plugin_dir / "_vendor"
+    if vendor_dir.exists() and vendor_dir.is_dir():
+        paths.append(vendor_dir)
+    vendor_dir2 = plugin_dir / "vendor"
+    if vendor_dir2.exists() and vendor_dir2.is_dir():
+        paths.append(vendor_dir2)
+    # Ensure uniqueness
+    seen = set()
+    unique: List[Path] = []
+    for p in paths:
+        if str(p) not in seen:
+            seen.add(str(p))
+            unique.append(p)
+    return unique
 
 
 @contextmanager
@@ -78,4 +99,3 @@ def plugin_import_path(plugin_dir: Path) -> Iterator[None]:
                     sys.path.remove(p)
             except Exception:
                 pass
-
