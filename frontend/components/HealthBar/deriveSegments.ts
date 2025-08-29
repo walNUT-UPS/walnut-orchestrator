@@ -105,7 +105,16 @@ export function deriveHealthSegments(
   // Create final segment to end of window
   if (currentStartTs < windowEndMs) {
     const lastPoint = sortedPoints[sortedPoints.length - 1];
-    const lastState = deriveHealthState(lastPoint, nowMs, heartbeatTimeoutMs);
+    let lastState = deriveHealthState(lastPoint, nowMs, heartbeatTimeoutMs);
+    // If the last heartbeat is stale, treat the tail as no-data (grey)
+    try {
+      const lastHbMs = new Date(lastPoint.lastHeartbeat).getTime();
+      if (nowMs - lastHbMs > heartbeatTimeoutMs) {
+        lastState = 'grey';
+      }
+    } catch {
+      // ignore parsing errors; keep derived state
+    }
     
     segments.push({
       startTs: currentStartTs,

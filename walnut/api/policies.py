@@ -311,7 +311,12 @@ async def test_policy_dry_run(payload: Dict[str, Any], user: User = Depends(requ
                         continue
                     tm = TransportManager(instance.config)
                     transports_by_host[host_id] = tm
-                    drivers[host_id] = driver_class(instance=instance, secrets=secrets, transports=tm)
+                    # Ensure drivers receive config explicitly (some drivers require it)
+                    try:
+                        drivers[host_id] = driver_class(instance=instance, config=getattr(instance, 'config', {}) or {}, secrets=secrets, transports=tm)
+                    except TypeError:
+                        # Fallback to legacy signature if driver doesn't accept config
+                        drivers[host_id] = driver_class(instance=instance, secrets=secrets, transports=tm)
 
                 driver = drivers[host_id]
                 # Map policy capability -> driver method

@@ -312,14 +312,28 @@ async def upload_integration_package(
                 validation_result = await registry.validate_single_type(type_id)
                 add_log("Validation pipeline finished", step="validate")
 
+                # Determine validity from validation_result.result.status
+                is_valid = False
+                try:
+                    is_valid = (validation_result.get("result", {}).get("status") == "valid")
+                except Exception:
+                    is_valid = False
+
+                if not is_valid:
+                    # Surface validation failure as HTTP 400 with details + logs
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error": "Validation failed",
+                            "validation": validation_result,
+                            "logs": logs,
+                        },
+                    )
+
                 return {
                     "success": True,
                     "type_id": type_id,
-                    "message": (
-                        "Integration package uploaded and validated"
-                        if validation_result.get("success")
-                        else "Integration package uploaded but registered with errors"
-                    ),
+                    "message": "Integration package uploaded and validated",
                     "validation": validation_result,
                     "logs": logs,
                 }
@@ -653,15 +667,20 @@ async def upload_integration_package_stream(
                     status_val = None
                 await _job_event("registry", "info", "Validation pipeline finished", {"status": status_val})
 
+                # Compute success from validation result
+                is_valid = (status_val == "valid")
+
                 # Done (job-scoped)
                 await websocket_manager.send_job_event(job_id, {
                     "type": "integration_job.done",
                     "data": {
                         "job_id": job_id,
-                        "success": True,
+                        "success": bool(is_valid),
+                        "error": None if is_valid else "Validation failed",
                         "type_id": type_id,
                         "installed_path": str(target_path),
                         "result": validation_result,
+                        "errors": None if is_valid else validation_result,
                     },
                 })
 
