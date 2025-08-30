@@ -112,6 +112,12 @@ Thumbs.db
 *.temp
 .temp/
 tmp/
+.tmp/
+
+# Local development artifacts
+frontend.log
+backend.log
+headers.txt
 
 # IDE files
 *.swp

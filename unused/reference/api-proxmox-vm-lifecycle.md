@@ -39,11 +39,13 @@ curl -sS -c "$JAR" \
 Notes:
 - walNUT uses cookie-based auth. The cookie jar is reused for subsequent requests.
 
-### 3) Get CSRF token (required for POST/PUT/PATCH/DELETE to `/api`)
+### 3) Get CSRF token (required for POST/PUT/PATCH/DELETE to `/api` when using cookies)
 
 ```bash
 CSRF=$(curl -sS -b "$JAR" "$BASE/api/csrf-token" | jq -r .csrf_token)
 echo "$CSRF"
+
+Note: The server sets a `walnut_csrf` cookie and the header must match its value.
 ```
 
 ### 4) Find the Proxmox integration instance id
