@@ -6,11 +6,18 @@ Run with: pytest tests/test_websocket_standalone.py -v
 Requires: walNUT server running on localhost:8000
 """
 
+import os
 import pytest
 import json
 import time
 import subprocess
-import websocket
+try:
+    import websocket  # websocket-client
+except Exception:
+    pytest.skip("websocket-client not installed; skipping WebSocket tests", allow_module_level=True)
+
+if not os.environ.get("WALNUT_RUN_WS_TESTS"):
+    pytest.skip("Set WALNUT_RUN_WS_TESTS=1 to enable WebSocket tests against a running server", allow_module_level=True)
 import threading
 from typing import Dict, List, Any, Optional
 

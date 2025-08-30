@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from walnut.auth.csrf import csrf_protect
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
 import anyio
@@ -11,7 +12,7 @@ from walnut.auth.models import User
 from walnut.database.connection import get_db_session_dependency
 from walnut.database.models import UPSSample
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 
 
 class UPSStatusResponse(BaseModel):

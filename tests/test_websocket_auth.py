@@ -5,6 +5,7 @@ Tests all aspects of WebSocket connection, authentication, and message exchange
 to ensure security and functionality are maintained.
 """
 
+import os
 import pytest
 import asyncio
 import json
@@ -14,7 +15,13 @@ from unittest.mock import patch
 from httpx import AsyncClient
 from fastapi import WebSocket
 from jose import jwt
-import websocket
+try:
+    import websocket  # websocket-client
+except Exception:
+    pytest.skip("websocket-client not installed; skipping WebSocket tests", allow_module_level=True)
+
+if not os.environ.get("WALNUT_RUN_WS_TESTS"):
+    pytest.skip("Set WALNUT_RUN_WS_TESTS=1 to enable WebSocket tests against a running server", allow_module_level=True)
 import threading
 from typing import Dict, List, Any, Optional
 

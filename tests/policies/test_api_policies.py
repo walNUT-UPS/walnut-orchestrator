@@ -13,9 +13,10 @@ async def test_create_policy(async_client: AsyncClient):
         "name": "New Test Policy",
         "priority": 200,
         "trigger": {"type": "status_transition", "from": "OL", "to": "OB"},
-        "targets": {"selector": {"hosts": ["host1"]}},
         "safeties": {},
-        "steps": [{"type": "notify"}],
+        "actions": [
+            {"host_id": "1", "capability": "vm.lifecycle", "verb": "shutdown", "selector": {"external_ids": ["123"]}}
+        ],
     }
     response = await async_client.post("/api/policies", json=policy_data)
     assert response.status_code == 201
@@ -34,9 +35,10 @@ async def test_get_policy(async_client: AsyncClient):
         "name": "Gettable Policy",
         "priority": 100,
         "trigger": {"type": "status_transition", "from": "OL", "to": "OB"},
-        "targets": {"selector": {"hosts": ["host1"]}},
         "safeties": {},
-        "steps": [{"type": "notify"}],
+        "actions": [
+            {"host_id": "1", "capability": "vm.lifecycle", "verb": "shutdown", "selector": {"external_ids": ["123"]}}
+        ],
     }
     create_response = await async_client.post("/api/policies", json=policy_data)
     policy_id = create_response.json()["id"]

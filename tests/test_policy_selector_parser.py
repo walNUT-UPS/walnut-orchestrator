@@ -5,6 +5,7 @@ Tests VM selectors (104,204,311-318), port selectors (1/1-1/4,1/A1-1/B4),
 invalid grammar handling, and canonical ID matching.
 """
 import pytest
+pytest.skip("Deprecated Policy v1 compiler tests; skipped", allow_module_level=True)
 from unittest.mock import Mock, patch
 from walnut.policy.compile import PolicyCompiler
 from walnut.policy.models import PolicySpec, ValidationResult

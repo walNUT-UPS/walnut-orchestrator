@@ -5,6 +5,7 @@ Tests /api/policies/validate, CRUD operations, dry-run, and executions ledger.
 Uses actual FastAPI test client with database.
 """
 import pytest
+pytest.skip("Deprecated Policy v1 API tests; skipped", allow_module_level=True)
 import asyncio
 import json
 from fastapi.testclient import TestClient

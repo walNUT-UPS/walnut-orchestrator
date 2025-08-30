@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Query
+from walnut.auth.csrf import csrf_protect
 import anyio
 from sqlalchemy import select
 
@@ -8,7 +9,7 @@ from walnut.auth.models import User
 from walnut.database.connection import get_db_session
 from walnut.database.models import IntegrationInstance, IntegrationType
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 
 
 @router.get("/hosts", summary="List managed hosts", response_model=List[Dict[str, Any]])

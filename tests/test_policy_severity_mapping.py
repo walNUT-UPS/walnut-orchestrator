@@ -7,7 +7,7 @@ including edge cases like empty selection, stale inventory, and host unreachable
 import pytest
 from unittest.mock import Mock, patch
 from walnut.policy.compile import PolicyCompiler
-from walnut.policy.models import Severity, ValidationError
+from walnut.policy.models import Severity
 
 
 class TestSeverityMapping:

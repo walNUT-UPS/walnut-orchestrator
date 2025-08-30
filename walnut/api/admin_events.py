@@ -5,12 +5,13 @@ These endpoints are intended for testing and debugging purposes and
 should be protected with administrator-level access in a production environment.
 """
 from fastapi import APIRouter, Depends
+from walnut.auth.csrf import csrf_protect
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 from walnut.auth.models import User
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 
 # A dummy dependency for admin role-guard. In a real application, this would
 # be replaced with a proper RBAC (Role-Based Access Control) check.

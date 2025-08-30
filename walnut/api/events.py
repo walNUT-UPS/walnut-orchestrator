@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from walnut.auth.csrf import csrf_protect
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,7 @@ import anyio
 from walnut.database.models import LegacyEvent
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 
 
 class SeverityLevel(str, Enum):

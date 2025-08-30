@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: list[str] = []
     SIGNUP_ENABLED: bool = False
     TESTING_MODE: bool = False
+    # CSRF protection (double-submit cookie)
+    CSRF_ENABLED: bool = True
+    CSRF_COOKIE_NAME: str = "walnut_csrf"
+    CSRF_HEADER_NAME: str = "x-csrf-token"
+    CSRF_COOKIE_SAMESITE: str = "lax"  # lax|strict|none
+    CSRF_COOKIE_PATH: str = "/"
+    # If not explicitly set, falls back to SECURE_COOKIES
+    CSRF_COOKIE_SECURE: bool | None = None
 
     # OIDC SSO Configuration
     OIDC_ENABLED: bool = False

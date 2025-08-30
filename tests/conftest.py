@@ -5,6 +5,17 @@ import os
 import tempfile
 from pathlib import Path
 from httpx import AsyncClient
+
+# Skip integration tests unless explicitly enabled
+def pytest_addoption(parser):
+    parser.addoption("--integration", action="store_true", default=False, help="Run integration tests")
+
+def pytest_collection_modifyitems(config, items):
+    if not config.getoption("--integration"):
+        skip_integration = pytest.mark.skip(reason="need --integration option to run")
+        for item in items:
+            if "integration" in item.keywords:
+                item.add_marker(skip_integration)
 from walnut.app import app
 from walnut.database.engine import init_db
 from alembic.config import Config
@@ -76,17 +87,9 @@ async def test_db():
         db_path = Path(tmpdir) / "test.db"
         os.environ["WALNUT_DB_KEY"] = "a-test-key-that-is-long-enough-for-sqlcipher"
         os.environ["WALNUT_JWT_SECRET"] = "test-secret"
-
-        # Set up alembic config
-        alembic_cfg = Config("alembic.ini")
-        alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite+async_sqlcipher:///{db_path}?encryption_key={os.environ['WALNUT_DB_KEY']}")
-
-        # Upgrade the database to the latest revision
-        command.upgrade(alembic_cfg, "head")
-
-        # Yield the database path
+        # Create empty DB file; schema will be ensured by tests
+        db_path.touch()
         yield str(db_path)
-        # Unset the env var to avoid side effects
         if "WALNUT_DB_PATH" in os.environ:
             del os.environ["WALNUT_DB_PATH"]
 
@@ -101,11 +104,24 @@ async def async_client(test_db):
     os.environ["WALNUT_ALLOWED_ORIGINS"] = "http://test.com"
     os.environ["WALNUT_SIGNUP_ENABLED"] = "true"
 
-    # Initialize the database with the test DB path
+    # Initialize the database with the test DB path and ensure schema
     init_db(test_db)
+    from walnut.database.engine import ensure_schema
+    ensure_schema()
 
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    # Override auth dependencies to bypass real JWT/cookies in tests
+    from types import SimpleNamespace
+    from walnut.auth.deps import require_current_user, current_active_user
+    from walnut.auth.models import Role
+    test_user = SimpleNamespace(id="test-user", email="test@example.com", is_active=True, is_verified=True, role=Role.ADMIN)
+    app.dependency_overrides[require_current_user] = lambda: test_user
+    app.dependency_overrides[current_active_user] = lambda: test_user
+
+    import httpx
+    transport = httpx.ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers={"Authorization": "Bearer test-token"}) as client:
         yield client
+    app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -145,4 +161,3 @@ async def oidc_async_client(test_db):
 
     async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
-

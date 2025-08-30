@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 def _ensure_table():
     try:
+        if engine is None:
+            # DB not initialized yet (e.g., testing); skip
+            return
         # Create only our table if not present
         AppSetting.__table__.create(bind=engine, checkfirst=True)
     except Exception as e:
@@ -23,6 +26,8 @@ def _ensure_table():
 
 def get_setting(key: str) -> Optional[Dict[str, Any]]:
     _ensure_table()
+    if SessionLocal is None:
+        return None
     session = SessionLocal()
     try:
         row = session.query(AppSetting).filter(AppSetting.key == key).first()
@@ -33,6 +38,9 @@ def get_setting(key: str) -> Optional[Dict[str, Any]]:
 
 def set_setting(key: str, value: Dict[str, Any]) -> None:
     _ensure_table()
+    if SessionLocal is None:
+        logger.warning("Attempt to set setting before DB init; ignoring key=%s", key)
+        return
     session = SessionLocal()
     try:
         row = session.query(AppSetting).filter(AppSetting.key == key).first()
@@ -47,4 +55,3 @@ def set_setting(key: str, value: Dict[str, Any]) -> None:
         raise
     finally:
         session.close()
-

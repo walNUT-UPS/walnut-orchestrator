@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi.responses import StreamingResponse
 
 from fastapi import APIRouter, Depends, HTTPException, Body
+from walnut.auth.csrf import csrf_protect
 from pydantic import BaseModel
 from uuid import uuid4
 
@@ -27,7 +28,7 @@ from walnut.config import settings as runtime_settings
 import threading, os, time, sys, shlex
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 logger = logging.getLogger(__name__)
 
 
@@ -569,9 +570,38 @@ def _get_current_timestamp() -> str:
 SystemHealthChecker._get_current_timestamp = _get_current_timestamp
 # Simple CSRF token provider for frontend
 @router.get("/csrf-token")
-async def get_csrf_token() -> Dict[str, str]:
+async def get_csrf_token():
     """
-    Return a CSRF token value for clients to echo in X-CSRF-Token.
-    Current CSRF protection only checks for header presence, not value.
+    Issue a CSRF token using the double-submit cookie pattern.
+
+    - Sets a readable cookie (not HttpOnly) with a random token
+    - Returns the same token in the JSON payload for convenience
+
+    Clients should copy this value into the `X-CSRF-Token` header when
+    making state-changing requests with cookie-based authentication.
     """
-    return {"csrf_token": uuid4().hex}
+    from fastapi import Response
+    from walnut.config import settings
+
+    token = uuid4().hex
+    response = Response()
+    # Configure cookie attributes
+    cookie_name = getattr(settings, "CSRF_COOKIE_NAME", "walnut_csrf")
+    cookie_path = getattr(settings, "CSRF_COOKIE_PATH", "/")
+    cookie_samesite = getattr(settings, "CSRF_COOKIE_SAMESITE", "lax")
+    cookie_secure = bool(getattr(settings, "CSRF_COOKIE_SECURE", settings.SECURE_COOKIES))
+
+    # Set non-HttpOnly cookie so frontend can read it and echo in header
+    response.set_cookie(
+        key=cookie_name,
+        value=token,
+        path=cookie_path,
+        samesite=cookie_samesite,
+        secure=cookie_secure,
+        httponly=False,
+    )
+    # Return response with cookie and body
+    response.media_type = "application/json"
+    # Manually set body since we created a Response explicitly
+    response.body = ("{" + f"\"csrf_token\":\"{token}\"" + "}").encode("utf-8")
+    return response

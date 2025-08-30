@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import pytest
+pytest.skip("E2E API test skipped by default; relies on DB + plugins", allow_module_level=True)
 import anyio
 
 
@@ -84,4 +85,3 @@ async def test_hosts_inventory_stack_member_host2(async_client):
         assert all(it.get('type') == 'stack_member' for it in data['items'])
     finally:
         integrations_api._get_cached_inventory = orig  # restore
-

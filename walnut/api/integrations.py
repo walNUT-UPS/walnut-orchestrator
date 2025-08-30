@@ -21,6 +21,7 @@ from typing import List, Dict, Any, Optional
 
 import yaml
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Depends
+from walnut.auth.csrf import csrf_protect
 from pydantic import BaseModel, Field
 from sqlalchemy import select, join, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -112,6 +113,7 @@ class DiscoveryResult(BaseModel):
 router = APIRouter(
     prefix="/integrations",
     tags=["Integrations"],
+    dependencies=[Depends(csrf_protect)],
 )
 
 

@@ -8,6 +8,7 @@ validation and a basic dry-run planner.
 Policy System v1 endpoints are available when POLICY_V1_ENABLED=true.
 """
 from fastapi import APIRouter, HTTPException, Depends, status
+from walnut.auth.csrf import csrf_protect
 from typing import List, Dict, Any, Optional
 import anyio
 from sqlalchemy import select, desc
@@ -40,7 +41,7 @@ if settings.POLICY_V1_ENABLED:
     from walnut.policy.engine import create_policy_engine
     from walnut.inventory import create_inventory_index
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 logger = logging.getLogger(__name__)
 
 @router.get("/policies", summary="List all policies", response_model=List[Dict[str, Any]])

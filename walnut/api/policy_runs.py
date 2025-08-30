@@ -8,13 +8,14 @@ NOTE: This implementation uses an in-memory dictionary as a placeholder
 for a real database.
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
+from walnut.auth.csrf import csrf_protect
 from typing import List, Optional, Dict, Any
 
 from walnut.auth.deps import current_active_user
 from walnut.auth.models import User
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(csrf_protect)])
 
 # Placeholder for in-memory storage
 policy_runs_db: Dict[int, Dict[str, Any]] = {
