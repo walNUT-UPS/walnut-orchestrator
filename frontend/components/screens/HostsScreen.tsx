@@ -19,6 +19,7 @@ import {
   Zap,
   Eye
 } from 'lucide-react';
+import { formatDateLocal } from '../../utils/time';
 import {
   Table,
   TableBody,
@@ -634,7 +635,7 @@ export function HostsScreen() {
                         <TableCell className="text-sm text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {new Date(instance.created_at).toLocaleDateString()}
+                            {formatDateLocal(instance.created_at)}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">

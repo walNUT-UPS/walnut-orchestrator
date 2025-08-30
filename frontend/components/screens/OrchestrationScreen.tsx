@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { PolicyFlyout } from '../policy/PolicyFlyout';
 import { apiService } from '../../services/api';
+import { formatDateLocal, formatTimeLocal } from '../../utils/time';
 import {
   Sheet,
   SheetContent,
@@ -93,14 +94,7 @@ export function OrchestrationScreen() {
     } catch (_) { setPlan(null); setPlanOpen(false); }
   };
 
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const formatTimestamp = (timestamp: string) => `${formatDateLocal(timestamp, { month: 'short', day: 'numeric' })} ${formatTimeLocal(timestamp)}`;
 
   const getStatusIcon = (status: string) => {
     switch (status) {

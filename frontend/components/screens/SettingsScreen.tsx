@@ -33,7 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import {
+import { 
   Table,
   TableBody,
   TableCell,
@@ -41,6 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from '../ui/table';
+import { formatTimeLocal } from '../../utils/time';
 import { Textarea } from '../ui/textarea';
 import { toast } from 'sonner';
 import { apiService } from '../../services/api';
@@ -716,7 +717,7 @@ export function SettingsScreen() {
                         </div>
                       </div>
                       <div className="text-micro text-muted-foreground tabular-nums">
-                        {check.lastCheck ? new Date(check.lastCheck).toLocaleTimeString() : ''}
+                        {check.lastCheck ? formatTimeLocal(check.lastCheck) : ''}
                       </div>
                     </div>
                     ));

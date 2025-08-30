@@ -8,6 +8,7 @@ import { HealthBar, useHealthData } from '../HealthBar';
 import { cn } from '../ui/utils';
 import { useWalnutApi } from '../../hooks/useWalnutApi';
 import { apiService, IntegrationInstance, IntegrationType } from '../../services/api';
+import { formatDateTimeLocal } from '../../utils/time';
 
 // Mock data
 const mockUPSMetrics = [
@@ -315,7 +316,7 @@ export function OverviewScreen() {
                       `${Math.floor(systemHealth.uptime_seconds / 86400)}d ${Math.floor((systemHealth.uptime_seconds % 86400) / 3600)}h` : 
                       isLoading ? 'Loading...' : '—',
                     lastUpdate: wsConnected ? 'Live data' : 
-                      upsStatus ? new Date(upsStatus.timestamp).toLocaleString() : 
+                      upsStatus ? formatDateTimeLocal(upsStatus.timestamp) : 
                       isLoading ? 'Connecting...' : 'Waiting for data',
                     driver: upsUnavailable ? 'No Data' : (
                       upsStatus?.status ? 

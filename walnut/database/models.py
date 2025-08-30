@@ -647,7 +647,9 @@ def create_ups_sample(
     Returns:
         UPSSample instance
     """
+    # Always use an explicit UTC timestamp to avoid DB/local timezone ambiguity
     return UPSSample(
+        timestamp=datetime.now(timezone.utc),
         charge_percent=charge_percent,
         runtime_seconds=runtime_seconds,
         load_percent=load_percent,
@@ -710,7 +712,9 @@ def create_event(
     Returns:
         LegacyEvent instance
     """
+    # Ensure UTC timestamp normalization for events as well
     return LegacyEvent(
+        timestamp=datetime.now(timezone.utc),
         event_type=event_type,
         description=description,
         severity=severity,

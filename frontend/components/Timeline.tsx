@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { cn } from './ui/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { formatTimeLocal } from '../utils/time';
 
 export interface TimelineSegment {
   start: Date;
@@ -75,9 +76,7 @@ export function Timeline({
     return { left: `${left}%`, width: `${width}%` };
   };
 
-  const formatTooltipTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
+  const formatTooltipTime = (date: Date) => formatTimeLocal(date);
 
   const formatTooltipContent = (segment: TimelineSegment) => {
     const { status, meta } = segment;

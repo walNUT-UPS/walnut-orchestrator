@@ -206,7 +206,8 @@ class NUTPoller:
                 "input_voltage": ups_data.input_voltage,
                 "output_voltage": ups_data.output_voltage,
                 "status": ups_data.status,
-                "timestamp": time.time()
+                # Use ISO8601 UTC timestamp to match REST payloads and avoid tz confusion
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             # Broadcast via WebSocket manager
@@ -230,7 +231,8 @@ class NUTPoller:
                 "description": f"Event '{event_type}' detected for UPS '{self.ups_name}'",
                 "battery_percent": ups_data.battery_charge,
                 "status": ups_data.status,
-                "timestamp": time.time()
+                # ISO8601 UTC timestamp for consistency
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             # Determine severity based on event type

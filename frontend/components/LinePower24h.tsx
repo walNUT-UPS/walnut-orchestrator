@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { cn } from './ui/utils';
+import { formatTimeLocal, formatDateTimeLocal } from '../utils/time';
 
 export interface PowerSegment {
   start: Date;
@@ -122,16 +123,7 @@ export function LinePower24h({
   // Get unique statuses for legend
   const legendStatuses = Array.from(new Set(segments.map(s => s.status)));
 
-  const formatTooltipTime = (start: number, end: number) => {
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    const formatTime = (date: Date) => date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: false 
-    });
-    return `${formatTime(startDate)}–${formatTime(endDate)}`;
-  };
+  const formatTooltipTime = (start: number, end: number) => `${formatTimeLocal(start)}–${formatTimeLocal(end)}`;
 
   const handleMouseMove = (e: React.MouseEvent, segment: PowerSegment) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -199,7 +191,7 @@ export function LinePower24h({
               onMouseLeave={() => setHoveredSegment(null)}
               tabIndex={0}
               role="button"
-              aria-label={`${statusConfig[segment.status].label} from ${segment.start.toLocaleString()} to ${segment.end.toLocaleString()}`}
+              aria-label={`${statusConfig[segment.status].label} from ${formatDateTimeLocal(segment.start)} to ${formatDateTimeLocal(segment.end)}`}
               onFocus={(e) => handleMouseMove(e, segment)}
               onBlur={() => setHoveredSegment(null)}
               className="focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"

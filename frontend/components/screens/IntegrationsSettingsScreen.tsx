@@ -38,6 +38,7 @@ import {
   TableHeader,
   TableRow,
 } from '../ui/table';
+import { formatDateTimeLocal, formatTimeLocal } from '../../utils/time';
 import { apiService } from '../../services/api';
 import { useConfirm } from '../ui/confirm';
 import { toast } from 'sonner';
@@ -501,7 +502,7 @@ export function IntegrationsSettingsScreen() {
                       <tbody>
                         {uploadLogs.map((l, idx) => (
                           <tr key={idx} className="border-b border-border/50">
-                            <td className="px-2 py-1 whitespace-nowrap text-muted-foreground">{new Date(l.ts).toLocaleTimeString()}</td>
+                            <td className="px-2 py-1 whitespace-nowrap text-muted-foreground">{formatTimeLocal(l.ts)}</td>
                             <td className="px-2 py-1 whitespace-nowrap uppercase">
                               <span className={
                                 l.level === 'error' ? 'text-red-600 dark:text-red-400' :
@@ -705,7 +706,7 @@ export function IntegrationsSettingsScreen() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {type.last_validated_at ? (
-                          new Date(type.last_validated_at).toLocaleString()
+                          formatDateTimeLocal(type.last_validated_at)
                         ) : (
                           'Never'
                         )}

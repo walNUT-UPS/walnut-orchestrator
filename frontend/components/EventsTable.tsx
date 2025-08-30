@@ -11,6 +11,7 @@ import { Button } from './ui/button';
 import { Tag } from './Tag';
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { cn } from './ui/utils';
+import { formatDateTimeLocal } from '../utils/time';
 
 export interface Event {
   id: string;
@@ -56,17 +57,8 @@ export function EventsTable({ events, onRowClick }: EventsTableProps) {
     setExpandedRows(newExpanded);
   };
 
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    });
-  };
+  const formatTimestamp = (timestamp: string) =>
+    formatDateTimeLocal(timestamp);
 
   if (events.length === 0) {
     return (

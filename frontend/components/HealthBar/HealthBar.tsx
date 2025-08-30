@@ -51,17 +51,10 @@ const getSegmentPatternClass = (state: HealthState): string => {
   }
 };
 
+import { formatTimeLocal } from '../../utils/time';
+
 const formatTooltipTime = (startTs: number, endTs: number): string => {
-  const start = new Date(startTs);
-  const end = new Date(endTs);
-  
-  const formatTime = (date: Date) => date.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-  
-  return `${formatTime(start)} — ${formatTime(end)}`;
+  return `${formatTimeLocal(startTs)} — ${formatTimeLocal(endTs)}`;
 };
 
 export const HealthBar: React.FC<HealthBarProps> = ({
