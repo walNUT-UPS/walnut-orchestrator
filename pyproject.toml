@@ -130,9 +130,9 @@ transports = [
 walnut = "walnut.cli.main:app"
 
 [project.urls]
-"Homepage" = "https://github.com/walnut-orchestrator/walnut"
-"Bug Reports" = "https://github.com/walnut-orchestrator/walnut/issues"
-"Source" = "https://github.com/walnut-orchestrator/walnut"
+"Homepage" = "https://github.com/walNUT-UPS/walnut-orchestrator"
+"Bug Reports" = "https://github.com/walNUT-UPS/walnut-orchestrator/issues"
+"Source" = "https://github.com/walNUT-UPS/walnut-orchestrator"
 
 [tool.hatch.build.targets.wheel]
 packages = ["walnut"]

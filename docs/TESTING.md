@@ -30,7 +30,7 @@ The Policy System test suite includes:
 2. **Required Environment Variables**:
    ```bash
    # Database encryption key (32+ characters)
-   export WALNUT_DB_KEY="dev_dev_dev_dev_dev_dev_dev_dev_32chars"
+   export WALNUT_DB_KEY="test_key_32_characters_minimum_length"
    
    # JWT signing secret (32+ characters)
    export WALNUT_JWT_SECRET="test_jwt_secret_32_characters_long_12345"
